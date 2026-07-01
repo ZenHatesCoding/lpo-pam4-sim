@@ -18,6 +18,7 @@ def generate_config():
             'ffe_pre': 1              # Pre-cursor taps
         },
         'channel': {
+            'pcb_loss_nyquist_db': 15.0, # 15 dB loss at Nyquist for Host PCB trace
             'mzm_bw': 35e9,           # 35 GHz MZM bandwidth
             'fiber_length_km': 2.0,   # 2 km typical FR4 reach
             'fiber_loss_db_km': 0.4,  # 0.4 dB/km at 1310nm

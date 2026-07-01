@@ -18,12 +18,23 @@ def dac_zoh(x, sps_in, sps_out):
 
 def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     """ Apply sequential IMDD channel bandwidth limitations at high sps """
-    # 1. DAC Output (ZOH)
+    # 1. PCB Trace (Host Tx to Module)
+    # Model as 1st order lowpass filter.
+    # We want a specific insertion loss at Nyquist (e.g., 15 dB at 28 GHz)
+    # -10 * log10(1 + (f/fc)^2) = -loss_db  =>  fc = nyquist / sqrt(10**(loss_db/10) - 1)
+    nyquist = baud_rate / 2
+    loss_db = config.get('pcb_loss_nyquist_db', 15.0)
+    fc_pcb = nyquist / np.sqrt(10**(loss_db/10) - 1)
+    
+    # 2. DAC Output (ZOH)
     x_analog = dac_zoh(x_dac, sps_dac, sps_channel)
     fs_analog = baud_rate * sps_channel
     
-    # 2. E-O Conversion (MZM)
-    x = lowpass_filter(x_analog, config['mzm_bw'], fs_analog)
+    # Apply PCB trace filter
+    x = lowpass_filter(x_analog, fc_pcb, fs_analog, order=1)
+    
+    # 3. E-O Conversion (MZM)
+    x = lowpass_filter(x, config['mzm_bw'], fs_analog)
     
     # 3. Fiber Channel
     # Simple insertion loss model (linear scaling)
