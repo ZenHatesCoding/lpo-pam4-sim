@@ -84,7 +84,11 @@ def main():
     else:
         pr_taps = [1.0]
         
-    rx_decisions = viterbi_mlse_pam4(rx_eq, pr_taps)
+    # [BUG FIX]: The FFE output (rx_eq) contains colored noise. 
+    # We must filter it with the PR target (whitening filter) before Viterbi MLSE.
+    rx_eq_whitened = np.convolve(rx_eq, pr_taps, mode='full')[:len(rx_eq)]
+    
+    rx_decisions = viterbi_mlse_pam4(rx_eq_whitened, pr_taps)
     
     # Map MLSE decisions back to symbols
     rx_symbols = np.zeros_like(rx_decisions)
