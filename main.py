@@ -1,76 +1,79 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 from utils_config import load_config
-from tx_dsp import pam4_map, upsample, tx_ctle, tx_ffe, pulse_shape
+from tx_dsp import pam4_map, tx_dsp_chain
 from channel_imdd import apply_channel
-from rx_dsp import resample_to_dsp, adaptive_ffe
+from rx_dsp import adaptive_ffe
 from mlse_burg import burg_ar, viterbi_mlse_pam4
 from metrics import calculate_ber, plot_eye
+from scipy.signal import correlate
 
 def main():
+    if not os.path.exists('docs'):
+        os.makedirs('docs')
+        
     # 1. Load config
     config = load_config('config.xlsx')
     
     baud_rate = config['system']['baud_rate']
-    sps_sim = int(config['system']['sps_sim'])
     sps_dsp = int(config['system']['sps_dsp'])
+    sps_dac = int(config['system']['sps_dac'])
+    sps_channel = int(config['system']['sps_channel'])
+    sps_adc = int(config['system']['sps_adc'])
     num_symbols = int(config['system']['num_symbols'])
     
-    print(f"--- Running LPO PAM4 Simulation ---")
+    print(f"--- Running LPO PAM4 Simulation (V2) ---")
     print(f"Baud Rate: {baud_rate/1e9} GBd")
+    print(f"Sampling Rates -> DSP/DAC: {sps_dsp}sps, Channel: {sps_channel}sps, ADC: {sps_adc}sps")
     
     # 2. Tx DSP
-    print("Generating Tx sequence...")
+    print("Generating Tx sequence and running Tx DSP...")
     np.random.seed(42)
     tx_symbols = np.random.randint(0, 4, num_symbols)
     tx_pam4 = pam4_map(tx_symbols)
     
-    tx_up = upsample(tx_pam4, sps_sim)
-    tx_shaped = pulse_shape(tx_up, sps_sim)
-    
-    # Tx CTLE & FFE
-    tx_eq = tx_ctle(tx_shaped, sps_sim, baud_rate, 
-                    config['tx']['ctle_dc_gain'], 
-                    config['tx']['ctle_peaking'])
-    
-    tx_taps = np.zeros(int(config['tx']['ffe_taps']))
-    tx_taps[int(config['tx']['ffe_pre'])] = 1.0 # simplistic initialization
-    # In a real system, Tx taps are pre-calculated. We just set a pass-through here
-    
-    tx_out = tx_ffe(tx_eq, tx_taps, sps_sim)
-    
-    # Eye Diagram at Tx
-    plot_eye(tx_out[:sps_sim*1000], sps_sim, "Tx Output Eye")
+    # Tx DSP runs at sps_dsp (2sps)
+    tx_out = tx_dsp_chain(tx_pam4, sps_dsp, baud_rate, config['tx'])
     
     # 3. Channel
-    print("Applying IMDD Channel...")
-    rx_analog = apply_channel(tx_out, config['channel'], baud_rate, sps_sim)
-    plot_eye(rx_analog[:sps_sim*1000], sps_sim, "Rx ADC Output Eye")
+    print("Applying IMDD Channel (Analog Domain)...")
+    tx_analog, rx_analog, rx_adc = apply_channel(
+        tx_out, config['channel'], baud_rate, sps_dac, sps_channel, sps_adc
+    )
+    
+    # Plot High-Rate Analog Eyes
+    plot_eye(tx_analog[:sps_channel*1000], sps_channel, "docs/Tx_Analog_Output_Eye")
+    plot_eye(rx_analog[:sps_channel*1000], sps_channel, "docs/Rx_ADC_Input_Eye")
     
     # 4. Rx DSP
     print("Rx DSP processing...")
-    rx_dsp_in = resample_to_dsp(rx_analog, sps_sim, sps_dsp)
     
-    # Delay matching for reference symbols
-    from scipy.signal import correlate
-    rx_1sps = rx_dsp_in[::sps_dsp]
-    # compute correlation on the first 1000 symbols
+    # Delay matching
+    rx_1sps = rx_adc[::sps_adc]
     corr = correlate(rx_1sps[:1000], tx_pam4[:1000])
     sync_delay = np.argmax(corr) - (len(tx_pam4[:1000]) - 1)
     print(f"Estimated Channel Symbol Delay: {sync_delay}")
     
     ref_sym = tx_pam4
     
-    # Rx FFE
-    rx_eq, w_ffe, error_seq = adaptive_ffe(rx_dsp_in, ref_sym, 
-                                           int(config['rx']['ffe_taps']), 
-                                           config['rx']['lms_mu'], 
-                                           int(config['rx']['train_len']),
-                                           sync_delay=sync_delay)
+    rx_eq, w_ffe, error_seq, ffe_decisions = adaptive_ffe(
+        rx_adc, ref_sym, 
+        int(config['rx']['ffe_taps']), 
+        config['rx']['lms_mu'], 
+        int(config['rx']['train_len']),
+        sync_delay=sync_delay
+    )
+    
+    # Map FFE decisions to symbols
+    ffe_symbols = np.zeros_like(ffe_decisions)
+    ffe_symbols[ffe_decisions == -3] = 0
+    ffe_symbols[ffe_decisions == -1] = 1
+    ffe_symbols[ffe_decisions == 1] = 2
+    ffe_symbols[ffe_decisions == 3] = 3
     
     # 5. MLSE with Burg
     print("Running MLSE with Burg AR estimation...")
-    # Estimate AR parameters on the steady-state error
     err_ss = error_seq[int(config['rx']['train_len']):]
     ar_order = int(config['rx']['mlse_memory'])
     
@@ -83,7 +86,7 @@ def main():
         
     rx_decisions = viterbi_mlse_pam4(rx_eq, pr_taps)
     
-    # Map back to symbols
+    # Map MLSE decisions back to symbols
     rx_symbols = np.zeros_like(rx_decisions)
     rx_symbols[rx_decisions == -3] = 0
     rx_symbols[rx_decisions == -1] = 1
@@ -91,14 +94,25 @@ def main():
     rx_symbols[rx_decisions == 3] = 3
     
     # 6. Metrics
-    # Align for BER calculation due to filter delays
-    align_offset = 0 # adaptive FFE attempts to align to ref_sym directly
-    tx_aligned = tx_symbols[int(config['rx']['train_len']):]
-    rx_aligned = rx_symbols[int(config['rx']['train_len']):]
+    train_len = int(config['rx']['train_len'])
+    tx_aligned = tx_symbols[train_len:]
+    ffe_aligned = ffe_symbols[train_len:]
+    mlse_aligned = rx_symbols[train_len:]
     
-    ser, ber = calculate_ber(tx_aligned, rx_aligned)
-    print(f"SER: {ser:.2e}, BER: {ber:.2e}")
-    print("Simulation Complete. Eye diagrams saved as PNG.")
+    # We must ensure we don't index out of bounds due to delay clipping in FFE
+    min_len = min(len(tx_aligned), len(ffe_aligned), len(mlse_aligned))
+    tx_aligned = tx_aligned[:min_len]
+    ffe_aligned = ffe_aligned[:min_len]
+    mlse_aligned = mlse_aligned[:min_len]
+    
+    ffe_ser, ffe_ber = calculate_ber(tx_aligned, ffe_aligned)
+    mlse_ser, mlse_ber = calculate_ber(tx_aligned, mlse_aligned)
+    
+    print("-" * 30)
+    print(f"FFE  Output SER: {ffe_ser:.2e}, BER: {ffe_ber:.2e}")
+    print(f"MLSE Output SER: {mlse_ser:.2e}, BER: {mlse_ber:.2e}")
+    print("-" * 30)
+    print("Simulation Complete. Eye diagrams saved to docs/ directory.")
 
 if __name__ == '__main__':
     main()

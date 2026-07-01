@@ -5,18 +5,9 @@ def pam4_map(symbols):
     """ Map [0,1,2,3] to [-3, -1, 1, 3] """
     return symbols * 2 - 3
 
-def upsample(x, sps):
-    """ Upsample by inserting zeros """
-    n = len(x)
-    y = np.zeros(n * sps)
-    y[::sps] = x
-    return y
-
 def tx_ctle(x, sps, baud_rate, dc_gain, peaking):
-    """ Simple CTLE modeled via IIR filter """
+    """ Simple CTLE modeled via IIR filter at sps_dsp """
     fs = baud_rate * sps
-    # Simplistic continuous-time to discrete-time mapping for peaking
-    # Using butterworth for simple roll-off and a peaking shelf
     wz = 2 * np.pi * (baud_rate / 4)
     wp = 2 * np.pi * (baud_rate / 2)
     
@@ -28,16 +19,29 @@ def tx_ctle(x, sps, baud_rate, dc_gain, peaking):
     return y
 
 def tx_ffe(x, taps, sps):
-    """ T-spaced Tx FFE applied to upsampled signal """
+    """ T-spaced Tx FFE applied to DSP signal (sps=2) """
     w = np.zeros(len(taps) * sps)
     w[::sps] = taps
-    # normalize
     w = w / np.sum(np.abs(w))
     y = np.convolve(x, w, mode='same')
     return y
 
-def pulse_shape(x, sps):
-    """ Rectangular pulse shaping (NRZ-like PAM4) """
-    pulse = np.ones(sps)
-    y = np.convolve(x, pulse, mode='full')[:len(x)]
-    return y
+def tx_dsp_chain(tx_pam4, sps_dsp, baud_rate, config_tx):
+    """ Complete Tx DSP chain running at sps_dsp """
+    # Upsample symbols to DSP rate (insert zeros)
+    tx_up = np.zeros(len(tx_pam4) * sps_dsp)
+    tx_up[::sps_dsp] = tx_pam4
+    
+    # Pulse shape at DSP (e.g. NRZ rect filter)
+    pulse = np.ones(sps_dsp)
+    tx_shaped = np.convolve(tx_up, pulse, mode='full')[:len(tx_up)]
+    
+    # CTLE
+    tx_eq = tx_ctle(tx_shaped, sps_dsp, baud_rate, config_tx['ctle_dc_gain'], config_tx['ctle_peaking'])
+    
+    # FFE
+    tx_taps = np.zeros(int(config_tx['ffe_taps']))
+    tx_taps[int(config_tx['ffe_pre'])] = 1.0 # Pass-through for now
+    tx_out = tx_ffe(tx_eq, tx_taps, sps_dsp)
+    
+    return tx_out

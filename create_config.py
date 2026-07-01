@@ -1,11 +1,14 @@
 import pandas as pd
+import os
 
 def generate_config():
     config = {
         'system': {
             'baud_rate': 56e9,        # 56 GBd (112G PAM4)
-            'sps_sim': 50,            # 50 samples per symbol for analog simulation
             'sps_dsp': 2,             # DSP operates at 2 sps
+            'sps_dac': 2,             # DAC operates at 2 sps
+            'sps_channel': 8,         # Analog channel simulation at 8 sps
+            'sps_adc': 2,             # ADC operates at 2 sps
             'num_symbols': 10000      # Number of symbols to simulate
         },
         'tx': {
@@ -16,6 +19,8 @@ def generate_config():
         },
         'channel': {
             'mzm_bw': 35e9,           # 35 GHz MZM bandwidth
+            'fiber_length_km': 2.0,   # 2 km typical FR4 reach
+            'fiber_loss_db_km': 0.4,  # 0.4 dB/km at 1310nm
             'pd_bw': 40e9,            # 40 GHz PD bandwidth
             'tia_bw': 35e9,           # 35 GHz TIA bandwidth
             'adc_bw': 35e9,           # 35 GHz ADC bandwidth
