@@ -14,8 +14,8 @@ def generate_config():
         'tx': {
             'ctle_dc_gain': 0.8,      # Simple CTLE dc gain
             'ctle_peaking': 2.0,      # High frequency peaking
-            'ffe_taps': 5,            # Number of Tx FFE taps
-            'ffe_pre': 1              # Pre-cursor taps
+            'ffe_taps': 9,            # Number of Tx FFE taps
+            'ffe_pre': 4              # Pre-cursor taps (center symmetric at index 4)
         },
         'channel': {
             'pcb_loss_nyquist_db': 15.0, # 15 dB loss at Nyquist for Host PCB trace

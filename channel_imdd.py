@@ -53,7 +53,8 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     signal_power = np.mean(x**2)
     snr_linear = 10**(config['snr_db'] / 10)
     noise_power = signal_power / snr_linear
-    noise = np.random.normal(0, np.sqrt(noise_power), len(x))
+    rng = np.random.RandomState(123)
+    noise = rng.normal(0, np.sqrt(noise_power), len(x))
     x_noisy = x + noise
     
     # 7. ADC Analog Front-End (Anti-alias + Bandwidth)

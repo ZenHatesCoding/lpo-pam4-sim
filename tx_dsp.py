@@ -40,8 +40,12 @@ def tx_dsp_chain(tx_pam4, sps_dsp, baud_rate, config_tx):
     tx_eq = tx_ctle(tx_shaped, sps_dsp, baud_rate, config_tx['ctle_dc_gain'], config_tx['ctle_peaking'])
     
     # FFE
-    tx_taps = np.zeros(int(config_tx['ffe_taps']))
-    tx_taps[int(config_tx['ffe_pre'])] = 1.0 # Pass-through for now
+    if 'custom_taps' in config_tx:
+        tx_taps = np.array(config_tx['custom_taps'])
+    else:
+        tx_taps = np.zeros(int(config_tx['ffe_taps']))
+        tx_taps[int(config_tx['ffe_pre'])] = 1.0 # Pass-through for now
+        
     tx_out = tx_ffe(tx_eq, tx_taps, sps_dsp)
     
     return tx_out
