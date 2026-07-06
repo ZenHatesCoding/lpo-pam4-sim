@@ -1,30 +1,16 @@
-# eLPO_antigravity 项目开发与协作守则 (Workspace Rules)
+# eLPO_antigravity 核心系统指令 (Workspace Rules)
 
 > [!NOTE] 
-> **关于本文件的位置与约束力说明**：
-> Google Antigravity 系统规定，项目级别的专属规则（Workspace Customizations）**必须**存放在项目根目录下的 `.agents/AGENTS.md` 文件中。只有存放在该相对路径下，底层 Agent 系统才会在此项目加载时自动读取并将其视为拥有**最高约束力**的铁律。请放心，它的效力等同于写在系统底层提示词中。
+> 本文件为项目级 Agent 专属规则。所有在此文件中的条目均作为**最高优先级的系统提示词**，在开发过程中必须无条件遵守。
 
-这些规则专门适用于本 112G/224G PAM4 LPO 仿真项目，所有 Agent 必须无条件遵守：
+## 1. 架构范式与编码约束 (Architecture & Coding Paradigms)
+- **纯白盒化实现 (Pure White-Box DSP)**：核心信号处理链路（Tx DSP, Channel, Rx DSP）以及任何核心均衡/估计算法，必须使用纯 `numpy` / `scipy` 从底层公式手写实现。绝对禁止引入 `scikit-learn`、`hyperopt` 等黑盒高阶库来替代核心算法逻辑。
+- **配置全量驱动 (Config-Driven)**：系统必须保持对各种速率档位（如 112G, 224G, 448G）的高度灵活性。**严禁在代码中硬编码任何波特率、采样率或均衡器抽头数量**。所有物理参数和系统配置必须统一通过 `config.xlsx` 动态下发与读取（修改参数请优先通过 `create_config.py` 更新表格）。
+- **极简数据流 (Minimalist Data Flow)**：本项目定位为底层硬件算法的原型验证，拒绝过度封装。避免使用复杂的面向对象 (OO) 继承结构，保持面向过程的清晰数组（Array）信号流转。
 
-## 1. 开发哲学与工程规范
-- **DSP 芯片原型验证，而非纯软件工程**：将本项目视为底层硬件 DSP 算法的原型。避免使用过度复杂的面向对象 (OO) 设计模式、抽象类或极深的继承层次。只要可能，就保持最简单、最直接的面向过程的数据流。
-- **纯白盒化实现 (Pure White-Box)**：所有信号处理与优化算法**必须**基于 `numpy` / `scipy` 从头手写实现。
-  - 绝对禁止调用黑盒性质的第三方工具包来做核心算法（例如 MLSE、滤波、优化过程严禁使用 `scikit-learn`, `hyperopt` 等）。但诸如上采样重采样画图等“非 DSP 核心流”的可视化操作，允许使用 `scipy.signal` 等便捷工具。
-  - 确保内部数学原理（如高斯过程回归、Viterbi 网格解码）的每一步都对用户完全透明可见。
-- **配置驱动**：所有参数必须统一在 `config.xlsx` 中管理，严禁在 `.py` 脚本中硬编码任何参数。新增参数必须先写入 `create_config.py`。
+## 2. 工作流与系统交互 (Workflow & Interaction)
+- **Git 静默推送规范 (Silent Git Push)**：向 GitHub 提交代码时，**严禁触发任何要求用户手动输入密码的弹窗**。必须首先读取用户本地的 GitHub Token（绝对路径：`C:\Users\ZhenpingXing\Desktop\git.txt`），使用该 Token 以 `https://<token>@github.com/...` 的形式配置 remote origin 或直接推送，实现完全免密自动化操作。
 
-## 2. 核心架构与血泪经验 (Project-Level Experience)
-根据之前的调试踩坑历史，后续开发必须牢记以下红线经验：
-- **多采样率架构**：DSP 核心 (Tx/Rx) 严格在 2 Sps 下运行；模拟信道 (Tx Analog, 传输线, 光纤, Rx Analog) 严格在 8 Sps 下运行。
-- **DFE 不是万能药**：在线性均衡（FFE）无法将原始误码率压到 1e-2 数量级之前，**严禁盲目开启 DFE**。在糟糕的信噪比下，DFE 会产生灾难性的错误传播 (Error Propagation) 导致雪崩。请先将纯线性 FFE 调优到物理极限。
-- **警惕 Tx 端的相位失真**：LPO 模块的 Host ASIC 发送端通常只使用 FIR 结构的 Tx FFE。绝对禁止在 Tx DSP 中加入具有 IIR 特性的 CTLE 滤波器，它会造成极度严重的信号相位失真。
-- **抽头对齐 (Precursor Alignment)**：Rx FFE 在对齐时，必须严格处理 `ffe_pre` 参数。漏掉前向抽头会导致主光标对齐在第一个 Tap 上，彻底丧失预先消除前向 ISI 的能力。
-- **波特率基准**：本项目是 224G PAM4 标准，对应的物理波特率是 **112.5 GBd**（切勿被部分外部文档中的 "448G" 误导）。
-
-## 3. 语言与文档标准
-- **全中文交流与文档**：不仅与用户的对话必须使用中文，**所有项目的 Markdown 文档（包括 README、架构说明等）也必须全部用中文撰写**。（内联代码注释可保留英文以求简洁，但大段说明必须中文化）。
-- **统一文档入口**：全局文档的唯一入口为根目录的 `README.md`，通过其进行分支路由跳转，必须保证各个文档间“可进可退”（具备相互返回的超链接）。
-
-## 4. Git 推送与授权 (Git Auth Rule)
-- **静默推送**：当需要提交代码到 GitHub 时，**严禁触发任何要求用户重新授权或输入密码的弹窗**。
-- **Token 路径**：请直接读取用户电脑桌面上的 GitHub Token 文件，路径为：`C:\Users\ZhenpingXing\Desktop\git.txt`。读取该文件获取 Token 后，采用重置 Remote URL 等方式（如 `https://<token>@github.com/...`）完成自动推送到仓库。
+## 3. 文档与语言规范 (Language Standards)
+- **文档全面中文化 (Chinese Documentation)**：所有全局输出文档（包括 `README.md`、`docs/` 目录下的任何架构或指引说明）必须全部使用**中文**撰写。代码内的局部注释允许使用英文以保持简洁。
+- **文档统一路由 (Single Entry Point)**：`README.md` 是全局文档的唯一核心枢纽，任何新增的子文档必须在主页中留有入口，且子文档内必须提供返回主页的跳转链接，保证“可进可退”。
