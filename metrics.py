@@ -14,24 +14,35 @@ def calculate_ber(tx_sym, rx_sym):
     ber = ser / 2.0 # Approximation for Gray mapped PAM4
     return ser, ber
 
-def plot_eye(y, sps, title="Eye Diagram"):
+import os
+
+from scipy.signal import resample_poly
+
+def plot_eye(y, sps, title="Eye Diagram", output_dir="."):
     """
     Plot eye diagram
     y: oversampled signal
     sps: samples per symbol
     """
-    num_traces = min(1000, len(y) // sps - 2)
+    target_sps = 50
+    # Upsample the entire block for smooth plotting
+    y_up = resample_poly(y, target_sps, sps)
+    
+    num_traces = min(1000, len(y_up) // target_sps - 2)
     
     plt.figure(figsize=(8, 6))
     for i in range(num_traces):
-        start = i * sps
-        end = start + 2 * sps
-        if end < len(y):
-            plt.plot(np.linspace(0, 2, 2*sps), y[start:end], color='b', alpha=0.1)
+        start = i * target_sps
+        end = start + 2 * target_sps
+        if end < len(y_up):
+            plt.plot(np.linspace(0, 2, 2*target_sps), y_up[start:end], color='b', alpha=0.1)
             
     plt.title(title)
     plt.xlabel("UI")
     plt.ylabel("Amplitude")
     plt.grid(True)
-    plt.savefig(title.replace(" ", "_") + ".png")
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    filename = os.path.join(output_dir, title.replace(" ", "_") + ".png")
+    plt.savefig(filename)
     plt.close()

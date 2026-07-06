@@ -31,7 +31,7 @@ def apply_ctle(x, fs, f_z, f_p1, f_p2, g_dc_db):
     # Avoid 0 division in formula by adding a small epsilon to f, or just handle f=0
     # Actually f_z, f_p1, f_p2 are strictly > 0 so no division by zero.
     num = g_dc + 1j * f / f_z
-    den = (1 + 1j * f / f_p1) * (1 + 1j * f / f_p2)
+    den = (1 + 1j * f / f_z) * (1 + 1j * f / f_p1) * (1 + 1j * f / f_p2)
     
     H_ctle = num / den
     
@@ -42,6 +42,27 @@ def dac_zoh(x, sps_in, sps_out):
     """ DAC Zero-Order Hold upsampling """
     factor = sps_out // sps_in
     return np.repeat(x, factor)
+
+def find_f_scale_for_target_il(freqs, sdd21, target_il_db, nyquist):
+    """ Find the frequency scaling factor to hit exactly target_il_db at nyquist """
+    mag_db = 20 * np.log10(np.abs(sdd21) + 1e-12)
+    idx = np.where(mag_db <= target_il_db)[0]
+    if len(idx) > 0:
+        first_cross_idx = idx[0]
+        if first_cross_idx > 0:
+            f1, f2 = freqs[first_cross_idx-1], freqs[first_cross_idx]
+            m1, m2 = mag_db[first_cross_idx-1], mag_db[first_cross_idx]
+            f_match = f1 + (target_il_db - m1) / (m2 - m1) * (f2 - f1)
+        else:
+            f_match = freqs[0]
+    else:
+        f_match = freqs[-1]
+        
+    if f_match <= 0:
+        f_match = 1e9
+        
+    f_scale = nyquist / f_match
+    return f_scale
 
 def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     """ Apply sequential IMDD channel bandwidth limitations at high sps """
@@ -69,11 +90,13 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
             # skrf handles mixed mode conversion: 
             # nw_mm = nw.copy()
             # nw_mm.se2gmm(p=2) # 2 differential ports
-            # For simplicity, if it's already a 4-port, we can use the built-in diff mode
             try:
-                # Convert standard 4-port single ended to 2-port mixed mode
-                nw.se2gmm(p=2)
-                sdd21 = nw.s[:, 1, 0] # S21 in mixed mode is Sdd21
+                # IEEE 802.3dj port mapping: 1,3 are input, 2,4 are output
+                S21 = nw.s[:, 1, 0]
+                S23 = nw.s[:, 1, 2]
+                S41 = nw.s[:, 3, 0]
+                S43 = nw.s[:, 3, 2]
+                sdd21 = 0.5 * (S21 - S23 - S41 + S43)
             except Exception:
                 # Fallback if it's a 2-port file or different mapping
                 sdd21 = nw.s[:, 1, 0] if nw.s.shape[1] == 2 else nw.s[:, 0, 0]
@@ -86,9 +109,17 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
             f_sig = np.fft.rfftfreq(N, d=1.0/fs_analog)
             
             # Interpolate S-parameter to signal frequencies
-            # Sdd21 is complex
-            sdd21_mag = np.interp(f_sig, freqs, np.abs(sdd21), left=np.abs(sdd21)[0], right=np.abs(sdd21)[-1])
-            sdd21_phase = np.interp(f_sig, freqs, np.unwrap(np.angle(sdd21)), left=np.angle(sdd21)[0], right=np.angle(sdd21)[-1])
+            # Sdd21 is complex. Apply mathematical frequency stretching (ZTE CBW scaling)
+            if 'target_il_nyquist_db' in config:
+                f_scale = find_f_scale_for_target_il(freqs, sdd21, -abs(config['target_il_nyquist_db']), nyquist)
+                print(f"Dynamic S-parameter scaling to hit -{abs(config['target_il_nyquist_db'])} dB IL. Computed f_scale = {f_scale:.3f}")
+            else:
+                f_scale = config.get('s4p_f_scale', 1.0)
+                
+            f_sig_scaled = f_sig / f_scale
+            
+            sdd21_mag = np.interp(f_sig_scaled, freqs, np.abs(sdd21), left=np.abs(sdd21)[0], right=0.0)
+            sdd21_phase = np.interp(f_sig_scaled, freqs, np.unwrap(np.angle(sdd21)), left=np.angle(sdd21)[0], right=0.0)
             H_channel = sdd21_mag * np.exp(1j * sdd21_phase)
             
             # Apply filter

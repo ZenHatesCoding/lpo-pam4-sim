@@ -36,8 +36,8 @@ def tx_dsp_chain(tx_pam4, sps_dsp, baud_rate, config_tx):
     pulse = np.ones(sps_dsp)
     tx_shaped = np.convolve(tx_up, pulse, mode='full')[:len(tx_up)]
     
-    # CTLE
-    tx_eq = tx_ctle(tx_shaped, sps_dsp, baud_rate, config_tx['ctle_dc_gain'], config_tx['ctle_peaking'])
+    # LPO Host ASIC Tx typically only has FFE, not CTLE
+    tx_eq = tx_shaped
     
     # FFE
     if 'custom_taps' in config_tx:

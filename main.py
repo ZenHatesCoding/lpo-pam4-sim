@@ -4,7 +4,7 @@ import os
 from utils_config import load_config
 from tx_dsp import pam4_map, tx_dsp_chain
 from channel_imdd import apply_channel
-from rx_dsp import adaptive_ffe
+from rx_dsp import adaptive_ffe_dfe
 from mlse_burg import burg_ar, viterbi_mlse_pam4
 from metrics import calculate_ber, plot_eye
 from scipy.signal import correlate
@@ -43,20 +43,37 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=False):
         tx_out, config['channel'], baud_rate, sps_dac, sps_channel, sps_adc
     )
     
-    if plot_eyes:
-        if not os.path.exists('docs'):
-            os.makedirs('docs')
-        plot_eye(tx_analog[:sps_channel*1000], sps_channel, "docs/Tx_Analog_Output_Eye")
-        plot_eye(rx_analog[:sps_channel*1000], sps_channel, "docs/Rx_ADC_Input_Eye")
-        
-    # Rx DSP
-    rx_1sps = rx_adc[::sps_adc]
-    corr = correlate(rx_1sps[:1000], tx_pam4[:1000])
-    sync_delay = np.argmax(corr) - (len(tx_pam4[:1000]) - 1)
+    plot_intermediate = config['system'].get('plot_intermediate_eyes', False)
+    result_dir = "result"
     
-    rx_eq, w_ffe, error_seq, ffe_decisions = adaptive_ffe(
-        rx_adc, tx_pam4, 
+    if plot_intermediate or plot_eyes:
+        if not os.path.exists(result_dir):
+            os.makedirs(result_dir)
+        plot_eye(tx_analog[:sps_channel*1000], sps_channel, "Tx_Analog_Out_Eye", output_dir=result_dir)
+        plot_eye(rx_analog[:sps_channel*1000], sps_channel, "Rx_ADC_Input_Eye", output_dir=result_dir)
+        
+    # Rx DSP - Find optimal sampling phase
+    rx_1sps_even = rx_adc[::sps_adc]
+    corr_even = correlate(rx_1sps_even[:1000], tx_pam4[:1000])
+    max_even = np.max(corr_even)
+    
+    rx_1sps_odd = rx_adc[1::sps_adc]
+    corr_odd = correlate(rx_1sps_odd[:1000], tx_pam4[:1000])
+    max_odd = np.max(corr_odd)
+    
+    if max_even >= max_odd:
+        sync_delay = np.argmax(corr_even) - (len(tx_pam4[:1000]) - 1)
+        phase_offset = 0
+    else:
+        sync_delay = np.argmax(corr_odd) - (len(tx_pam4[:1000]) - 1)
+        phase_offset = 1
+        
+    rx_eq, w_ffe, w_dfe, error_seq, ffe_decisions = adaptive_ffe_dfe(
+        rx_adc[phase_offset:], tx_pam4, 
         int(config['rx']['ffe_taps']), 
+        int(config['rx']['ffe_pre']),
+        int(config.get('rx', {}).get('dfe_taps', 1)), # 1-tap DFE
+        config['rx']['lms_mu'], 
         config['rx']['lms_mu'], 
         int(config['rx']['train_len']),
         sync_delay=sync_delay
@@ -97,5 +114,16 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=False):
 if __name__ == '__main__':
     print("--- Running Default LPO PAM4 Simulation ---")
     config = load_config('config.xlsx')
-    ffe_ber, mlse_ber = run_sim(config, plot_eyes=True)
-    print(f"FFE BER: {ffe_ber:.2e}, MLSE BER: {mlse_ber:.2e}")
+    
+    ffe_ber, mlse_ber = run_sim(config, plot_eyes=config['system'].get('plot_intermediate_eyes', False))
+    
+    result_str = f"FFE BER: {ffe_ber:.2e}, MLSE BER: {mlse_ber:.2e}\n"
+    print(result_str)
+    
+    result_dir = "result"
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir)
+        
+    with open(os.path.join(result_dir, "sim_log.txt"), "a") as f:
+        f.write("--- Simulation Result ---\n")
+        f.write(result_str)
