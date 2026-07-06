@@ -6,7 +6,7 @@ from bo_optimizer import BayesianOptimizer
 from datetime import datetime
 import os
 
-def objective_function(config, params):
+def objective_function(config, params, result_dir, iter_count):
     """
     Run simulation and return log10 of BER.
     params: [0:9] are Tx FFE taps, [9] is ctle_g_dc_db
@@ -19,10 +19,18 @@ def objective_function(config, params):
     ffe_ber, mlse_ber = run_sim(config, custom_tx_taps=taps, plot_eyes=False)
     # Target MLSE BER
     ber_val = max(mlse_ber, 1e-6)
+    
+    # Log iteration
+    with open(os.path.join(result_dir, "sim_log.txt"), "a") as f:
+        f.write(f"Iter {iter_count[0]} | Taps: {np.round(taps, 4).tolist()} | CTLE DC: {params[9]:.2f}dB | MLSE BER: {mlse_ber:.2e}\n")
+    iter_count[0] += 1
+    
     return math.log10(ber_val), ffe_ber, mlse_ber
 
 def main():
     print("--- Starting Tx FFE Bayesian Optimization (White-Box) ---")
+    import create_config
+    create_config.generate_config()
     config = load_config('config.xlsx')
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -56,7 +64,17 @@ def main():
     default_params[4] = 1.0
     default_params[9] = -12.0 # Default CTLE
     print(f"Eval Initial Default Params: {default_params}")
-    obj_val, ffe_ber, mlse_ber = objective_function(config, default_params)
+    
+    # We'll use a mutable list to track iteration count
+    iter_count = [1]
+    
+    with open(os.path.join(result_dir, "sim_log.txt"), "w") as f:
+        f.write(f"--- Starting Tx FFE Bayesian Optimization (White-Box) ---\n")
+        f.write(f"Baud Rate: {config['system']['baud_rate']/1e9} GBd\n")
+        f.write(f"Optimizer: Gaussian Process (RBF Kernel), Acquisition: Expected Improvement (EI)\n")
+        f.write(f"Iterations: {20}\n\n")
+
+    obj_val, ffe_ber, mlse_ber = objective_function(config, default_params, result_dir, iter_count)
     print(f" -> MLSE BER: {mlse_ber:.2e} (FFE BER: {ffe_ber:.2e})")
     
     X_data.append(default_params)
@@ -69,7 +87,7 @@ def main():
         # Normalize the FFE taps part only
         rand_params[:9] = rand_params[:9] / np.sum(np.abs(rand_params[:9]))
         
-        obj_val, ffe_ber, mlse_ber = objective_function(config, rand_params)
+        obj_val, ffe_ber, mlse_ber = objective_function(config, rand_params, result_dir, iter_count)
         print(f"Init {i+1}: FFE: {np.round(rand_params[:9], 2)}, CTLE: {rand_params[9]:.1f}dB")
         print(f" -> MLSE BER: {mlse_ber:.2e}")
         
@@ -87,7 +105,7 @@ def main():
         next_taps = bo.suggest_next(n_samples=20000)
         
         # Evaluate Simulator
-        obj_val, ffe_ber, mlse_ber = objective_function(config, next_taps)
+        obj_val, ffe_ber, mlse_ber = objective_function(config, next_taps, result_dir, iter_count)
         
         print(f"Iter {step+1}/{n_iterations} | Best MLSE BER: {10**np.min(y_data):.2e} | "
               f"Current MLSE BER: {mlse_ber:.2e}")
@@ -123,6 +141,12 @@ def main():
         f.write("## Convergence Trace\n")
         for i, y in enumerate(y_data):
             f.write(f"- Eval {i}: `{10**y:.2e}`\n")
+            
+    with open(os.path.join(result_dir, "sim_log.txt"), "a") as f:
+        f.write("\n--- Optimization Complete ---\n")
+        f.write(f"Optimal Tx FFE Taps: {np.round(best_params[:9], 4).tolist()}\n")
+        f.write(f"Optimal CTLE DC Gain: {best_params[9]:.2f} dB\n")
+        f.write(f"Achieved MLSE BER: {best_ber:.2e}\n")
             
     # Run the best params one more time to generate the eye diagrams if configured
     run_sim(config, custom_tx_taps=best_params[:9], plot_eyes=True, output_dir=result_dir)

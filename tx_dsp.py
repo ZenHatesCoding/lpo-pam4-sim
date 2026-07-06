@@ -40,11 +40,16 @@ def tx_dsp_chain(tx_pam4, sps_dsp, baud_rate, config_tx):
     tx_eq = tx_shaped
     
     # FFE
-    if 'custom_taps' in config_tx:
-        tx_taps = np.array(config_tx['custom_taps'])
+    custom_taps = config_tx.get('custom_taps')
+    if custom_taps is not None and str(custom_taps).lower() not in ['none', 'nan']:
+        if isinstance(custom_taps, str):
+            tx_taps = np.array(eval(custom_taps))
+        else:
+            tx_taps = np.array(custom_taps)
     else:
         tx_taps = np.zeros(int(config_tx['ffe_taps']))
-        tx_taps[int(config_tx['ffe_pre'])] = 1.0 # Pass-through for now
+        ffe_pre = int(config_tx.get('ffe_pre', 4)) if int(config_tx['ffe_taps']) == 9 else int(config_tx.get('ffe_pre', 1))
+        tx_taps[ffe_pre] = 1.0 # Pass-through for now
         
     tx_out = tx_ffe(tx_eq, tx_taps, sps_dsp)
     

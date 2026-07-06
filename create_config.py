@@ -1,51 +1,93 @@
 import pandas as pd
+import argparse
 import os
 
-def generate_config():
+# ==========================================
+# 🚀 核心全局开关 (一键切换物理底层模式)
+# 可选值: '112G', '224G', '448G'
+# ==========================================
+DEFAULT_MODE = '112G'
+
+def generate_config(mode=DEFAULT_MODE):
+    print(f"Generating config for {mode} mode...")
+    
+    if mode == '112G':
+        baud_rate = 56e9
+        optics_bw = 40e9
+        s4p_file = 'models/lim_3ck_01_0319_c2m/lim/100G_C2M_channel_update_part1/Channel1/112G_16dB_(QSFPDD+module card)_TX7_L10/112G_cascaded_CDR6_Module_Thru_1_etch1100_TX7_L10_Full_Footprint.s4p'
+        target_il = None # Authentic IEEE 802.3ck file, no artificial scaling
+    elif mode == '224G':
+        baud_rate = 112.5e9
+        optics_bw = 80e9
+        s4p_file = 'models/li_dj_CR_DesignA_060523/li_dj_CR_Design_A_Rev1_THRU.s4p'
+        target_il = None # Authentic IEEE 802.3dj file, no artificial scaling
+    elif mode == '448G':
+        baud_rate = 212.5e9
+        optics_bw = 150e9
+        s4p_file = 'models/li_dj_CR_DesignA_060523/li_dj_CR_Design_A_Rev1_THRU.s4p'
+        target_il = -18.0 # No authentic 448G file exists yet. Using ZTE frequency scaling method on 802.3dj file to hit -18dB @ 106GHz.
+    else:
+        raise ValueError("Invalid mode. Choose from '112G', '224G', '448G'.")
+
     config = {
         'system': {
-            'baud_rate': 112.5e9,     # 112.5 GBd (224G PAM4)
-            'sps_dsp': 2,             # DSP operates at 2 sps
-            'sps_dac': 2,             # DAC operates at 2 sps
-            'sps_channel': 8,         # Analog channel simulation at 8 sps
-            'sps_adc': 2,             # ADC operates at 2 sps
-            'plot_intermediate_eyes': False, # Toggle for plotting intermediate eye diagrams
-            'num_symbols': 10000      # Number of symbols to simulate
+            'baud_rate': baud_rate,     
+            'sps_dsp': 2,             
+            'sps_dac': 2,             
+            'sps_channel': 8,         
+            'sps_adc': 2,             
+            'plot_intermediate_eyes': False,
+            'num_symbols': 10000      
         },
         'tx': {
-            'ctle_dc_gain': 0.8,      # Simple CTLE dc gain
-            'ctle_peaking': 2.0,      # High frequency peaking
-            'ffe_taps': 9,            # Number of Tx FFE taps
-            'ffe_pre': 4              # Pre-cursor taps (center symmetric at index 4)
+            'baud_rate': baud_rate,        
+            'sps_dac': 2,
+            'levels': 4,              
+            'pattern_length': 65536,
+            'ffe_taps': 9,            
+            'ffe_spacing': 1,         
+            'custom_taps': None, 
         },
         'channel': {
-            'pcb_loss_nyquist_db': 15.0, # 15 dB loss at Nyquist for Host PCB trace (if analytical)
-            'use_s4p': True,          # Use S-parameter file instead of analytical PCB loss
-            's4p_file': 'models/li_dj_CR_DesignA_060523/li_dj_CR_Design_A_Rev1_THRU.s4p',
-            's4p_f_scale': 1.4,       # Artificial frequency axis scaling for 448G (as per ZTE S1-S4 steps)
-            'target_il_nyquist_db': 18.0, # Dynamically scales the S-parameter frequency axis to hit -18dB IL at Nyquist
-            'mzm_bw': 150e9,          # 150 GHz MZM bandwidth (scaled up for 448G)
-            'fiber_length_km': 2.0,   # 2 km typical FR4 reach
-            'fiber_loss_db_km': 0.4,  # 0.4 dB/km at 1310nm
-            'pd_bw': 150e9,           # 150 GHz PD bandwidth
-            'tia_bw': 150e9,          # 150 GHz TIA bandwidth
-            'adc_bw': 150e9,          # 150 GHz ADC bandwidth
-            'snr_db': 25,             # Additive electrical SNR
-            'use_ctle': True,         # Enable analog CTLE
-            'ctle_g_dc_db': -12.0,    # -12 dB DC gain (12 dB high frequency peaking)
-            'ctle_fz_ratio': 2.5,     # fb / 2.5
-            'ctle_fp1_ratio': 2.5,    # fb / 2.5
-            'ctle_fp2_ratio': 1.0,    # fb / 1.0
+            'sps_channel': 8,
+            'snr_db': 25.0,           
+            
+            'use_s4p': True,
+            's4p_file': s4p_file,
+            's4p_f_scale': 1.0, 
+            
+            'mzm_bw': optics_bw,           
+            'fiber_length_km': 2.0,   
+            'fiber_loss_db_km': 0.25, 
+            'pd_bw': optics_bw,            
+            'tia_bw': optics_bw,           
+            'adc_bw': optics_bw,
+            
+            # Analog Equalization (CTLE)
+            'use_ctle': True,
+            'ctle_fz_ratio': 2.5,
+            'ctle_fp1_ratio': 2.5,
+            'ctle_fp2_ratio': 1.0,
+            'ctle_g_dc_db': -10.0,
+            
+            # Debug toggle
+            'disable_isi': False,
         },
         'rx': {
-            'ffe_taps': 31,           # Number of Rx FFE taps (T/2 spaced)
-            'ffe_pre': 8,             # Pre-cursor taps
-            'dfe_taps': 0,            # DFE disabled per user request
-            'lms_mu': 1e-3,           # LMS step size
-            'train_len': 2000,        # Number of symbols for training
-            'mlse_memory': 1          # MLSE memory length (e.g. 1 means 1+a*z^-1)
+            'sps_adc': 2,
+            'ffe_taps': 31,           
+            'ffe_spacing': 0.5,       
+            'ffe_pre': 8,
+            'ffe_mu': 1e-4,  
+            'lms_mu': 1e-4,  
+            'train_len': 2000,
+            'dfe_taps': 0,            
+            'mlse_memory': 0,         
         }
     }
+    
+    if target_il is not None:
+        config['channel']['target_il_nyquist_db'] = target_il
 
     with pd.ExcelWriter('config.xlsx') as writer:
         for sheet_name, params in config.items():
@@ -53,5 +95,9 @@ def generate_config():
             df.to_excel(writer, sheet_name=sheet_name, index=False)
 
 if __name__ == '__main__':
-    generate_config()
+    parser = argparse.ArgumentParser(description='Generate simulation config')
+    parser.add_argument('--mode', type=str, choices=['112G', '224G', '448G'], default=DEFAULT_MODE, help='Speed mode')
+    args = parser.parse_args()
+    
+    generate_config(args.mode)
     print("config.xlsx created.")

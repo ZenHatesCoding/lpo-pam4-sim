@@ -30,6 +30,13 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=False, output_dir="result"):
     tx_config = config['tx'].copy()
     if custom_tx_taps is not None:
         tx_config['custom_taps'] = custom_tx_taps
+    elif 'custom_taps' in tx_config:
+        val = tx_config['custom_taps']
+        if isinstance(val, str) and val.strip().startswith('['):
+            import ast
+            tx_config['custom_taps'] = np.array(ast.literal_eval(val))
+        else:
+            tx_config['custom_taps'] = np.array(val)
     else:
         # Default symmetric center tap
         default_taps = np.zeros(int(tx_config['ffe_taps']))
@@ -44,9 +51,7 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=False, output_dir="result"):
         tx_out, config['channel'], baud_rate, sps_dac, sps_channel, sps_adc
     )
     
-    plot_intermediate = config['system'].get('plot_intermediate_eyes', False)
-    
-    if plot_intermediate or plot_eyes:
+    if plot_eyes:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         plot_eye(tx_analog[:sps_channel*1000], sps_channel, "Tx_Analog_Out_Eye", output_dir=output_dir)
@@ -113,6 +118,8 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=False, output_dir="result"):
 
 if __name__ == '__main__':
     print("--- Running Default LPO PAM4 Simulation ---")
+    import create_config
+    create_config.generate_config()
     config = load_config('config.xlsx')
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -120,11 +127,16 @@ if __name__ == '__main__':
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
         
-    ffe_ber, mlse_ber = run_sim(config, plot_eyes=config['system'].get('plot_intermediate_eyes', False), output_dir=result_dir)
+    ffe_ber, mlse_ber = run_sim(config, plot_eyes=True, output_dir=result_dir)
     
     result_str = f"FFE BER: {ffe_ber:.2e}, MLSE BER: {mlse_ber:.2e}\n"
     print(result_str)
     
     with open(os.path.join(result_dir, "sim_log.txt"), "a") as f:
         f.write("--- Simulation Result ---\n")
+        f.write(f"Baud Rate: {config['system']['baud_rate']/1e9} GBd\n")
+        f.write(f"Channel IL at Nyquist: {config['channel'].get('target_il_nyquist_db', 0)} dB\n")
+        f.write(f"Tx FFE Taps: {config['tx'].get('custom_taps', 'Default')}\n")
+        f.write(f"Rx FFE Taps: {config['rx']['ffe_taps']}\n")
+        f.write(f"Rx DFE Taps: {config['rx']['dfe_taps']}\n")
         f.write(result_str)

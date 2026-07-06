@@ -78,6 +78,30 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     x_analog = dac_zoh(x_dac, sps_dac, sps_channel)
     fs_analog = baud_rate * sps_channel
     
+    # --- ISI BYPASS (DEBUG MODE) ---
+    if config.get('disable_isi', False):
+        # 1. Apply flat attenuation (target IL) instead of frequency-dependent PCB loss
+        loss_db = config.get('target_il_nyquist_db', 18.0)
+        x = x_analog * (10 ** (-abs(loss_db) / 20.0))
+        
+        # 2. Add fiber loss
+        fiber_loss_db = config['fiber_length_km'] * config['fiber_loss_db_km']
+        x = x * (10 ** (-fiber_loss_db / 20.0))
+        
+        # 3. Add noise
+        signal_power = np.mean(x**2)
+        snr_linear = 10**(config['snr_db'] / 10)
+        noise_power = signal_power / snr_linear
+        rng = np.random.RandomState(123)
+        noise = rng.normal(0, np.sqrt(noise_power), len(x))
+        x_noisy = x + noise
+        
+        # 4. Downsample to ADC directly
+        dec_factor = sps_channel // sps_adc
+        x_adc_out = x_noisy[::dec_factor]
+        return x_analog, x_noisy, x_adc_out
+    # -------------------------------
+    
     # Apply PCB trace filter
     if config.get('use_s4p', False) and rf is not None:
         s4p_path = config.get('s4p_file', '')
