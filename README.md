@@ -1,41 +1,48 @@
-# LPO PAM4/PAM6 (448G) Simulation Platform
+# LPO PAM4 (112G/224G) DSP 基线仿真平台
 
-This repository contains a pure Python, white-box simulation platform for Linear Pluggable Optics (LPO) systems. Originally designed for 112G/224G, it has been upgraded to model High-Speed SerDes links operating at **212.5 GBd (448G)**, aligned with IEEE P802.3dj standards.
+本项目是一个基于纯 Python (Numpy/Scipy) 白盒构建的 **Linear Pluggable Optics (LPO)** 系统级仿真器，主要用于 112.5 GBd (224G PAM4) 速率下的高速信道均衡算法研究与评估。
 
-## Key Features
+> [!NOTE]
+> 本项目的核心理念是 **“白盒化” (White-Box)** 与 **“符合物理直觉”**。我们移除了容易在超高误码率下发生雪崩效应的 DFE，并摒弃了会引入极强相位失真的发射端模拟 IIR-CTLE。系统强制通过真实的 S4P 级联网络与纯线性 FIR 结构探索性能边界。
 
-1. **White-Box Architecture**: All Digital Signal Processing (DSP) algorithms, including adaptive filtering, timing synchronization, and sequence detection, are implemented entirely from scratch using pure `numpy`. No opaque third-party communications or optimization toolboxes are used.
-2. **Multi-Rate Processing Domain**:
-   - **DSP Domain**: Operates at 2 Samples Per Symbol (sps) representing realistic DAC and ADC clock boundaries.
-   - **Analog Channel Domain**: Up-sampled to 8 sps to accurately simulate continuous-time high-frequency physical layer impairments and realistic **S-parameter (Touchstone `.s4p`) frequency responses** via FFT/IFFT convolution (`scikit-rf`).
-3. **Advanced Equalization**:
-   - **Tx DSP**: Configurable Feed-Forward Equalizer (FFE).
-   - **Rx Analog**: Standard IEEE COM Continuous Time Linear Equalizer (CTLE) with tunable DC gain and peaking.
-   - **Rx DSP**: Adaptive T/2-spaced FFE using **Least Squares (LS) training initialization** followed by Decision-Directed LMS (DD-LMS) tracking.
-   - **MLSE**: Viterbi sequence detection coupled with the Burg algorithm for dynamic extraction of Partial Response (PR) target coefficients to whiten noise enhancement.
-4. **Bayesian Optimization Framework**: Includes a custom-built Gaussian Process Regressor and Expected Improvement (EI) acquisition function for optimizing Tx FFE taps without relying on external libraries.
-5. **Standards Aligned**: Scaled and parameterized to reflect **IEEE P802.3dj (448G)**, including >110 GHz die termination bandwidth scaling and real vendor-submitted Cable Reach (CR) and PCB S-parameter models.
+## 🎯 当前最佳基线 (State-of-the-Art Baseline)
+目前，该项目已经在 **-18 dB 的奈奎斯特插入损耗** 与 **25 dB 加性白噪声** 限制下，达到了其单线性理论物理极限：
+* **Tx FFE**: 3-tap `[-0.14, 0.8, -0.06]` (无 Tx CTLE)
+* **Rx FFE**: 31-tap T/2 Spaced (内置 LMS 泄漏与脊回归，防漂移发散)
+* **最终 BER**: **3.0% (3.00e-02)** (稳定无雪崩)
 
-## Project Structure
+*(这是向 1e-4 目标进军的绝佳跳板，接下来可无缝衔接高阶 MLSE 及 PR 目标解码！)*
 
-- `main.py`: The core simulator entry point. Runs the full link from Tx to Rx and outputs eye diagrams and BER metrics.
-- `optimize_tx_ffe.py`: The entry point for Bayesian Optimization of the Tx FFE taps.
-- `bo_optimizer.py`: The pure `numpy` Gaussian Process engine.
-- `create_config.py`: Generates the `config.xlsx` file used for centralized parameter management.
-- `channel_imdd.py`: The IMDD multi-rate physical channel (PCB trace, MZM, Fiber, PD, TIA, ADC).
-- `tx_dsp.py` / `rx_dsp.py`: Transmitter and Receiver DSP pipelines.
-- `mlse_burg.py`: Burg AR coefficient estimation and Viterbi decoding.
-- `scratch/download_s4p.py`: Utility script to fetch raw IEEE 802.3dj S-parameter zip files.
-- `docs/`: Contains simulation reports, eye diagrams, and standard parameter explanations (e.g., `ZTE_448G_Analysis_Summary.md`).
+## 📚 文档导航 (Documentation Navigation)
 
-## Quick Start
+为保证项目整洁可读，本平台的文档已进行全面梳理，请通过以下入口深入了解：
 
-1. Install basic dependencies: `pip install numpy scipy matplotlib pandas openpyxl scikit-rf`.
-2. Run `python scratch/download_s4p.py` to fetch the real 448G IEEE `.s4p` channel models.
-3. Run `python create_config.py` to generate or reset `config.xlsx`.
-3. Adjust parameters in `config.xlsx` as needed.
-4. Run `main.py` for a single-point simulation.
-5. Run `optimize_tx_ffe.py` to perform automatic FFE tap optimization.
+👉 **[01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md)**  
+> *了解收发机模型、多采样率机制以及 `config.xlsx` 中几十个神秘参数的详细物理含义。*
 
-## Documentation
-Check the `docs/` directory for detailed explanations of system parameters and test reports.
+👉 **[02. 独立分析与诊断工具集 (Utility Scripts)](docs/02_Utility_Scripts.md)**  
+> *探索 `scratch/` 目录下为您准备的信道频响查看器、单纯形寻参脚本等神兵利器。*
+
+---
+
+## 🚀 快速上手 (Quick Start)
+
+### 1. 配置虚拟环境并安装依赖
+```bash
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install numpy scipy matplotlib scikit-rf pandas openpyxl
+```
+
+### 2. 执行主仿真
+只需运行 `main.py`，系统将自动读取 `config.xlsx` 并输出 BER 结果：
+```bash
+python main.py
+```
+> [!TIP]
+> **想看中间眼图？**
+> 打开 `config.xlsx`，在 System 栏将 `plot_intermediate_eyes` 改为 `True`，系统将在 `result/` 目录下吐出经过 50Sps 极高平滑度上采的各个物理节点眼图照片（如 ADC 采样端眼图、Tx 出射端眼图等）。
+
+## 📈 后续优化目标
+- [ ] 结合 Partial Response (部分响应) Target 与 Viterbi MLSE 算法，在不使用 DFE 的情况下进一步消除 Residual ISI，向 1e-4 BER 逼近。
+- [ ] 探索通过高斯过程贝叶斯优化器 (`bo_optimizer.py`)，进行端到端的收发信联合自动寻优。
