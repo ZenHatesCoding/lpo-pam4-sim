@@ -8,8 +8,9 @@ from rx_dsp import adaptive_ffe_dfe
 from mlse_burg import burg_ar, viterbi_mlse_pam4
 from metrics import calculate_ber, plot_eye
 from scipy.signal import correlate
+from datetime import datetime
 
-def run_sim(config, custom_tx_taps=None, plot_eyes=False):
+def run_sim(config, custom_tx_taps=None, plot_eyes=False, output_dir="result"):
     """
     Run a single point simulation of the LPO PAM4 link.
     Returns the MLSE BER and FFE BER.
@@ -44,13 +45,12 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=False):
     )
     
     plot_intermediate = config['system'].get('plot_intermediate_eyes', False)
-    result_dir = "result"
     
     if plot_intermediate or plot_eyes:
-        if not os.path.exists(result_dir):
-            os.makedirs(result_dir)
-        plot_eye(tx_analog[:sps_channel*1000], sps_channel, "Tx_Analog_Out_Eye", output_dir=result_dir)
-        plot_eye(rx_analog[:sps_channel*1000], sps_channel, "Rx_ADC_Input_Eye", output_dir=result_dir)
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        plot_eye(tx_analog[:sps_channel*1000], sps_channel, "Tx_Analog_Out_Eye", output_dir=output_dir)
+        plot_eye(rx_analog[:sps_channel*1000], sps_channel, "Rx_ADC_Input_Eye", output_dir=output_dir)
         
     # Rx DSP - Find optimal sampling phase
     rx_1sps_even = rx_adc[::sps_adc]
@@ -115,15 +115,16 @@ if __name__ == '__main__':
     print("--- Running Default LPO PAM4 Simulation ---")
     config = load_config('config.xlsx')
     
-    ffe_ber, mlse_ber = run_sim(config, plot_eyes=config['system'].get('plot_intermediate_eyes', False))
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    result_dir = os.path.join("result", f"{timestamp}_sim")
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir)
+        
+    ffe_ber, mlse_ber = run_sim(config, plot_eyes=config['system'].get('plot_intermediate_eyes', False), output_dir=result_dir)
     
     result_str = f"FFE BER: {ffe_ber:.2e}, MLSE BER: {mlse_ber:.2e}\n"
     print(result_str)
     
-    result_dir = "result"
-    if not os.path.exists(result_dir):
-        os.makedirs(result_dir)
-        
     with open(os.path.join(result_dir, "sim_log.txt"), "a") as f:
         f.write("--- Simulation Result ---\n")
         f.write(result_str)

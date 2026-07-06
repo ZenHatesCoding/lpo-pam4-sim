@@ -3,6 +3,8 @@ import math
 from utils_config import load_config
 from main import run_sim
 from bo_optimizer import BayesianOptimizer
+from datetime import datetime
+import os
 
 def objective_function(config, params):
     """
@@ -13,6 +15,7 @@ def objective_function(config, params):
     taps = params[:9]
     config['channel']['ctle_g_dc_db'] = params[9]
     
+    # We don't save plots for every single iteration of BO to save disk space
     ffe_ber, mlse_ber = run_sim(config, custom_tx_taps=taps, plot_eyes=False)
     # Target MLSE BER
     ber_val = max(mlse_ber, 1e-6)
@@ -22,6 +25,11 @@ def main():
     print("--- Starting Tx FFE Bayesian Optimization (White-Box) ---")
     config = load_config('config.xlsx')
     
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    result_dir = os.path.join("result", f"{timestamp}_optimize")
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir)
+        
     # Enable realistic PCB loss for the challenge
     if 'pcb_loss_nyquist_db' not in config['channel']:
         config['channel']['pcb_loss_nyquist_db'] = 15.0
@@ -98,7 +106,7 @@ def main():
     print(f"Achieved MLSE BER: {best_ber:.2e}")
     
     # Save a report
-    with open('docs/optimization_report.md', 'w') as f:
+    with open(os.path.join(result_dir, 'optimization_report.md'), 'w') as f:
         f.write("# Tx FFE Bayesian Optimization Report\n\n")
         f.write("## Setup\n")
         f.write("- **Channel**: 112G PAM4 (56 GBd), 15 dB Host PCB trace loss, 35GHz optics.\n")
@@ -115,6 +123,9 @@ def main():
         f.write("## Convergence Trace\n")
         for i, y in enumerate(y_data):
             f.write(f"- Eval {i}: `{10**y:.2e}`\n")
+            
+    # Run the best params one more time to generate the eye diagrams if configured
+    run_sim(config, custom_tx_taps=best_params[:9], plot_eyes=True, output_dir=result_dir)
 
 if __name__ == '__main__':
     main()
