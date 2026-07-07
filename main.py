@@ -73,11 +73,17 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=False, output_dir="result"):
         sync_delay = np.argmax(corr_odd) - (len(tx_pam4[:1000]) - 1)
         phase_offset = 1
         
+    # Disabling DFE entirely when MLSE is active as instructed by the user
+    mlse_memory = int(config['rx']['mlse_memory'])
+    dfe_taps = int(config.get('rx', {}).get('dfe_taps', 0))
+    if mlse_memory > 0:
+        dfe_taps = 0
+        
     rx_eq, w_ffe, w_dfe, error_seq, ffe_decisions = adaptive_ffe_dfe(
         rx_adc[phase_offset:], tx_pam4, 
         int(config['rx']['ffe_taps']), 
         int(config['rx']['ffe_pre']),
-        int(config.get('rx', {}).get('dfe_taps', 1)), # 1-tap DFE
+        dfe_taps,
         config['rx']['lms_mu'], 
         config['rx']['lms_mu'], 
         int(config['rx']['train_len']),
@@ -94,7 +100,7 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=False, output_dir="result"):
     
     if ar_order > 0:
         ar_coeffs = burg_ar(err_ss, ar_order)
-        pr_taps = np.concatenate(([1.0], -ar_coeffs))
+        pr_taps = np.concatenate(([1.0], ar_coeffs))
     else:
         pr_taps = [1.0]
         

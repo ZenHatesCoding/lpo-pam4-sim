@@ -57,11 +57,10 @@ def viterbi_mlse_pam4(y, pr_taps):
     elif memory == 1:
         # 4 states
         path_metrics = np.zeros(4)
-        survivor_paths = np.zeros((4, N), dtype=int)
+        pointers = np.zeros((4, N), dtype=int)
         
         for n in range(N):
             new_path_metrics = np.full(4, np.inf)
-            new_survivor_paths = np.zeros((4, N), dtype=int)
             
             for next_state, curr_sym in enumerate(levels):
                 min_metric = np.inf
@@ -77,24 +76,28 @@ def viterbi_mlse_pam4(y, pr_taps):
                         best_prev_state = prev_state
                         
                 new_path_metrics[next_state] = min_metric
-                new_survivor_paths[next_state, :n] = survivor_paths[best_prev_state, :n]
-                new_survivor_paths[next_state, n] = curr_sym
+                pointers[next_state, n] = best_prev_state
                 
             path_metrics = new_path_metrics
-            survivor_paths = new_survivor_paths
             
-        return survivor_paths[np.argmin(path_metrics)]
+        # Traceback
+        decisions = np.zeros(N)
+        curr_state = np.argmin(path_metrics)
+        for n in range(N - 1, -1, -1):
+            decisions[n] = levels[curr_state]
+            curr_state = pointers[curr_state, n]
+            
+        return decisions
 
     elif memory == 2:
         # 16 states
         path_metrics = np.zeros(16)
-        survivor_paths = np.zeros((16, N), dtype=int)
+        pointers = np.zeros((16, N), dtype=int)
         
         state_to_syms = [(levels[i//4], levels[i%4]) for i in range(16)] # (prev2, prev1)
         
         for n in range(N):
             new_path_metrics = np.full(16, np.inf)
-            new_survivor_paths = np.zeros((16, N), dtype=int)
             
             for next_state in range(16):
                 prev1_new, curr_sym = state_to_syms[next_state]
@@ -115,12 +118,18 @@ def viterbi_mlse_pam4(y, pr_taps):
                         best_prev_state = prev_state
                         
                 new_path_metrics[next_state] = min_metric
-                new_survivor_paths[next_state, :n] = survivor_paths[best_prev_state, :n]
-                new_survivor_paths[next_state, n] = curr_sym
+                pointers[next_state, n] = best_prev_state
                 
             path_metrics = new_path_metrics
-            survivor_paths = new_survivor_paths
             
-        return survivor_paths[np.argmin(path_metrics)]
+        # Traceback
+        decisions = np.zeros(N)
+        curr_state = np.argmin(path_metrics)
+        for n in range(N - 1, -1, -1):
+            _, curr_sym = state_to_syms[curr_state]
+            decisions[n] = curr_sym
+            curr_state = pointers[curr_state, n]
+            
+        return decisions
     else:
         raise NotImplementedError("MLSE Memory > 2 not implemented")

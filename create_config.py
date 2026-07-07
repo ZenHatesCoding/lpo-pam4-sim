@@ -37,7 +37,7 @@ def generate_config(mode=DEFAULT_MODE):
             'sps_channel': 8,         
             'sps_adc': 2,             
             'plot_intermediate_eyes': False,
-            'num_symbols': 10000      
+            'num_symbols': 50000      
         },
         'tx': {
             'baud_rate': baud_rate,        
@@ -46,7 +46,7 @@ def generate_config(mode=DEFAULT_MODE):
             'pattern_length': 65536,
             'ffe_taps': 9,            
             'ffe_spacing': 1,         
-            'custom_taps': None, 
+            'custom_taps': "[0.0, 0.0, 0.0, -0.2987, 0.7012, 0.0, 0.0, 0.0, 0.0]", 
         },
         'channel': {
             'sps_channel': 8,
@@ -68,7 +68,7 @@ def generate_config(mode=DEFAULT_MODE):
             'ctle_fz_ratio': 2.5,
             'ctle_fp1_ratio': 2.5,
             'ctle_fp2_ratio': 1.0,
-            'ctle_g_dc_db': -10.0,
+            'ctle_g_dc_db': 0.0,
             
             # Debug toggle
             'disable_isi': False,
@@ -80,9 +80,9 @@ def generate_config(mode=DEFAULT_MODE):
             'ffe_pre': 8,
             'ffe_mu': 1e-4,  
             'lms_mu': 1e-4,  
-            'train_len': 2000,
+            'train_len': 10000,
             'dfe_taps': 0,            
-            'mlse_memory': 0,         
+            'mlse_memory': 1,         
         }
     }
     

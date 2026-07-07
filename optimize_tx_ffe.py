@@ -22,7 +22,7 @@ def objective_function(config, params, result_dir, iter_count):
     
     # Log iteration
     with open(os.path.join(result_dir, "sim_log.txt"), "a") as f:
-        f.write(f"Iter {iter_count[0]} | Taps: {np.round(taps, 4).tolist()} | CTLE DC: {params[9]:.2f}dB | MLSE BER: {mlse_ber:.2e}\n")
+        f.write(f"Iter {iter_count[0]} | Taps: {np.round(taps, 4).tolist()} | CTLE DC: {params[9]:.2f}dB | FFE BER: {ffe_ber:.2e} | MLSE BER: {mlse_ber:.2e}\n")
     iter_count[0] += 1
     
     return math.log10(ber_val), ffe_ber, mlse_ber
@@ -54,15 +54,24 @@ def main():
     bounds[9] = [-20.0, 0.0] # CTLE DC Gain from -20dB to 0dB
     
     # Initialize Optimizer
-    bo = BayesianOptimizer(bounds, kernel_l=0.5, kernel_sigma_f=1.0, noise_var=1e-3)
+    bo = BayesianOptimizer(bounds, noise_var=1e-3)
     
     X_data = []
     y_data = []
     
     # 1. Evaluate Initial Default Point
     default_params = np.zeros(D)
-    default_params[4] = 1.0
-    default_params[9] = -12.0 # Default CTLE
+    if config['tx'].get('custom_taps') is not None:
+        taps_val = config['tx']['custom_taps']
+        if isinstance(taps_val, str) and taps_val.strip().startswith('['):
+            import ast
+            taps_array = np.array(ast.literal_eval(taps_val))
+        else:
+            taps_array = np.array(taps_val)
+        default_params[:9] = taps_array
+    else:
+        default_params[4] = 1.0
+    default_params[9] = config['channel'].get('ctle_g_dc_db', -12.0)
     print(f"Eval Initial Default Params: {default_params}")
     
     # We'll use a mutable list to track iteration count
@@ -81,7 +90,7 @@ def main():
     y_data.append(obj_val)
     
     # 2. Evaluate Random Perturbations for Initial GP Training (Exploration)
-    n_initial = 5
+    n_initial = 10
     for i in range(n_initial):
         rand_params = np.random.uniform(bounds[:, 0], bounds[:, 1], D)
         # Normalize the FFE taps part only
@@ -89,7 +98,7 @@ def main():
         
         obj_val, ffe_ber, mlse_ber = objective_function(config, rand_params, result_dir, iter_count)
         print(f"Init {i+1}: FFE: {np.round(rand_params[:9], 2)}, CTLE: {rand_params[9]:.1f}dB")
-        print(f" -> MLSE BER: {mlse_ber:.2e}")
+        print(f" -> FFE BER: {ffe_ber:.2e} | MLSE BER: {mlse_ber:.2e}")
         
         X_data.append(rand_params)
         y_data.append(obj_val)
@@ -101,14 +110,14 @@ def main():
         # Train GP
         bo.fit(X_data, y_data)
         
-        # Acquisition Maximization
-        next_taps = bo.suggest_next(n_samples=20000)
+        # Acquisition Maximization (Phase 1 Coarse + Phase 2 GS-EI Fine)
+        next_taps = bo.suggest_next(n_coarse=20, n_fine_steps=50, patience=15, lr=0.1)
         
         # Evaluate Simulator
         obj_val, ffe_ber, mlse_ber = objective_function(config, next_taps, result_dir, iter_count)
         
         print(f"Iter {step+1}/{n_iterations} | Best MLSE BER: {10**np.min(y_data):.2e} | "
-              f"Current MLSE BER: {mlse_ber:.2e}")
+              f"Current FFE BER: {ffe_ber:.2e} | Current MLSE BER: {mlse_ber:.2e}")
               
         X_data.append(next_taps)
         y_data.append(obj_val)
