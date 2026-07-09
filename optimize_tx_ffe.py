@@ -3,6 +3,9 @@ import math
 from utils_config import load_config
 from main import run_sim
 from bo_optimizer import BayesianOptimizer
+from sa_optimizer import SimulatedAnnealingOptimizer
+from ga_optimizer import GeneticAlgorithmOptimizer
+from shc_optimizer import SafeHillClimbingOptimizer
 from datetime import datetime
 import os
 
@@ -17,8 +20,9 @@ def objective_function(config, params, result_dir, iter_count):
     
     # We don't save plots for every single iteration of BO to save disk space
     ffe_ber, mlse_ber = run_sim(config, custom_tx_taps=taps, plot_eyes=False)
-    # Target MLSE BER
-    ber_val = max(mlse_ber, 1e-6)
+    # We use ffe_ber for the continuous objective gradient because mlse_ber is highly quantized
+    # and causes flat plateaus where the optimizer cannot find a direction.
+    ber_val = max(ffe_ber, 1e-8)
     
     # Log iteration
     with open(os.path.join(result_dir, "sim_log.txt"), "a") as f:
@@ -53,11 +57,19 @@ def main():
             bounds[i] = [-0.5, 0.3] # Cursors are typically negative or slightly positive
     bounds[9] = [-20.0, 0.0] # CTLE DC Gain from -20dB to 0dB
     
-    # Initialize Optimizer
-    bo = BayesianOptimizer(bounds, noise_var=1e-3)
+    opt_type = config['tx'].get('optimizer_type', 'BO').upper()
+    if opt_type == 'SA':
+        optimizer = SimulatedAnnealingOptimizer(bounds, max_regression_ratio=5.0, initial_temp=0.1, cooling_rate=0.85)
+    elif opt_type == 'GA':
+        optimizer = GeneticAlgorithmOptimizer(bounds, pop_size=10, mutation_rate=0.3, mutation_scale=0.15)
+    elif opt_type == 'SHC':
+        optimizer = SafeHillClimbingOptimizer(bounds, initial_step_size=0.01, max_regression_ratio=5.0)
+    else:
+        optimizer = BayesianOptimizer(bounds, noise_var=1e-3)
     
     X_data = []
     y_data = []
+    mlse_history = []
     
     # 1. Evaluate Initial Default Point
     default_params = np.zeros(D)
@@ -78,72 +90,100 @@ def main():
     iter_count = [1]
     
     with open(os.path.join(result_dir, "sim_log.txt"), "w") as f:
-        f.write(f"--- Starting Tx FFE Bayesian Optimization (White-Box) ---\n")
+        f.write(f"--- Starting Tx FFE {opt_type} Optimization (White-Box) ---\n")
         f.write(f"Baud Rate: {config['system']['baud_rate']/1e9} GBd\n")
-        f.write(f"Optimizer: Gaussian Process (RBF Kernel), Acquisition: Expected Improvement (EI)\n")
-        f.write(f"Iterations: {20}\n\n")
+        if opt_type == 'SA':
+            f.write(f"Optimizer: Bounded Simulated Annealing (Max Regression Ratio: 5.0, Initial Temp: 0.1, Cooling: 0.85)\n")
+        elif opt_type == 'GA':
+            f.write(f"Optimizer: Genetic Algorithm (Pop: 10, Mut_Rate: 0.3, Mut_Scale: 0.15)\n")
+        elif opt_type == 'SHC':
+            f.write(f"Optimizer: Safe Micro-Step Hill Climbing (Init Step: 0.01, Max Regression: 5.0)\n")
+        else:
+            f.write(f"Optimizer: Gaussian Process (RBF Kernel), Acquisition: Expected Improvement (EI)\n")
+        f.write(f"Iterations: {40}\n\n")
 
     obj_val, ffe_ber, mlse_ber = objective_function(config, default_params, result_dir, iter_count)
     print(f" -> MLSE BER: {mlse_ber:.2e} (FFE BER: {ffe_ber:.2e})")
     
     X_data.append(default_params)
     y_data.append(obj_val)
+    mlse_history.append(mlse_ber)
     
     # 2. Evaluate Random Perturbations for Initial GP Training (Exploration)
-    n_initial = 10
-    for i in range(n_initial):
-        rand_params = np.random.uniform(bounds[:, 0], bounds[:, 1], D)
-        # Normalize the FFE taps part only
-        rand_params[:9] = rand_params[:9] / np.sum(np.abs(rand_params[:9]))
+    # We ONLY do this for BO, because other algorithms (especially safe ones) should NOT evaluate terrible random points.
+    if opt_type == 'BO':
+        n_initial = 10
+        print("\n--- Evaluating Initial Random Points for GP ---")
+        for i in range(n_initial):
+            rand_params = np.random.uniform(bounds[:, 0], bounds[:, 1], D)
+            # Normalize the FFE taps part only
+            rand_params[:9] = rand_params[:9] / np.sum(np.abs(rand_params[:9]))
+            
+            obj_val, ffe_ber, mlse_ber = objective_function(config, rand_params, result_dir, iter_count)
+            print(f"Init {i+1}: FFE: {np.round(rand_params[:9], 2)}, CTLE: {rand_params[9]:.1f}dB")
+            print(f" -> FFE BER: {ffe_ber:.2e} | MLSE BER: {mlse_ber:.2e}")
+            
+            X_data.append(rand_params)
+            y_data.append(obj_val)
+            mlse_history.append(mlse_ber)
+    else:
+        print("\n--- Skipping Random Initialization (Safe Mode) ---")
         
-        obj_val, ffe_ber, mlse_ber = objective_function(config, rand_params, result_dir, iter_count)
-        print(f"Init {i+1}: FFE: {np.round(rand_params[:9], 2)}, CTLE: {rand_params[9]:.1f}dB")
-        print(f" -> FFE BER: {ffe_ber:.2e} | MLSE BER: {mlse_ber:.2e}")
-        
-        X_data.append(rand_params)
-        y_data.append(obj_val)
-        
-    # 3. Bayesian Optimization Loop
-    n_iterations = 20
-    print("\n--- Entering Bayesian Optimization Loop ---")
+    # 3. Optimization Loop
+    n_iterations = 40
+    print(f"\n--- Entering {opt_type} Optimization Loop ---")
     for step in range(n_iterations):
-        # Train GP
-        bo.fit(X_data, y_data)
+        # Update Optimizer State (Train GP or Update SA State)
+        optimizer.fit(X_data, y_data)
         
-        # Acquisition Maximization (Phase 1 Coarse + Phase 2 GS-EI Fine)
-        next_taps = bo.suggest_next(n_coarse=20, n_fine_steps=50, patience=15, lr=0.1)
+        # Suggest Next Taps
+        next_taps = optimizer.suggest_next(n_coarse=20, n_fine_steps=50, patience=15, lr=0.1)
         
         # Evaluate Simulator
         obj_val, ffe_ber, mlse_ber = objective_function(config, next_taps, result_dir, iter_count)
         
-        print(f"Iter {step+1}/{n_iterations} | Best MLSE BER: {10**np.min(y_data):.2e} | "
+        print(f"Iter {step+1}/{n_iterations} | Best MLSE BER: {np.min(mlse_history):.2e} | "
               f"Current FFE BER: {ffe_ber:.2e} | Current MLSE BER: {mlse_ber:.2e}")
               
         X_data.append(next_taps)
         y_data.append(obj_val)
+        mlse_history.append(mlse_ber)
         
     # 4. Results
     best_idx = np.argmin(y_data)
     best_params = X_data[best_idx]
-    best_ber = 10**y_data[best_idx]
+    best_ffe_ber = 10**y_data[best_idx]
+    best_mlse_ber = mlse_history[best_idx]
     
     print("\n--- Optimization Complete ---")
     print(f"Optimal Tx FFE Taps: {np.round(best_params[:9], 4)}")
     print(f"Optimal CTLE DC Gain: {best_params[9]:.2f} dB")
-    print(f"Achieved MLSE BER: {best_ber:.2e}")
+    print(f"Achieved FFE BER: {best_ffe_ber:.2e}")
+    print(f"Achieved MLSE BER: {best_mlse_ber:.2e}")
     
     # Save a report
     with open(os.path.join(result_dir, 'optimization_report.md'), 'w') as f:
-        f.write("# Tx FFE Bayesian Optimization Report\n\n")
+        f.write(f"# Tx FFE {opt_type} Optimization Report\n\n")
         f.write("## Setup\n")
         f.write("- **Channel**: 112G PAM4 (56 GBd), 15 dB Host PCB trace loss, 35GHz optics.\n")
-        f.write("- **Optimizer**: White-Box Gaussian Process Regressor (RBF Kernel) with Expected Improvement.\n")
+        if opt_type == 'SA':
+            f.write("- **Optimizer**: White-Box Bounded Simulated Annealing (Local Search).\n")
+            f.write("- **Parameters**: `Max Regression Ratio = 5.0`, `Initial Temp = 0.1`, `Cooling Rate = 0.85`.\n")
+        elif opt_type == 'GA':
+            f.write("- **Optimizer**: White-Box Continuous Genetic Algorithm.\n")
+            f.write("- **Parameters**: `Population Size = 10`, `Mutation Rate = 0.3`, `Mutation Scale = 0.15`.\n")
+        elif opt_type == 'SHC':
+            f.write("- **Optimizer**: White-Box Safe Micro-Step Hill Climbing.\n")
+            f.write("- **Parameters**: `Initial Step Size = 0.01`, `Max Regression Ratio = 5.0`.\n")
+        else:
+            f.write("- **Optimizer**: White-Box Gaussian Process Regressor (RBF Kernel) with Expected Improvement.\n")
         f.write("- **Constraint**: Peak sum limit `sum(|w|) = 1.0`.\n\n")
         
         f.write("## Results\n")
-        default_ber = 10**y_data[0]
-        f.write(f"- **Default Taps [0,0,0,0,1,0,0,0,0] BER**: `{default_ber:.2e}`\n")
-        f.write(f"- **Optimal MLSE BER**: `{best_ber:.2e}`\n")
+        default_ber = mlse_history[0]
+        f.write(f"- **Default Taps [0,0,0,0,1,0,0,0,0] MLSE BER**: `{default_ber:.2e}`\n")
+        f.write(f"- **Optimal FFE BER**: `{best_ffe_ber:.2e}`\n")
+        f.write(f"- **Optimal MLSE BER**: `{best_mlse_ber:.2e}`\n")
         f.write(f"- **Optimal Tx FFE Taps**: `{np.round(best_params[:9], 4).tolist()}`\n")
         f.write(f"- **Optimal CTLE DC Gain**: `{best_params[9]:.2f} dB`\n\n")
         
@@ -155,7 +195,7 @@ def main():
         f.write("\n--- Optimization Complete ---\n")
         f.write(f"Optimal Tx FFE Taps: {np.round(best_params[:9], 4).tolist()}\n")
         f.write(f"Optimal CTLE DC Gain: {best_params[9]:.2f} dB\n")
-        f.write(f"Achieved MLSE BER: {best_ber:.2e}\n")
+        f.write(f"Achieved MLSE BER: {best_mlse_ber:.2e}\n")
             
     # Run the best params one more time to generate the eye diagrams if configured
     run_sim(config, custom_tx_taps=best_params[:9], plot_eyes=True, output_dir=result_dir)

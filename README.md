@@ -43,6 +43,9 @@ DEFAULT_MODE = '112G'
 👉 **[03. 调试排坑与经验沉淀 (Troubleshooting History)](docs/03_Troubleshooting_History.md)**  
 > *查阅过去在 DFE 误差传播、发送端相位失真以及 FFE 抽头对齐上走过的弯路，避免重蹈覆辙。*
 
+👉 **[04. 优化算法架构与原理解析 (Optimization Algorithms)](docs/04_Optimization_Algorithms.md)**  
+> *全面解析本项目从零构建的 BO、GA、SA 与在线防掉线微步 SHC 四种白盒优化算法原理与配置指南。*
+
 ---
 
 ## ⚡ 快速上手 (Quick Start)
@@ -60,11 +63,17 @@ pip install numpy scipy matplotlib scikit-rf pandas openpyxl bayesian-optimizati
 python main.py
 ```
 
-### 3. 发端权重贝叶斯优化
-如果要在当前 Mode 下寻找最优的 Tx FFE 权重：
+### 3. 发端权重智能寻优 (Tx FFE Auto-Optimization)
+如果要在当前 Mode 下寻找最优的 Tx FFE 权重，只需运行：
 ```bash
 python optimize_tx_ffe.py
 ```
+> [!NOTE]
+> 优化器支持在 `config.xlsx` (由 `create_config.py` 生成) 的 `tx` 表格中通过 `optimizer_type` 无缝切换以下四种完全自研的白盒算法：
+> 1. **`BO` (贝叶斯优化)**：适用于从零开始的全局探索与局部收敛混合寻优。
+> 2. **`GA` (连续型遗传算法)**：基于种群的锦标赛交叉与多点高斯变异，用于大范围连续演化。
+> 3. **`SA` (受限模拟退火)**：局部抖动探索，增加硬性退化拒绝阈值，防止优化跑飞。
+> 4. **`SHC` (安全微步爬山)**：**针对在线实时调参专门设计**。严格锁定极微小步长，跳过危险的全局随机探索，确保硬件评估过程中的中间参数也始终稳定在极低误码率，彻底杜绝调参导致掉线的风险。
 > [!TIP]
 > **想看中间眼图？**
 > 打开 `create_config.py`，在 `system` 栏将 `plot_intermediate_eyes` 改为 `True`，系统将自动吐出经过高平滑度上采样的各个物理节点眼图照片（如 ADC 采样端、Tx 出射端等）。

@@ -37,7 +37,7 @@ def generate_config(mode=DEFAULT_MODE):
             'sps_channel': 8,         
             'sps_adc': 2,             
             'plot_intermediate_eyes': False,
-            'num_symbols': 50000      
+            'num_symbols': 2000000      
         },
         'tx': {
             'baud_rate': baud_rate,        
@@ -47,10 +47,11 @@ def generate_config(mode=DEFAULT_MODE):
             'ffe_taps': 9,            
             'ffe_spacing': 1,         
             'custom_taps': "[0.0, 0.0, 0.0, -0.2987, 0.7012, 0.0, 0.0, 0.0, 0.0]", 
+            'optimizer_type': 'SHC', 
         },
         'channel': {
             'sps_channel': 8,
-            'snr_db': 25.0,           
+            'snr_db': 27.5,           
             
             'use_s4p': True,
             's4p_file': s4p_file,
