@@ -26,7 +26,8 @@ DEFAULT_MODE = '112G'
 ## 💡 均衡器配置底座
 * **Tx FFE**: 9-tap T-Spaced，架构锁死，权重预留供贝叶斯优化器寻优。
 * **Rx FFE**: 31-tap T/2 Spaced，内置 LMS 自适应盲调。
-* **DFE & MLSE**: 默认全关，纯净的线性极限摸底。
+* **DFE**: 默认全关，防止高误码率下的雪崩式错误传播 (Error Propagation)。
+* **MLSE**: 默认开启 (Memory=1)，搭配 Burg 算法处理残余色噪，系统优化以拉大 MLSE 的判决裕度为唯一目标。
 
 *(注：历史的 Baseline 测试结果已清空归档，当前系统已全面转向以 **MLSE BER** 为终极目标的严格物理评估。接下来我们将基于此真实的物理底座进行完全自研（White-Box）的寻优与极限冲刺。)*
 
