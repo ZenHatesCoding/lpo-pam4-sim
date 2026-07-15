@@ -16,8 +16,8 @@ def main():
     create_config.generate_config()
     base_config = load_config('config.xlsx')
     
-    # 2 million symbols
-    base_config['channel']['snr_db'] = 26.0
+    # 1e-5 level simulation (1 Million symbols)
+    base_config['channel']['snr_db'] = 28.0
     print(f"Num Symbols: {base_config['system']['num_symbols']}")
     print(f"SNR (dB): {base_config['channel']['snr_db']}")
     
@@ -42,7 +42,8 @@ def main():
     
     # Extract ffe_pre
     ffe_pre = int(base_config['tx'].get('ffe_pre', 4))
-    base_config['system']['num_symbols'] = 131072
+    base_config['system']['num_symbols'] = 1048576
+    base_config['tx']['pattern_length'] = 1048576
     if int(base_config['tx']['ffe_taps']) != 9:
         ffe_pre = 1
     
