@@ -65,22 +65,18 @@ class SafeHillClimbingOptimizer:
         # We perturb a single random dimension (Coordinate Descent style) or all with tiny noise
         x_new = self.current_x.copy()
         
-        # Micro random walk direction
-        direction = np.random.randn(self.D)
-        direction /= np.linalg.norm(direction) # unit vector
+        # Sparse micro-step: perturb only 1 random dimension to drastically improve sample efficiency
+        dim_to_perturb = np.random.randint(self.D)
+        noise = np.zeros(self.D)
+        noise[dim_to_perturb] = np.random.choice([-1.0, 1.0]) * self.step_size
         
-        noise = direction * self.step_size
-        if self.D > 9:
-            noise[-1] *= 5.0 # CTLE has larger scale
+        if dim_to_perturb == self.D - 1: # CTLE
+            noise[-1] *= 5.0
             
         x_new = x_new + noise
         
         # Project back to bounds
         x_new = np.clip(x_new, self.bounds[:, 0], self.bounds[:, 1])
         
-        # Enforce FFE L1 constraint (first 9 taps)
-        if self.D >= 9:
-            ffe_sum = np.sum(np.abs(x_new[:9]))
-            x_new[:9] = x_new[:9] / max(ffe_sum, 1e-9)
-            
+        
         return x_new

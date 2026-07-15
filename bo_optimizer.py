@@ -85,7 +85,7 @@ class BayesianOptimizer:
             
             # Projected Bounds (Clipping)
             params[0] = np.clip(params[0], 1e-3, 5.0) # sigma_f bounds
-            params[1:-1] = np.clip(params[1:-1], 0.01, 0.3) # L_FFE MUST be very small to allow fast sigma growth
+            params[1:-1] = np.clip(params[1:-1], 0.05, 0.5) # L_FFE bounds (prevent collapse)
             params[-1] = np.clip(params[-1], 1.0, 20.0) # L_CTLE bounds
 
         # Update with tuned parameters
@@ -109,7 +109,7 @@ class BayesianOptimizer:
         
         return mu_s, np.sqrt(var_s)
 
-    def acquisition_function(self, X_s, kappa=10.0):
+    def acquisition_function(self, X_s, kappa=0.5):
         """ Lower Confidence Bound (inverted for maximization) 
             We want to minimize mu (BER) and maximize sigma (exploration).
             So we maximize: -mu + kappa * sigma
@@ -128,19 +128,20 @@ class BayesianOptimizer:
         # 1. Global Exploration
         X_coarse[:half_n] = np.random.uniform(self.bounds[:, 0], self.bounds[:, 1], size=(half_n, self.D))
         
-        # 2. Local Exploitation (Perturb around best known point)
+        # 2. Local Exploitation (Perturb around best known point using Sobol/LHS-like structured random)
         if len(self.X_train) > 0:
             best_x = self.X_train[np.argmin(self.y_train)]
-            local_noise = np.random.randn(n_coarse - half_n, self.D) * 0.05
-            local_noise[:, -1] *= 10.0 # CTLE has larger scale
-            X_coarse[half_n:] = np.clip(best_x + local_noise, self.bounds[:, 0], self.bounds[:, 1])
+            local_n = n_coarse - half_n
+            # Structured local sampling
+            for i in range(self.D):
+                intervals = np.linspace(-0.05, 0.05, local_n+1)
+                points = np.random.uniform(intervals[:-1], intervals[1:])
+                np.random.shuffle(points)
+                if i == self.D - 1:
+                    points *= 10.0
+                X_coarse[half_n:, i] = np.clip(best_x[i] + points, self.bounds[i, 0], self.bounds[i, 1])
         else:
             X_coarse[half_n:] = np.random.uniform(self.bounds[:, 0], self.bounds[:, 1], size=(n_coarse - half_n, self.D))
-        
-        # Enforce L1 constraint ONLY on FFE taps
-        ffe_taps = X_coarse[:, :9]
-        abs_sum = np.sum(np.abs(ffe_taps), axis=1, keepdims=True)
-        X_coarse[:, :9] = ffe_taps / np.maximum(abs_sum, 1e-9)
         
         # Inject best known points to ensure we don't start from pure garbage
         if len(self.X_train) > 0:
@@ -170,8 +171,7 @@ class BayesianOptimizer:
                 
                 # Projection (Bound clipping + L1 norm)
                 X_plus = np.clip(X_plus, self.bounds[:, 0], self.bounds[:, 1])
-                ffe_sum = np.sum(np.abs(X_plus[:9]))
-                X_plus[:9] = X_plus[:9] / max(ffe_sum, 1e-9)
+                
                 
                 ei_plus = self.acquisition_function(np.array([X_plus]))[0, 0]
                 grad[i] = (ei_plus - current_ei) / eps
@@ -185,8 +185,7 @@ class BayesianOptimizer:
             
             # Reproject to physical bounds
             X_new = np.clip(X_new, self.bounds[:, 0], self.bounds[:, 1])
-            ffe_sum_new = np.sum(np.abs(X_new[:9]))
-            X_new[:9] = X_new[:9] / max(ffe_sum_new, 1e-9)
+            
             
             # Evaluate new LCB
             new_ei = self.acquisition_function(np.array([X_new]))[0, 0]

@@ -37,7 +37,7 @@ def generate_config(mode=DEFAULT_MODE):
             'sps_channel': 8,         
             'sps_adc': 2,             
             'plot_intermediate_eyes': False,
-            'num_symbols': 2000000      
+            'num_symbols': 65536      
         },
         'tx': {
             'baud_rate': baud_rate,        
@@ -51,7 +51,7 @@ def generate_config(mode=DEFAULT_MODE):
         },
         'channel': {
             'sps_channel': 8,
-            'snr_db': 27.5,           
+            'snr_db': 26.5,           
             
             'use_s4p': True,
             's4p_file': s4p_file,

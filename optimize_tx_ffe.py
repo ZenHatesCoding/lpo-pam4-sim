@@ -12,21 +12,35 @@ import os
 def objective_function(config, params, result_dir, iter_count):
     """
     Run simulation and return log10 of BER.
-    params: [0:9] are Tx FFE taps, [9] is ctle_g_dc_db
-    We cap the minimum BER at 1e-6 to avoid log(0) and over-optimizing beyond needed bounds.
+    params: [0:8] are Tx FFE pre/post cursors, [8] is ctle_g_dc_db
+    We construct the full 9-tap FFE here.
     """
-    taps = params[:9]
-    config['channel']['ctle_g_dc_db'] = params[9]
+    pre_post = np.array(params[:8])
     
-    # We don't save plots for every single iteration of BO to save disk space
+    # Enforce physical constraint: sum(|pre_post|) <= 0.6 to guarantee main cursor >= 0.4
+    abs_sum = np.sum(np.abs(pre_post))
+    if abs_sum > 0.6:
+        pre_post = pre_post * (0.6 / abs_sum)
+        
+    ffe_pre = int(config['tx'].get('ffe_pre', 4))
+    if int(config['tx']['ffe_taps']) != 9:
+        ffe_pre = 1 # Fallback for non-9-tap
+        
+    taps = np.zeros(9)
+    taps[:ffe_pre] = pre_post[:ffe_pre]
+    taps[ffe_pre+1:] = pre_post[ffe_pre:]
+    taps[ffe_pre] = 1.0 - np.sum(np.abs(pre_post)) # Main cursor
+    
+    config['channel']['ctle_g_dc_db'] = params[8]
+    
+    # We don't save plots for every single iteration
     ffe_ber, mlse_ber = run_sim(config, custom_tx_taps=taps, plot_eyes=False)
-    # We use ffe_ber for the continuous objective gradient because mlse_ber is highly quantized
-    # and causes flat plateaus where the optimizer cannot find a direction.
-    ber_val = max(ffe_ber, 1e-8)
+    # User explicitly requested MLSE BER as the optimization target
+    ber_val = max(mlse_ber, 1e-8)
     
     # Log iteration
     with open(os.path.join(result_dir, "sim_log.txt"), "a") as f:
-        f.write(f"Iter {iter_count[0]} | Taps: {np.round(taps, 4).tolist()} | CTLE DC: {params[9]:.2f}dB | FFE BER: {ffe_ber:.2e} | MLSE BER: {mlse_ber:.2e}\n")
+        f.write(f"Iter {iter_count[0]} | Taps: {np.round(taps, 4).tolist()} | CTLE DC: {params[8]:.2f}dB | FFE BER: {ffe_ber:.2e} | MLSE BER: {mlse_ber:.2e}\n")
     iter_count[0] += 1
     
     return math.log10(ber_val), ffe_ber, mlse_ber
@@ -46,16 +60,13 @@ def main():
     if 'pcb_loss_nyquist_db' not in config['channel']:
         config['channel']['pcb_loss_nyquist_db'] = 15.0
         
-    # We are optimizing 9 Tx FFE taps + 1 CTLE DC Gain
-    D = 10
+    # We are optimizing 8 Tx FFE pre/post taps + 1 CTLE DC Gain
+    D = 9
     # Constrain the search space
     bounds = np.zeros((D, 2))
-    for i in range(9):
-        if i == 4:
-            bounds[i] = [0.4, 1.0] # Center tap must be strong and positive
-        else:
-            bounds[i] = [-0.5, 0.3] # Cursors are typically negative or slightly positive
-    bounds[9] = [-20.0, 0.0] # CTLE DC Gain from -20dB to 0dB
+    for i in range(8):
+        bounds[i] = [-0.3, 0.3] # Pre/post cursors constrained
+    bounds[8] = [-20.0, 0.0] # CTLE DC Gain from -20dB to 0dB
     
     opt_type = config['tx'].get('optimizer_type', 'BO').upper()
     if opt_type == 'SA':
@@ -73,6 +84,7 @@ def main():
     
     # 1. Evaluate Initial Default Point
     default_params = np.zeros(D)
+    ffe_pre = int(config['tx'].get('ffe_pre', 4))
     if config['tx'].get('custom_taps') is not None:
         taps_val = config['tx']['custom_taps']
         if isinstance(taps_val, str) and taps_val.strip().startswith('['):
@@ -80,11 +92,18 @@ def main():
             taps_array = np.array(ast.literal_eval(taps_val))
         else:
             taps_array = np.array(taps_val)
-        default_params[:9] = taps_array
+        
+        # Extract pre/post cursors
+        pre_post = np.zeros(8)
+        pre_post[:ffe_pre] = taps_array[:ffe_pre]
+        pre_post[ffe_pre:] = taps_array[ffe_pre+1:9]
+        default_params[:8] = pre_post
     else:
-        default_params[4] = 1.0
-    default_params[9] = config['channel'].get('ctle_g_dc_db', -12.0)
-    print(f"Eval Initial Default Params: {default_params}")
+        # Default is all zeros for pre/post, which means main cursor is 1.0
+        pass
+        
+    default_params[8] = config['channel'].get('ctle_g_dc_db', -12.0)
+    print(f"Eval Initial Default Params (8 FFE + 1 CTLE): {default_params}")
     
     # We'll use a mutable list to track iteration count
     iter_count = [1]
@@ -116,11 +135,10 @@ def main():
         print("\n--- Evaluating Initial Random Points for GP ---")
         for i in range(n_initial):
             rand_params = np.random.uniform(bounds[:, 0], bounds[:, 1], D)
-            # Normalize the FFE taps part only
-            rand_params[:9] = rand_params[:9] / np.sum(np.abs(rand_params[:9]))
+            # Physical constraints are now handled safely inside objective_function
             
             obj_val, ffe_ber, mlse_ber = objective_function(config, rand_params, result_dir, iter_count)
-            print(f"Init {i+1}: FFE: {np.round(rand_params[:9], 2)}, CTLE: {rand_params[9]:.1f}dB")
+            print(f"Init {i+1}: FFE: {np.round(rand_params[:8], 2)}, CTLE: {rand_params[8]:.1f}dB")
             print(f" -> FFE BER: {ffe_ber:.2e} | MLSE BER: {mlse_ber:.2e}")
             
             X_data.append(rand_params)
@@ -155,9 +173,19 @@ def main():
     best_ffe_ber = 10**y_data[best_idx]
     best_mlse_ber = mlse_history[best_idx]
     
+    # Reconstruct best taps
+    pre_post = best_params[:8]
+    abs_sum = np.sum(np.abs(pre_post))
+    if abs_sum > 0.6:
+        pre_post = pre_post * (0.6 / abs_sum)
+    taps = np.zeros(9)
+    taps[:ffe_pre] = pre_post[:ffe_pre]
+    taps[ffe_pre+1:] = pre_post[ffe_pre:]
+    taps[ffe_pre] = 1.0 - np.sum(np.abs(pre_post))
+    
     print("\n--- Optimization Complete ---")
-    print(f"Optimal Tx FFE Taps: {np.round(best_params[:9], 4)}")
-    print(f"Optimal CTLE DC Gain: {best_params[9]:.2f} dB")
+    print(f"Optimal Tx FFE Taps: {np.round(taps, 4)}")
+    print(f"Optimal CTLE DC Gain: {best_params[8]:.2f} dB")
     print(f"Achieved FFE BER: {best_ffe_ber:.2e}")
     print(f"Achieved MLSE BER: {best_mlse_ber:.2e}")
     
@@ -184,8 +212,8 @@ def main():
         f.write(f"- **Default Taps [0,0,0,0,1,0,0,0,0] MLSE BER**: `{default_ber:.2e}`\n")
         f.write(f"- **Optimal FFE BER**: `{best_ffe_ber:.2e}`\n")
         f.write(f"- **Optimal MLSE BER**: `{best_mlse_ber:.2e}`\n")
-        f.write(f"- **Optimal Tx FFE Taps**: `{np.round(best_params[:9], 4).tolist()}`\n")
-        f.write(f"- **Optimal CTLE DC Gain**: `{best_params[9]:.2f} dB`\n\n")
+        f.write(f"- **Optimal Tx FFE Taps**: `{np.round(taps, 4).tolist()}`\n")
+        f.write(f"- **Optimal CTLE DC Gain**: `{best_params[8]:.2f} dB`\n\n")
         
         f.write("## Convergence Trace\n")
         for i, y in enumerate(y_data):
@@ -193,12 +221,12 @@ def main():
             
     with open(os.path.join(result_dir, "sim_log.txt"), "a") as f:
         f.write("\n--- Optimization Complete ---\n")
-        f.write(f"Optimal Tx FFE Taps: {np.round(best_params[:9], 4).tolist()}\n")
-        f.write(f"Optimal CTLE DC Gain: {best_params[9]:.2f} dB\n")
+        f.write(f"Optimal Tx FFE Taps: {np.round(taps, 4).tolist()}\n")
+        f.write(f"Optimal CTLE DC Gain: {best_params[8]:.2f} dB\n")
         f.write(f"Achieved MLSE BER: {best_mlse_ber:.2e}\n")
             
     # Run the best params one more time to generate the eye diagrams if configured
-    run_sim(config, custom_tx_taps=best_params[:9], plot_eyes=True, output_dir=result_dir)
+    run_sim(config, custom_tx_taps=taps, plot_eyes=True, output_dir=result_dir)
 
 if __name__ == '__main__':
     main()

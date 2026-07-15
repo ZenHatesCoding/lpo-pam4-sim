@@ -1,7 +1,7 @@
 import numpy as np
 
 class SimulatedAnnealingOptimizer:
-    def __init__(self, bounds, max_regression_ratio=5.0, initial_temp=0.1, cooling_rate=0.9):
+    def __init__(self, bounds, max_regression_ratio=5.0, initial_temp=1.0, cooling_rate=0.85):
         """
         White-box implementation of Bounded Simulated Annealing.
         It keeps the search near the current best point and only accepts regressions
@@ -14,6 +14,7 @@ class SimulatedAnnealingOptimizer:
         self.initial_temp = initial_temp
         self.temp = initial_temp
         self.cooling_rate = cooling_rate
+        self.step_size = 0.05 # Initial step size
         
         self.current_x = None
         self.current_y = np.inf
@@ -52,8 +53,9 @@ class SimulatedAnnealingOptimizer:
         else:
             # Check regression bound
             if ber_latest <= self.max_regression_ratio * ber_current:
-                # Delta E in log scale is roughly proportional to degradation
+                # Delta E in log scale (y is log10(BER))
                 delta_e = latest_y - self.current_y
+                # When delta_e is 1.0 (10x worse), prob = exp(-1.0 / temp)
                 prob = np.exp(-delta_e / self.temp)
                 if np.random.rand() < prob:
                     accept = True
@@ -61,6 +63,10 @@ class SimulatedAnnealingOptimizer:
         if accept:
             self.current_x = latest_x.copy()
             self.current_y = latest_y
+            if latest_y < self.best_y: # Only increase step if we found a new best
+                self.step_size = min(self.step_size * 1.05, 0.2)
+        else:
+            self.step_size = max(self.step_size / 1.05, 0.01)
             
         if latest_y < self.best_y:
             self.best_x = latest_x.copy()
@@ -80,22 +86,20 @@ class SimulatedAnnealingOptimizer:
              # Fallback if suggest is called before fit with any data
              return np.random.uniform(self.bounds[:, 0], self.bounds[:, 1], self.D)
              
-        step_scale = np.maximum(0.1, self.temp)
-        
         # Perturb current_x
-        noise = np.random.randn(self.D) * 0.1 * step_scale
-        # CTLE usually has a larger scale (index 9)
-        if self.D > 9:
-            noise[-1] *= 10.0 
+        noise = np.zeros(self.D)
+        dim_to_perturb = np.random.randint(self.D)
+        
+        # Use dynamic step size with Gaussian perturbation
+        noise[dim_to_perturb] = np.random.randn() * self.step_size
+        
+        if dim_to_perturb == self.D - 1:
+            noise[-1] *= 5.0
             
         x_new = self.current_x + noise
         
         # Project back to bounds
         x_new = np.clip(x_new, self.bounds[:, 0], self.bounds[:, 1])
         
-        # Enforce FFE L1 constraint (first 9 taps)
-        if self.D >= 9:
-            ffe_sum = np.sum(np.abs(x_new[:9]))
-            x_new[:9] = x_new[:9] / max(ffe_sum, 1e-9)
-            
+        
         return x_new
