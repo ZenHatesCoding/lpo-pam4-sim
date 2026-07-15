@@ -28,7 +28,7 @@ DEFAULT_MODE = '112G'
 * **Rx FFE**: 31-tap T/2 Spaced，内置 LMS 自适应盲调。
 * **DFE & MLSE**: 默认全关，纯净的线性极限摸底。
 
-*(注：历史的 Baseline 测试结果已清空归档，接下来我们将基于真实的物理底座进行严谨的贝叶斯权重寻优与极限冲刺。)*
+*(注：历史的 Baseline 测试结果已清空归档，当前系统已全面转向以 **MLSE BER** 为终极目标的严格物理评估。接下来我们将基于此真实的物理底座进行完全自研（White-Box）的寻优与极限冲刺。)*
 
 ## 📚 文档导航 (Documentation Navigation)
 
@@ -54,8 +54,9 @@ DEFAULT_MODE = '112G'
 ```bash
 python -m venv .venv
 .\.venv\Scripts\activate
-pip install numpy scipy matplotlib scikit-rf pandas openpyxl bayesian-optimization
+pip install numpy scipy matplotlib scikit-rf pandas openpyxl
 ```
+*(注：本项目已彻底移除所有第三方黑盒优化库，所有算法（如 BO, GA, SA 等）均已实现 100% 纯 Numpy/Scipy 白盒化，确保每一行梯度与探索逻辑均可追溯。)*
 
 ### 2. 执行主仿真
 只需运行 `main.py`，系统将自动生成最新的 `config.xlsx` 并输出当前的 BER 结果：
