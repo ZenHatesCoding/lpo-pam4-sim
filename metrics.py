@@ -46,3 +46,24 @@ def plot_eye(y, sps, title="Eye Diagram", output_dir="diagnostic_results"):
     filename = os.path.join(output_dir, title.replace(" ", "_") + ".png")
     plt.savefig(filename)
     plt.close()
+
+from scipy.signal import welch
+
+def plot_spectrum(signal, fs, title="Spectrum", output_dir="diagnostic_results"):
+    """
+    Plot Power Spectral Density (PSD) using Welch's method
+    """
+    f, Pxx = welch(signal, fs, nperseg=1024, return_onesided=True)
+    
+    plt.figure(figsize=(8, 6))
+    plt.plot(f / 1e9, 10 * np.log10(Pxx), color='r')
+    plt.title(title)
+    plt.xlabel("Frequency (GHz)")
+    plt.ylabel("PSD (dB/Hz)")
+    plt.grid(True)
+    
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    filename = os.path.join(output_dir, title.replace(" ", "_") + ".png")
+    plt.savefig(filename)
+    plt.close()

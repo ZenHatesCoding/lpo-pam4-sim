@@ -16,3 +16,6 @@
 ## 3. 文档与语言规范 (Language Standards)
 - **文档全面中文化 (Chinese Documentation)**：所有全局输出文档（包括 `README.md`、`docs/` 目录下的任何架构、指引或坑点沉淀说明）必须全部使用**中文**撰写。代码内的局部注释允许使用英文以保持简洁。
 - **文档统一路由 (Single Entry Point)**：`README.md` 是全局文档的唯一核心枢纽，任何新增的子文档（包括阶段性的排雷记录）必须在主页中留有入口，且子文档内必须提供返回主页的跳转链接，保证“可进可退”。
+
+## 4. 协作角色与沟通 (Collaboration & Communication)
+- **甲方验收模式 (Client-Vendor Interaction)**：用户扮演“甲方”角色，Agent 是“乙方/执行方”。一旦接受需求，除非遇到影响架构或无法推进的核心疑问，**严禁主动向用户展示 Implementation Plan 请求批准**。Agent 必须自主规划并直接执行到底，最后向用户交付并汇报最终验收成果 (Results/Walkthrough)。不问多余的废话。

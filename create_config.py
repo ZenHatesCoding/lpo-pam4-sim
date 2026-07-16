@@ -36,8 +36,8 @@ def generate_config(mode=DEFAULT_MODE):
             'sps_dac': 2,             
             'sps_channel': 8,         
             'sps_adc': 2,             
-            'enable_eye_plot': False,
-            'enable_spectrum_plot': False,
+            'enable_eye_plot': True,
+            'enable_spectrum_plot': True,
             'num_symbols': 65536      
         },
         'tx': {

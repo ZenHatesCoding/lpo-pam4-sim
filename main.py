@@ -6,7 +6,7 @@ from tx_dsp import pam4_map, tx_dsp_chain
 from channel_imdd import apply_channel
 from rx_dsp import adaptive_ffe_dfe
 from mlse_burg import burg_ar, viterbi_mlse_pam4
-from metrics import calculate_ber, plot_eye
+from metrics import calculate_ber, plot_eye, plot_spectrum
 from scipy.signal import correlate
 from datetime import datetime
 
@@ -15,8 +15,25 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_
     Run a single point simulation of the LPO PAM4 link.
     Returns the MLSE BER and FFE BER.
     """
+    baud_rate = config['system']['baud_rate']
+    
+    if baud_rate == 56e9:
+        mode_str = '112G'
+    elif baud_rate == 112.5e9:
+        mode_str = '224G'
+    elif baud_rate == 212.5e9:
+        mode_str = '448G'
+    else:
+        mode_str = 'Custom'
+
+    if output_dir == "diagnostic_results":
+        output_dir = os.path.join(output_dir, mode_str)
+
     if plot_eyes is None:
         plot_eyes = config['system'].get('enable_eye_plot', False)
+        
+    plot_spectrum_flag = config['system'].get('enable_spectrum_plot', False)
+    
     baud_rate = config['system']['baud_rate']
     sps_dsp = int(config['system']['sps_dsp'])
     sps_dac = int(config['system']['sps_dac'])
@@ -58,6 +75,13 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_
             os.makedirs(output_dir)
         plot_eye(tx_analog[:sps_channel*1000], sps_channel, "Tx_Analog_Out_Eye", output_dir=output_dir)
         plot_eye(rx_analog[:sps_channel*1000], sps_channel, "Rx_ADC_Input_Eye", output_dir=output_dir)
+        
+    if plot_spectrum_flag:
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        fs_channel = baud_rate * sps_channel
+        plot_spectrum(tx_analog, fs_channel, "Tx_Analog_Out_Spectrum", output_dir=output_dir)
+        plot_spectrum(rx_analog, fs_channel, "Rx_ADC_Input_Spectrum", output_dir=output_dir)
         
     # Rx DSP - Find optimal sampling phase
     rx_1sps_even = rx_adc[::sps_adc]
