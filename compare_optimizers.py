@@ -92,7 +92,7 @@ def main():
         pre_post[ffe_pre:] = taps_array[ffe_pre+1:9]
         default_params[:8] = pre_post
             
-        default_params[8] = config['channel'].get('ctle_g_dc_db', -12.0)
+        default_params[8] = config['tx'].get('ctle_g_dc_db', -12.0)
         
         obj_val, ffe_ber, mlse_ber = objective_function(config, default_params, result_dir, iter_count)
         print(f"Default -> FFE BER: {ffe_ber:.2e} | MLSE BER: {mlse_ber:.2e}")

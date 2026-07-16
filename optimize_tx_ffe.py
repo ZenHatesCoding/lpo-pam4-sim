@@ -31,7 +31,7 @@ def objective_function(config, params, result_dir, iter_count):
     taps[ffe_pre+1:] = pre_post[ffe_pre:]
     taps[ffe_pre] = 1.0 - np.sum(np.abs(pre_post)) # Main cursor
     
-    config['channel']['ctle_g_dc_db'] = params[8]
+    config['tx']['ctle_g_dc_db'] = params[8]
     
     # We don't save plots for every single iteration
     ffe_ber, mlse_ber = run_sim(config, custom_tx_taps=taps, plot_eyes=False)
@@ -102,7 +102,7 @@ def main():
         # Default is all zeros for pre/post, which means main cursor is 1.0
         pass
         
-    default_params[8] = config['channel'].get('ctle_g_dc_db', -12.0)
+    default_params[8] = config['tx'].get('ctle_g_dc_db', -12.0)
     print(f"Eval Initial Default Params (8 FFE + 1 CTLE): {default_params}")
     
     # We'll use a mutable list to track iteration count

@@ -49,6 +49,12 @@ def generate_config(mode=DEFAULT_MODE):
             'ffe_spacing': 1,         
             'custom_taps': "[0.0, 0.0, 0.0, -0.2987, 0.7012, 0.0, 0.0, 0.0, 0.0]", 
             'optimizer_type': 'SHC', 
+            # Analog Equalization (Tx CTLE)
+            'use_ctle': True,
+            'ctle_fz_ratio': 2.5,
+            'ctle_fp1_ratio': 2.5,
+            'ctle_fp2_ratio': 1.0,
+            'ctle_g_dc_db': 0.0,
         },
         'channel': {
             'sps_channel': 8,
@@ -64,13 +70,6 @@ def generate_config(mode=DEFAULT_MODE):
             'pd_bw': optics_bw,            
             'tia_bw': optics_bw,           
             'adc_bw': optics_bw,
-            
-            # Analog Equalization (CTLE)
-            'use_ctle': True,
-            'ctle_fz_ratio': 2.5,
-            'ctle_fp1_ratio': 2.5,
-            'ctle_fp2_ratio': 1.0,
-            'ctle_g_dc_db': 0.0,
             
             # Debug toggle
             'disable_isi': False,

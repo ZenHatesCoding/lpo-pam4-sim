@@ -65,9 +65,10 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_
     # Tx DSP
     tx_out = tx_dsp_chain(tx_pam4, sps_dsp, baud_rate, tx_config)
     
-    # Channel
+    # 4. Channel & Analog Front-End
+    # Apply full config since CTLE is in tx, and other channel params are in channel
     tx_analog, rx_analog, rx_adc = apply_channel(
-        tx_out, config['channel'], baud_rate, sps_dac, sps_channel, sps_adc
+        tx_out, config, baud_rate, sps_dac, sps_channel, sps_adc
     )
     
     if plot_eyes:

@@ -14,8 +14,11 @@ from scipy.signal import correlate
 
 def custom_apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc, out_dir, plot_spectrum_flag=False):
     """ Apply sequential IMDD channel bandwidth limitations at high sps """
+    config_ch = config['channel']
+    config_tx = config['tx']
+    
     nyquist = baud_rate / 2
-    loss_db = config.get('pcb_loss_nyquist_db', 15.0)
+    loss_db = config_ch.get('pcb_loss_nyquist_db', 15.0)
     fc_pcb = nyquist / np.sqrt(10**(loss_db/10) - 1)
     
     x_analog = dac_zoh(x_dac, sps_dac, sps_channel)
@@ -25,9 +28,21 @@ def custom_apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc
     if plot_spectrum_flag:
         plot_spectrum(x_analog, baud_rate * sps_channel, "01_DAC_ZOH_Out" + "_Spectrum", output_dir=out_dir)
 
+    if config_tx.get('use_ctle', False):
+        f_b = baud_rate
+        f_z = f_b / config_tx.get('ctle_fz_ratio', 2.5)
+        f_p1 = f_b / config_tx.get('ctle_fp1_ratio', 2.5)
+        f_p2 = f_b / config_tx.get('ctle_fp2_ratio', 1.0)
+        g_dc_db = config_tx.get('ctle_g_dc_db', -10.0)
+        x_analog = apply_ctle(x_analog, fs_analog, f_z, f_p1, f_p2, g_dc_db)
+        
+        plot_eye(x_analog[:sps_channel*1000], sps_channel, "01b_After_Tx_CTLE", output_dir=out_dir)
+        if plot_spectrum_flag:
+            plot_spectrum(x_analog, baud_rate * sps_channel, "01b_After_Tx_CTLE" + "_Spectrum", output_dir=out_dir)
+
     # Apply PCB trace filter
-    if config.get('use_s4p', False) and rf is not None:
-        s4p_path = config.get('s4p_file', '')
+    if config_ch.get('use_s4p', False) and rf is not None:
+        s4p_path = config_ch.get('s4p_file', '')
         if os.path.exists(s4p_path):
             nw = rf.Network(s4p_path)
             try:
@@ -41,7 +56,7 @@ def custom_apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc
             X_analog = np.fft.rfft(x_analog)
             f_sig = np.fft.rfftfreq(N, d=1.0/fs_analog)
             
-            f_scale = config.get('s4p_f_scale', 1.0)
+            f_scale = config_ch.get('s4p_f_scale', 1.0)
             f_sig_scaled = f_sig / f_scale
             
             # CRITICAL CHECK: padding with last value might be an issue if last value is large
@@ -65,30 +80,30 @@ def custom_apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc
     if plot_spectrum_flag:
         plot_spectrum(x, baud_rate * sps_channel, "02_After_SParameter" + "_Spectrum", output_dir=out_dir)
 
-    x = lowpass_filter(x, config['mzm_bw'], fs_analog)
+    x = lowpass_filter(x, config_ch['mzm_bw'], fs_analog)
     plot_eye(x[:sps_channel*1000], sps_channel, "03_After_MZM", output_dir=out_dir)
     if plot_spectrum_flag:
         plot_spectrum(x, baud_rate * sps_channel, "03_After_MZM" + "_Spectrum", output_dir=out_dir)
     
-    loss_db = config['fiber_length_km'] * config['fiber_loss_db_km']
+    loss_db = config_ch['fiber_length_km'] * config_ch['fiber_loss_db_km']
     loss_linear = 10**(-loss_db / 20.0)
     x = x * loss_linear
     plot_eye(x[:sps_channel*1000], sps_channel, "04_After_Fiber_Loss", output_dir=out_dir)
     if plot_spectrum_flag:
         plot_spectrum(x, baud_rate * sps_channel, "04_After_Fiber_Loss" + "_Spectrum", output_dir=out_dir)
     
-    x = lowpass_filter(x, config['pd_bw'], fs_analog)
+    x = lowpass_filter(x, config_ch['pd_bw'], fs_analog)
     plot_eye(x[:sps_channel*1000], sps_channel, "05_After_PD", output_dir=out_dir)
     if plot_spectrum_flag:
         plot_spectrum(x, baud_rate * sps_channel, "05_After_PD" + "_Spectrum", output_dir=out_dir)
     
-    x = lowpass_filter(x, config['tia_bw'], fs_analog)
+    x = lowpass_filter(x, config_ch['tia_bw'], fs_analog)
     plot_eye(x[:sps_channel*1000], sps_channel, "06_After_TIA", output_dir=out_dir)
     if plot_spectrum_flag:
         plot_spectrum(x, baud_rate * sps_channel, "06_After_TIA" + "_Spectrum", output_dir=out_dir)
     
     signal_power = np.mean(x**2)
-    snr_linear = 10**(config['snr_db'] / 10)
+    snr_linear = 10**(config_ch['snr_db'] / 10)
     noise_power = signal_power / snr_linear
     rng = np.random.RandomState(123)
     noise = rng.normal(0, np.sqrt(noise_power), len(x))
@@ -97,20 +112,9 @@ def custom_apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc
     if plot_spectrum_flag:
         plot_spectrum(x_noisy, baud_rate * sps_channel, "07_After_Noise" + "_Spectrum", output_dir=out_dir)
     
-    if config.get('use_ctle', False):
-        f_b = baud_rate
-        f_z = f_b / config.get('ctle_fz_ratio', 2.5)
-        f_p1 = f_b / config.get('ctle_fp1_ratio', 2.5)
-        f_p2 = f_b / config.get('ctle_fp2_ratio', 1.0)
-        g_dc_db = config.get('ctle_g_dc_db', -10.0)
-        x_eq = apply_ctle(x_noisy, fs_analog, f_z, f_p1, f_p2, g_dc_db)
-    else:
-        x_eq = x_noisy
-    plot_eye(x_eq[:sps_channel*1000], sps_channel, "08_After_CTLE", output_dir=out_dir)
-    if plot_spectrum_flag:
-        plot_spectrum(x_eq, baud_rate * sps_channel, "08_After_CTLE" + "_Spectrum", output_dir=out_dir)
+    x_eq = x_noisy
         
-    x_adc_in = lowpass_filter(x_eq, config['adc_bw'], fs_analog)
+    x_adc_in = lowpass_filter(x_eq, config_ch['adc_bw'], fs_analog)
     plot_eye(x_adc_in[:sps_channel*1000], sps_channel, "09_After_ADC_Filter", output_dir=out_dir)
     if plot_spectrum_flag:
         plot_spectrum(x_adc_in, baud_rate * sps_channel, "09_After_ADC_Filter" + "_Spectrum", output_dir=out_dir)
@@ -162,7 +166,7 @@ def main():
         plot_spectrum(tx_out, baud_rate * sps_dsp, "00_Tx_DSP_Out_Spectrum", output_dir=out_dir)
     
     _, _, rx_adc = custom_apply_channel(
-        tx_out, config['channel'], baud_rate, sps_dac, sps_channel, sps_adc, out_dir, plot_spectrum_flag
+        tx_out, config, baud_rate, sps_dac, sps_channel, sps_adc, out_dir, plot_spectrum_flag
     )
     
     rx_1sps = rx_adc[::sps_adc]

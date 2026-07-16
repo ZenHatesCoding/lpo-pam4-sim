@@ -65,32 +65,44 @@ def find_f_scale_for_target_il(freqs, sdd21, target_il_db, nyquist):
     return f_scale
 
 def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
+    config_ch = config['channel']
+    config_tx = config['tx']
     """ Apply sequential IMDD channel bandwidth limitations at high sps """
     # 1. PCB Trace (Host Tx to Module)
     # Model as 1st order lowpass filter.
     # We want a specific insertion loss at Nyquist (e.g., 15 dB at 28 GHz)
     # -10 * log10(1 + (f/fc)^2) = -loss_db  =>  fc = nyquist / sqrt(10**(loss_db/10) - 1)
     nyquist = baud_rate / 2
-    loss_db = config.get('pcb_loss_nyquist_db', 15.0)
+    loss_db = config_ch.get('pcb_loss_nyquist_db', 15.0)
     fc_pcb = nyquist / np.sqrt(10**(loss_db/10) - 1)
     
     # 2. DAC Output (ZOH)
     x_analog = dac_zoh(x_dac, sps_dac, sps_channel)
     fs_analog = baud_rate * sps_channel
+
+    # --- Apply Tx CTLE (Analog Equalization before channel) ---
+    if config_tx.get('use_ctle', False):
+        f_b = baud_rate
+        f_z = f_b / config_tx.get('ctle_fz_ratio', 2.5)
+        f_p1 = f_b / config_tx.get('ctle_fp1_ratio', 2.5)
+        f_p2 = f_b / config_tx.get('ctle_fp2_ratio', 1.0)
+        g_dc_db = config_tx.get('ctle_g_dc_db', -10.0)
+        x_analog = apply_ctle(x_analog, fs_analog, f_z, f_p1, f_p2, g_dc_db)
+    # ----------------------------------------------------------
     
     # --- ISI BYPASS (DEBUG MODE) ---
-    if config.get('disable_isi', False):
+    if config_ch.get('disable_isi', False):
         # 1. Apply flat attenuation (target IL) instead of frequency-dependent PCB loss
-        loss_db = config.get('target_il_nyquist_db', 18.0)
+        loss_db = config_ch.get('target_il_nyquist_db', 18.0)
         x = x_analog * (10 ** (-abs(loss_db) / 20.0))
         
         # 2. Add fiber loss
-        fiber_loss_db = config['fiber_length_km'] * config['fiber_loss_db_km']
+        fiber_loss_db = config_ch['fiber_length_km'] * config_ch['fiber_loss_db_km']
         x = x * (10 ** (-fiber_loss_db / 20.0))
         
         # 3. Add noise
         signal_power = np.mean(x**2)
-        snr_linear = 10**(config['snr_db'] / 10)
+        snr_linear = 10**(config_ch['snr_db'] / 10)
         noise_power = signal_power / snr_linear
         rng = np.random.RandomState(123)
         noise = rng.normal(0, np.sqrt(noise_power), len(x))
@@ -103,8 +115,8 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     # -------------------------------
     
     # Apply PCB trace filter
-    if config.get('use_s4p', False) and rf is not None:
-        s4p_path = config.get('s4p_file', '')
+    if config_ch.get('use_s4p', False) and rf is not None:
+        s4p_path = config_ch.get('s4p_file', '')
         if os.path.exists(s4p_path):
             # Load Touchstone file
             nw = rf.Network(s4p_path)
@@ -135,10 +147,10 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
             # Interpolate S-parameter to signal frequencies
             # Sdd21 is complex. Apply mathematical frequency stretching (ZTE CBW scaling)
             if 'target_il_nyquist_db' in config:
-                f_scale = find_f_scale_for_target_il(freqs, sdd21, -abs(config['target_il_nyquist_db']), nyquist)
-                print(f"Dynamic S-parameter scaling to hit -{abs(config['target_il_nyquist_db'])} dB IL. Computed f_scale = {f_scale:.3f}")
+                f_scale = find_f_scale_for_target_il(freqs, sdd21, -abs(config_ch['target_il_nyquist_db']), nyquist)
+                print(f"Dynamic S-parameter scaling to hit -{abs(config_ch['target_il_nyquist_db'])} dB IL. Computed f_scale = {f_scale:.3f}")
             else:
-                f_scale = config.get('s4p_f_scale', 1.0)
+                f_scale = config_ch.get('s4p_f_scale', 1.0)
                 
             f_sig_scaled = f_sig / f_scale
             
@@ -156,43 +168,34 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
         x = lowpass_filter(x_analog, fc_pcb, fs_analog, order=1)
     
     # 3. E-O Conversion (MZM)
-    x = lowpass_filter(x, config['mzm_bw'], fs_analog)
+    x = lowpass_filter(x, config_ch['mzm_bw'], fs_analog)
     
     # 3. Fiber Channel
     # Simple insertion loss model (linear scaling)
     # LPO does not have retimers, total loss budget is critical
-    loss_db = config['fiber_length_km'] * config['fiber_loss_db_km']
+    loss_db = config_ch['fiber_length_km'] * config_ch['fiber_loss_db_km']
     loss_linear = 10**(-loss_db / 20.0) # Voltage/Amplitude scaling
     x = x * loss_linear
     
     # 4. O-E Conversion (PD)
-    x = lowpass_filter(x, config['pd_bw'], fs_analog)
+    x = lowpass_filter(x, config_ch['pd_bw'], fs_analog)
     
     # 5. TIA
-    x = lowpass_filter(x, config['tia_bw'], fs_analog)
+    x = lowpass_filter(x, config_ch['tia_bw'], fs_analog)
     
     # 6. Add noise based on electrical SNR
     signal_power = np.mean(x**2)
-    snr_linear = 10**(config['snr_db'] / 10)
+    snr_linear = 10**(config_ch['snr_db'] / 10)
     noise_power = signal_power / snr_linear
     rng = np.random.RandomState(123)
     noise = rng.normal(0, np.sqrt(noise_power), len(x))
     x_noisy = x + noise
     
-    # 7. Apply CTLE (Analog Equalization before ADC)
-    if config.get('use_ctle', False):
-        f_b = baud_rate
-        f_z = f_b / config.get('ctle_fz_ratio', 2.5)
-        f_p1 = f_b / config.get('ctle_fp1_ratio', 2.5)
-        f_p2 = f_b / config.get('ctle_fp2_ratio', 1.0)
-        g_dc_db = config.get('ctle_g_dc_db', -10.0) # E.g., -10 dB DC gain means 10dB peaking
-        
-        x_eq = apply_ctle(x_noisy, fs_analog, f_z, f_p1, f_p2, g_dc_db)
-    else:
-        x_eq = x_noisy
+    # 7. (Rx CTLE removed, moved to Tx)
+    x_eq = x_noisy
     
     # 8. ADC Analog Front-End (Anti-alias + Bandwidth)
-    x_adc_in = lowpass_filter(x_eq, config['adc_bw'], fs_analog)
+    x_adc_in = lowpass_filter(x_eq, config_ch['adc_bw'], fs_analog)
     
     # 9. ADC Sampling
     # Downsample from sps_channel to sps_adc
