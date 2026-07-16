@@ -10,11 +10,13 @@ from metrics import calculate_ber, plot_eye
 from scipy.signal import correlate
 from datetime import datetime
 
-def run_sim(config, custom_tx_taps=None, plot_eyes=False, output_dir="result"):
+def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_results"):
     """
     Run a single point simulation of the LPO PAM4 link.
     Returns the MLSE BER and FFE BER.
     """
+    if plot_eyes is None:
+        plot_eyes = config['system'].get('enable_eye_plot', False)
     baud_rate = config['system']['baud_rate']
     sps_dsp = int(config['system']['sps_dsp'])
     sps_dac = int(config['system']['sps_dac'])
@@ -133,7 +135,7 @@ if __name__ == '__main__':
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
         
-    ffe_ber, mlse_ber = run_sim(config, plot_eyes=True, output_dir=result_dir)
+    ffe_ber, mlse_ber = run_sim(config, plot_eyes=None, output_dir=result_dir)
     
     result_str = f"FFE BER: {ffe_ber:.2e}, MLSE BER: {mlse_ber:.2e}\n"
     print(result_str)
