@@ -37,12 +37,15 @@ def main():
     if 'pcb_loss_nyquist_db' not in base_config['channel']:
         base_config['channel']['pcb_loss_nyquist_db'] = 15.0
         
-    # We are optimizing 8 Tx FFE pre/post taps + 1 CTLE DC Gain
-    D = 9
+    # We are optimizing 8 Tx FFE pre/post taps + 4 CTLE Params
+    D = 12
     bounds = np.zeros((D, 2))
     for i in range(8):
         bounds[i] = [-0.3, 0.3] 
-    bounds[8] = [-20.0, 0.0] 
+    bounds[8] = [-20.0, 0.0]
+    bounds[9] = [1.0, 5.0]
+    bounds[10] = [1.0, 5.0]
+    bounds[11] = [0.5, 3.0] 
     
     # Extract ffe_pre
     ffe_pre = int(base_config['tx'].get('ffe_pre', 4))
@@ -93,6 +96,9 @@ def main():
         default_params[:8] = pre_post
             
         default_params[8] = config['tx'].get('ctle_g_dc_db', -12.0)
+        default_params[9] = config['tx'].get('ctle_fz_ratio', 2.5)
+        default_params[10] = config['tx'].get('ctle_fp1_ratio', 2.5)
+        default_params[11] = config['tx'].get('ctle_fp2_ratio', 1.0)
         
         obj_val, ffe_ber, mlse_ber = objective_function(config, default_params, result_dir, iter_count)
         print(f"Default -> FFE BER: {ffe_ber:.2e} | MLSE BER: {mlse_ber:.2e}")
@@ -112,7 +118,10 @@ def main():
             for i in range(10):
                 # Localized sampling around default_params for sample efficiency
                 rand_params = default_params + np.random.randn(D) * 0.05
-                rand_params[-1] = default_params[-1] + np.random.randn() * 1.0 # CTLE wider
+                rand_params[8] = default_params[8] + np.random.randn() * 1.0 # CTLE wider
+                rand_params[9] = default_params[9] + np.random.randn() * 0.5
+                rand_params[10] = default_params[10] + np.random.randn() * 0.5
+                rand_params[11] = default_params[11] + np.random.randn() * 0.2
                 rand_params = np.clip(rand_params, bounds[:, 0], bounds[:, 1])
                 
                 obj_val, ffe_ber, mlse_ber = objective_function(config, rand_params, result_dir, iter_count)
@@ -170,7 +179,7 @@ def main():
             'Max_FFE_BER_Tested': max_ffe_ber_in_loop,
             'Max_MLSE_BER_Tested': max_mlse_ber_in_loop,
             'Best_Taps': np.round(taps, 4).tolist(),
-            'Best_CTLE': round(best_params[8], 2)
+            'Best_CTLE': f"{best_params[8]:.2f}dB, fz:{best_params[9]:.1f}, p1:{best_params[10]:.1f}, p2:{best_params[11]:.1f}"
         }
         all_histories[opt_type] = mlse_history
         
@@ -200,7 +209,7 @@ def main():
         
         for alg in algorithms:
             r = results_summary[alg]
-            f.write(f"| **{alg}** | `{r['Best_MLSE_BER']:.2e}` | `{r['Best_FFE_BER']:.2e}` | `{r['Max_FFE_BER_Tested']:.2e}` | `{r['Max_MLSE_BER_Tested']:.2e}` | `{r['Best_CTLE']} dB` |\n")
+            f.write(f"| **{alg}** | `{r['Best_MLSE_BER']:.2e}` | `{r['Best_FFE_BER']:.2e}` | `{r['Max_FFE_BER_Tested']:.2e}` | `{r['Max_MLSE_BER_Tested']:.2e}` | `{r['Best_CTLE']}` |\n")
             
         f.write("\n## Optimal Taps\n")
         for alg in algorithms:
