@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import matplotlib.pyplot as plt
 from datetime import datetime
 from utils_config import load_config
 from main import run_sim
@@ -28,6 +29,9 @@ def main():
         
     algorithms = ['BO', 'GA', 'SA', 'SHC']
     results_summary = {}
+    all_histories = {}
+    initial_ffe_ber = None
+    initial_mlse_ber = None
     
     # Enable realistic PCB loss
     if 'pcb_loss_nyquist_db' not in base_config['channel']:
@@ -92,6 +96,10 @@ def main():
         
         obj_val, ffe_ber, mlse_ber = objective_function(config, default_params, result_dir, iter_count)
         print(f"Default -> FFE BER: {ffe_ber:.2e} | MLSE BER: {mlse_ber:.2e}")
+        
+        if initial_ffe_ber is None:
+            initial_ffe_ber = ffe_ber
+            initial_mlse_ber = mlse_ber
         
         X_data.append(default_params)
         y_data.append(obj_val)
@@ -164,12 +172,29 @@ def main():
             'Best_Taps': np.round(taps, 4).tolist(),
             'Best_CTLE': round(best_params[8], 2)
         }
+        all_histories[opt_type] = mlse_history
         
+    # Generate Convergence Plot
+    plt.figure(figsize=(10, 6))
+    for alg in algorithms:
+        plt.semilogy(all_histories[alg], label=alg, marker='o', markersize=4)
+    plt.axhline(y=initial_mlse_ber, color='r', linestyle='--', label='Initial Sub-optimal')
+    plt.title(f"MLSE BER Convergence (SNR={base_config['channel']['snr_db']} dB)")
+    plt.xlabel("Evaluation Step")
+    plt.ylabel("MLSE BER")
+    plt.grid(True, which="both", ls="--")
+    plt.legend()
+    plot_path = os.path.join(result_dir, "mlse_ber_convergence.png")
+    plt.savefig(plot_path)
+    plt.close()
+
     # Write Summary Markdown
     with open(os.path.join(result_dir, 'comparison_summary.md'), 'w') as f:
         f.write(f"# Optimization Algorithm Comparison\n\n")
         f.write(f"- **Symbols**: {base_config['system']['num_symbols']}\n")
-        f.write(f"- **SNR**: {base_config['channel']['snr_db']} dB\n\n")
+        f.write(f"- **SNR**: {base_config['channel']['snr_db']} dB\n")
+        f.write(f"- **Initial Sub-optimal Point**: FFE BER = `{initial_ffe_ber:.2e}`, MLSE BER = `{initial_mlse_ber:.2e}`\n\n")
+        f.write(f"![MLSE BER Convergence](file:///{os.path.abspath(plot_path).replace(os.sep, '/')})\n\n")
         f.write("| Algorithm | Best MLSE BER | Best FFE BER | Max FFE BER (Safety) | Max MLSE BER (Safety) | Optimal CTLE |\n")
         f.write("| --- | --- | --- | --- | --- | --- |\n")
         
