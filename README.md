@@ -55,7 +55,7 @@ DEFAULT_MODE = '112G'
 ```bash
 python -m venv .venv
 .\.venv\Scripts\activate
-pip install numpy scipy matplotlib scikit-rf pandas openpyxl
+pip install -r requirements.txt
 ```
 *(注：本项目已彻底移除所有第三方黑盒优化库，所有算法（如 BO, GA, SA 等）均已实现 100% 纯 Numpy/Scipy 白盒化，确保每一行梯度与探索逻辑均可追溯。)*
 
