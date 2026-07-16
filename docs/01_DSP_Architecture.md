@@ -8,20 +8,49 @@
 
 ## 1. 核心架构说明
 
-### 1.1 发送端 (Tx DSP)
+### 1.1 发送端 (Tx DSP & Analog Front-End)
 由于 LPO (Linear Pluggable Optics) 模块内部不包含 DSP，所有的发送端均衡均由 Host ASIC 完成。
-- **纯线性 FFE**：我们移除了会引入严重相位失真的 IIR 连续时间 CTLE，只使用 FIR 结构的 Tx FFE。
-- **预加重 (Pre-emphasis)**：为了抵抗信道严重的高频衰减，Tx FFE 的抽头（如 `[-0.14, 0.8, -0.06]`）会故意对高频分量进行预放大。
+- **纯线性 FFE**：使用 FIR 结构的 Tx FFE 预加重，对抗信道高频衰减。
+- **Tx CTLE (模拟域)**：为了模拟 Host 端 SerDes 芯片的连续时间预加重能力，系统在通过 DAC (Zero-Order Hold) 后，紧接着在**模拟域信道的最前端（即 Tx 端）**部署了 IEEE COM 标准的 CTLE 均衡器，防止由于位置靠后而带来的接收端 TIA 噪声放大。
 
 ### 1.2 信道模型 (Channel)
-- **多采样率仿真**：DSP 核心以 2 Sps（每个符号 2 个采样点）运行，而在信道（包括 MZM 调制器、光纤色散模型、探测器）中，信号将被上采至 8 Sps，以更精确地模拟模拟链路的物理特性。
-- **插损归一化 (Insertion Loss Scaling)**：为了保证物理模型贴近标准，信道响应在应用前会经过动态频率缩放（`f_scale`），强行对齐在奈奎斯特频率（Nyquist Frequency）处产生精确的 `-18 dB` 插入损耗。
+- **多采样率仿真**：DSP 核心以 2 Sps 运行，信道（包括 MZM、光纤色散、探测器、TIA）中信号上采至 8 Sps。
+- **物理信道特性**：包含了 Host PCB Trace 频响滤波、光模块内部 MZM/PD 的电光转换带宽限制，以及长距 Fiber 引入的插损。
 
 ### 1.3 接收端 (Rx DSP)
-- **模拟 CTLE**：LPO 模块本身仅包含模拟驱动器，这里我们实现了一阶连续时间线性均衡器（CTLE），提供一定程度的高频提振。
-- **数字 FFE (T/2 Spaced)**：Host ASIC 接收端使用分数间隔 (Fractional-Spaced) FFE 均衡器。通过内置的 LMS (最小均方差) 算法结合泄漏系数 (Tap Leakage) 和岭回归 (Ridge Regression)，有效防止了在强衰减频带上的抽头发散和爆炸。
-- **完全解耦的 DFE**：由于误差传播在极高误码率下会导致系统雪崩，并且与 MLSE 的相关记忆提取产生严重冲突（背刺），我们默认关闭了 DFE (`dfe_taps = 0`)。一旦检测到 MLSE 开启，系统将自动防呆锁死 DFE。
-- **常态开启的高阶 MLSE**：内置了基于 Viterbi 算法的 MLSE。系统默认开启（`mlse_memory = 1`），使用 Burg 算法自回归拟合残余色噪，联合信道记忆来突破线性 FFE 的理论物理极限。当前的所有白盒优化引擎均以拉大 MLSE 最终判决裕度为唯一目标。
+- **数字 FFE (T/2 Spaced)**：Host ASIC 接收端使用分数间隔 (Fractional-Spaced) FFE 均衡器。通过内置的 LMS (最小均方差) 算法进行自适应抽头寻优。
+- **完全解耦的 DFE**：由于误差传播在极高误码率下会导致系统雪崩，且与 MLSE 相关记忆提取产生冲突，系统默认关闭 DFE (`dfe_taps = 0`)。
+- **常态开启的高阶 MLSE**：内置了基于 Viterbi 算法的 MLSE。系统默认开启（`mlse_memory = 1`），使用 Burg 算法自回归拟合残余色噪，联合信道记忆来突破线性 FFE 的理论物理极限。
+
+### 1.4 全链路数据流框图
+
+```mermaid
+graph TD
+    subgraph Tx_Host["Tx Host ASIC (Digital + Analog)"]
+        A[Tx Data Bits] --> B[PAM4 Mapper]
+        B --> C["Tx FFE (DSP, T-spaced)"]
+        C --> D["DAC (Zero-Order Hold)"]
+        D --> E["Tx CTLE (Analog Equalizer)"]
+    end
+
+    subgraph Channel["Physical Channel & Optics"]
+        E --> F["Host PCB Trace Filter"]
+        F --> G["E-O MZM (Bandwidth Limit)"]
+        G --> H["Optical Fiber (Loss)"]
+        H --> I["O-E PD (Bandwidth Limit)"]
+        I --> J["TIA Amplifier"]
+        N1(("AWGN Noise\n(Thermal/Shot)")) --> K{{"+"}}
+        J --> K
+    end
+
+    subgraph Rx_Host["Rx Host ASIC (Analog + Digital)"]
+        K --> L["Rx Anti-Alias Filter"]
+        L --> M["ADC (Downsample)"]
+        M --> N["Rx FFE (DSP, T/2 spaced)"]
+        N --> O["Viterbi MLSE Decoder"]
+        O --> P[Rx Data Bits]
+    end
+```
 
 ---
 
