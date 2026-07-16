@@ -18,7 +18,7 @@ import os
 
 from scipy.signal import resample_poly
 
-def plot_eye(y, sps, title="Eye Diagram", output_dir="."):
+def plot_eye(y, sps, title="Eye Diagram", output_dir="diagnostic_results"):
     """
     Plot eye diagram
     y: oversampled signal
