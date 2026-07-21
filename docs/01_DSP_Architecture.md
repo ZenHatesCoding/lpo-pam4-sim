@@ -66,6 +66,9 @@ graph TD
 - `ffe_taps`: Tx FFE 总抽头数。
 - `ffe_pre`: Tx FFE 前向（Pre-cursor）抽头数，决定了中心主抽头的位置。
 - `custom_taps`: 手动指定的固定抽头数组。
+- `optimize_mode`: 优化器模式开关。
+  - `'FFE_ONLY'`：仅优化 8 个 Tx FFE 前后抽头与 1 个 CTLE DC Gain（9维空间）。
+  - `'JOINT'`：联合优化 8 个 Tx FFE 抽头与 CTLE 的 4 个完整物理参数（DC Gain, fz, fp1, fp2），即 **12维** 白盒全局寻优。
 
 ### [Rx] 接收端配置
 - `ffe_taps` / `ffe_pre`: Rx FFE 的总抽头与前向抽头数配置。

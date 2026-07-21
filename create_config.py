@@ -48,7 +48,9 @@ def generate_config(mode=DEFAULT_MODE):
             'ffe_taps': 9,            
             'ffe_spacing': 1,         
             'custom_taps': "[0.0, 0.0, 0.0, -0.2987, 0.7012, 0.0, 0.0, 0.0, 0.0]", 
-            'optimizer_type': 'SHC', 
+            'optimizer_type': 'SHC',
+            'optimize_mode': 'JOINT',
+            'safe_bo_max_log_ber': -3.0, # (e.g. -3.0 for 1e-3). Set to None to disable Safe-BO
             # Analog Equalization (Tx CTLE)
             'use_ctle': True,
             'ctle_fz_ratio': 2.5,

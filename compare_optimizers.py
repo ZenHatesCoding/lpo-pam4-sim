@@ -10,7 +10,7 @@ from bo_optimizer import BayesianOptimizer
 from sa_optimizer import SimulatedAnnealingOptimizer
 from ga_optimizer import GeneticAlgorithmOptimizer
 from shc_optimizer import SafeHillClimbingOptimizer
-from optimize_tx_ffe import objective_function
+from optimize_tx import objective_function
 
 def main():
     print("=== Starting Multi-Algorithm Optimization Comparison ===")
@@ -27,7 +27,7 @@ def main():
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
         
-    algorithms = ['BO', 'GA', 'SA', 'SHC']
+    algorithms = ['BO_Standard', 'BO_Safe'] # We will just compare these two as requested
     results_summary = {}
     all_histories = {}
     initial_ffe_ber = None
@@ -37,15 +37,16 @@ def main():
     if 'pcb_loss_nyquist_db' not in base_config['channel']:
         base_config['channel']['pcb_loss_nyquist_db'] = 15.0
         
-    # We are optimizing 8 Tx FFE pre/post taps + 4 CTLE Params
-    D = 12
+    opt_mode = base_config['tx'].get('optimize_mode', 'JOINT').upper()
+    D = 12 if opt_mode == 'JOINT' else 9
     bounds = np.zeros((D, 2))
     for i in range(8):
         bounds[i] = [-0.3, 0.3] 
     bounds[8] = [-20.0, 0.0]
-    bounds[9] = [1.0, 5.0]
-    bounds[10] = [1.0, 5.0]
-    bounds[11] = [0.5, 3.0] 
+    if D > 9:
+        bounds[9] = [1.0, 5.0]
+        bounds[10] = [1.0, 5.0]
+        bounds[11] = [0.5, 3.0] 
     
     # Extract ffe_pre
     ffe_pre = int(base_config['tx'].get('ffe_pre', 4))
@@ -71,7 +72,7 @@ def main():
             optimizer = GeneticAlgorithmOptimizer(bounds, pop_size=5, mutation_rate=0.5, mutation_scale=0.05)
         elif opt_type == 'SHC':
             optimizer = SafeHillClimbingOptimizer(bounds, initial_step_size=0.05, max_regression_ratio=10.0)
-        else:
+        else: # BO_Standard or BO_Safe
             optimizer = BayesianOptimizer(bounds, noise_var=1e-3)
             
         # Write algorithm header to sim_log.txt
@@ -96,9 +97,10 @@ def main():
         default_params[:8] = pre_post
             
         default_params[8] = config['tx'].get('ctle_g_dc_db', -12.0)
-        default_params[9] = config['tx'].get('ctle_fz_ratio', 2.5)
-        default_params[10] = config['tx'].get('ctle_fp1_ratio', 2.5)
-        default_params[11] = config['tx'].get('ctle_fp2_ratio', 1.0)
+        if D > 9:
+            default_params[9] = config['tx'].get('ctle_fz_ratio', 2.5)
+            default_params[10] = config['tx'].get('ctle_fp1_ratio', 2.5)
+            default_params[11] = config['tx'].get('ctle_fp2_ratio', 1.0)
         
         obj_val, ffe_ber, mlse_ber = objective_function(config, default_params, result_dir, iter_count)
         print(f"Default -> FFE BER: {ffe_ber:.2e} | MLSE BER: {mlse_ber:.2e}")
@@ -113,15 +115,16 @@ def main():
         ffe_history.append(ffe_ber)
         
         # Initial random points for BO
-        if opt_type == 'BO':
+        if 'BO' in opt_type:
             print("Evaluating 10 Local Initial Points for BO...")
             for i in range(10):
                 # Localized sampling around default_params for sample efficiency
                 rand_params = default_params + np.random.randn(D) * 0.05
                 rand_params[8] = default_params[8] + np.random.randn() * 1.0 # CTLE wider
-                rand_params[9] = default_params[9] + np.random.randn() * 0.5
-                rand_params[10] = default_params[10] + np.random.randn() * 0.5
-                rand_params[11] = default_params[11] + np.random.randn() * 0.2
+                if D > 9:
+                    rand_params[9] = default_params[9] + np.random.randn() * 0.5
+                    rand_params[10] = default_params[10] + np.random.randn() * 0.5
+                    rand_params[11] = default_params[11] + np.random.randn() * 0.2
                 rand_params = np.clip(rand_params, bounds[:, 0], bounds[:, 1])
                 
                 obj_val, ffe_ber, mlse_ber = objective_function(config, rand_params, result_dir, iter_count)
@@ -136,6 +139,9 @@ def main():
             optimizer.fit(X_data, y_data)
             if opt_type == 'GA':
                 next_taps = optimizer.suggest_next(X_data=X_data)
+            elif opt_type == 'BO_Safe':
+                # Safe-BO threshold set to -2.0 (1e-2)
+                next_taps = optimizer.suggest_next(n_coarse=2000, n_fine_steps=50, patience=15, lr=0.1, max_allowed_log_ber=-2.0)
             else:
                 next_taps = optimizer.suggest_next(n_coarse=2000, n_fine_steps=50, patience=15, lr=0.1)
             
@@ -154,9 +160,9 @@ def main():
         best_mlse_ber = mlse_history[best_idx]
         
         # Max FFE BER encountered during standard loop (ignore BO initialization)
-        if opt_type == 'BO':
-            loop_ffe_data = ffe_history[10:]
-            loop_mlse_data = mlse_history[10:]
+        if 'BO' in opt_type:
+            loop_ffe_data = ffe_history[11:]
+            loop_mlse_data = mlse_history[11:]
         else:
             loop_ffe_data = ffe_history[1:]
             loop_mlse_data = mlse_history[1:]
@@ -179,7 +185,7 @@ def main():
             'Max_FFE_BER_Tested': max_ffe_ber_in_loop,
             'Max_MLSE_BER_Tested': max_mlse_ber_in_loop,
             'Best_Taps': np.round(taps, 4).tolist(),
-            'Best_CTLE': f"{best_params[8]:.2f}dB, fz:{best_params[9]:.1f}, p1:{best_params[10]:.1f}, p2:{best_params[11]:.1f}"
+            'Best_CTLE': f"{best_params[8]:.2f}dB, fz:{best_params[9]:.1f}, p1:{best_params[10]:.1f}, p2:{best_params[11]:.1f}" if D > 9 else f"{best_params[8]:.2f}dB"
         }
         all_histories[opt_type] = mlse_history
         
@@ -199,7 +205,7 @@ def main():
 
     # Write Summary Markdown
     with open(os.path.join(result_dir, 'comparison_summary.md'), 'w') as f:
-        f.write(f"# Optimization Algorithm Comparison\n\n")
+        f.write(f"# Optimization Algorithm Comparison (Mode: {opt_mode})\n\n")
         f.write(f"- **Symbols**: {base_config['system']['num_symbols']}\n")
         f.write(f"- **SNR**: {base_config['channel']['snr_db']} dB\n")
         f.write(f"- **Initial Sub-optimal Point**: FFE BER = `{initial_ffe_ber:.2e}`, MLSE BER = `{initial_mlse_ber:.2e}`\n\n")

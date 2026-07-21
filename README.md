@@ -47,6 +47,9 @@ DEFAULT_MODE = '112G'
 👉 **[04. 优化算法架构与原理解析 (Optimization Algorithms)](docs/04_Optimization_Algorithms.md)**  
 > *全面解析本项目从零构建的 BO、GA、SA 与在线防掉线微步 SHC 四种白盒优化算法原理与配置指南。*
 
+👉 **[05. 在线安全寻优 (Safe Online Optimization) 改造方案设计](docs/05_Online_Safe_Optimization.md)**  
+> *分析在“所测即所发生”的硬性限制下，如何通过 Safe-BO 与代理守门员机制约束 GA/SA 等算法的探索空间，避免触发破坏性坏点。*
+
 ---
 
 ## ⚡ 快速上手 (Quick Start)

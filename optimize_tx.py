@@ -32,9 +32,10 @@ def objective_function(config, params, result_dir, iter_count):
     taps[ffe_pre] = 1.0 - np.sum(np.abs(pre_post)) # Main cursor
     
     config['tx']['ctle_g_dc_db'] = params[8]
-    config['tx']['ctle_fz_ratio'] = params[9]
-    config['tx']['ctle_fp1_ratio'] = params[10]
-    config['tx']['ctle_fp2_ratio'] = params[11]
+    if len(params) > 9:
+        config['tx']['ctle_fz_ratio'] = params[9]
+        config['tx']['ctle_fp1_ratio'] = params[10]
+        config['tx']['ctle_fp2_ratio'] = params[11]
     
     # We don't save plots for every single iteration
     ffe_ber, mlse_ber = run_sim(config, custom_tx_taps=taps, plot_eyes=False)
@@ -64,15 +65,18 @@ def main():
         config['channel']['pcb_loss_nyquist_db'] = 15.0
         
     # We are optimizing 8 Tx FFE pre/post taps + 1 CTLE DC Gain
-    D = 12
+    opt_mode = config['tx'].get('optimize_mode', 'JOINT').upper()
+    D = 12 if opt_mode == 'JOINT' else 9
+    
     # Constrain the search space
     bounds = np.zeros((D, 2))
     for i in range(8):
         bounds[i] = [-0.3, 0.3] # Pre/post cursors constrained
     bounds[8] = [-20.0, 0.0] # CTLE DC Gain from -20dB to 0dB
-    bounds[9] = [1.0, 5.0]   # fz_ratio
-    bounds[10] = [1.0, 5.0]  # fp1_ratio
-    bounds[11] = [0.5, 3.0]  # fp2_ratio
+    if D > 9:
+        bounds[9] = [1.0, 5.0]   # fz_ratio
+        bounds[10] = [1.0, 5.0]  # fp1_ratio
+        bounds[11] = [0.5, 3.0]  # fp2_ratio
     
     opt_type = config['tx'].get('optimizer_type', 'BO').upper()
     if opt_type == 'SA':
@@ -109,10 +113,11 @@ def main():
         pass
         
     default_params[8] = config['tx'].get('ctle_g_dc_db', -12.0)
-    default_params[9] = config['tx'].get('ctle_fz_ratio', 2.5)
-    default_params[10] = config['tx'].get('ctle_fp1_ratio', 2.5)
-    default_params[11] = config['tx'].get('ctle_fp2_ratio', 1.0)
-    print(f"Eval Initial Default Params (8 FFE + 4 CTLE): {default_params}")
+    if D > 9:
+        default_params[9] = config['tx'].get('ctle_fz_ratio', 2.5)
+        default_params[10] = config['tx'].get('ctle_fp1_ratio', 2.5)
+        default_params[11] = config['tx'].get('ctle_fp2_ratio', 1.0)
+    print(f"Eval Initial Default Params (Mode: {opt_mode}): {default_params}")
     
     # We'll use a mutable list to track iteration count
     iter_count = [1]
@@ -164,7 +169,11 @@ def main():
         optimizer.fit(X_data, y_data)
         
         # Suggest Next Taps
-        next_taps = optimizer.suggest_next(n_coarse=20, n_fine_steps=50, patience=15, lr=0.1)
+        safe_ber_limit = config['tx'].get('safe_bo_max_log_ber', None)
+        if opt_type == 'BO':
+            next_taps = optimizer.suggest_next(n_coarse=20, n_fine_steps=50, patience=15, lr=0.1, max_allowed_log_ber=safe_ber_limit)
+        else:
+            next_taps = optimizer.suggest_next(n_coarse=20, n_fine_steps=50, patience=15, lr=0.1)
         
         # Evaluate Simulator
         obj_val, ffe_ber, mlse_ber = objective_function(config, next_taps, result_dir, iter_count)
@@ -194,13 +203,16 @@ def main():
     
     print("\n--- Optimization Complete ---")
     print(f"Optimal Tx FFE Taps: {np.round(taps, 4)}")
-    print(f"Optimal CTLE: DC Gain={best_params[8]:.2f}dB, fz_ratio={best_params[9]:.2f}, fp1_ratio={best_params[10]:.2f}, fp2_ratio={best_params[11]:.2f}")
+    if len(best_params) > 9:
+        print(f"Optimal CTLE: DC Gain={best_params[8]:.2f}dB, fz={best_params[9]:.2f}, fp1={best_params[10]:.2f}, fp2={best_params[11]:.2f}")
+    else:
+        print(f"Optimal CTLE: DC Gain={best_params[8]:.2f}dB")
     print(f"Achieved FFE BER: {best_ffe_ber:.2e}")
     print(f"Achieved MLSE BER: {best_mlse_ber:.2e}")
     
     # Save a report
     with open(os.path.join(result_dir, 'optimization_report.md'), 'w') as f:
-        f.write(f"# Tx FFE {opt_type} Optimization Report\n\n")
+        f.write(f"# Tx FFE {opt_type} Optimization Report (Mode: {opt_mode})\n\n")
         f.write("## Setup\n")
         f.write("- **Channel**: 112G PAM4 (56 GBd), 15 dB Host PCB trace loss, 35GHz optics.\n")
         if opt_type == 'SA':
@@ -222,7 +234,10 @@ def main():
         f.write(f"- **Optimal FFE BER**: `{best_ffe_ber:.2e}`\n")
         f.write(f"- **Optimal MLSE BER**: `{best_mlse_ber:.2e}`\n")
         f.write(f"- **Optimal Tx FFE Taps**: `{np.round(taps, 4).tolist()}`\n")
-        f.write(f"- **Optimal CTLE**: DC Gain=`{best_params[8]:.2f}dB`, fz_ratio=`{best_params[9]:.2f}`, fp1_ratio=`{best_params[10]:.2f}`, fp2_ratio=`{best_params[11]:.2f}`\n\n")
+        if len(best_params) > 9:
+            f.write(f"- **Optimal CTLE**: DC Gain=`{best_params[8]:.2f}dB`, fz=`{best_params[9]:.2f}`, fp1=`{best_params[10]:.2f}`, fp2=`{best_params[11]:.2f}`\n\n")
+        else:
+            f.write(f"- **Optimal CTLE**: DC Gain=`{best_params[8]:.2f}dB`\n\n")
         
         f.write("## Convergence Trace\n")
         for i, y in enumerate(y_data):
@@ -231,7 +246,10 @@ def main():
     with open(os.path.join(result_dir, "sim_log.txt"), "a") as f:
         f.write("\n--- Optimization Complete ---\n")
         f.write(f"Optimal Tx FFE Taps: {np.round(taps, 4).tolist()}\n")
-        f.write(f"Optimal CTLE: DC Gain={best_params[8]:.2f}dB, fz_ratio={best_params[9]:.2f}, fp1_ratio={best_params[10]:.2f}, fp2_ratio={best_params[11]:.2f}\n")
+        if len(best_params) > 9:
+            f.write(f"Optimal CTLE: DC Gain={best_params[8]:.2f}dB, fz={best_params[9]:.2f}, fp1={best_params[10]:.2f}, fp2={best_params[11]:.2f}\n")
+        else:
+            f.write(f"Optimal CTLE: DC Gain={best_params[8]:.2f}dB\n")
         f.write(f"Achieved MLSE BER: {best_mlse_ber:.2e}\n")
             
     # Run the best params one more time to generate the eye diagrams if configured

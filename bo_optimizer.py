@@ -109,15 +109,26 @@ class BayesianOptimizer:
         
         return mu_s, np.sqrt(var_s)
 
-    def acquisition_function(self, X_s, kappa=0.5):
+    def acquisition_function(self, X_s, kappa=0.5, max_allowed_log_ber=None):
         """ Lower Confidence Bound (inverted for maximization) 
             We want to minimize mu (BER) and maximize sigma (exploration).
             So we maximize: -mu + kappa * sigma
         """
         mu, sigma = self.predict(X_s)
-        return -mu + kappa * sigma
+        acq = -mu + kappa * sigma
+        
+        if max_allowed_log_ber is not None:
+            # Safe-BO: Check if the upper bound (worst case prediction) exceeds the threshold
+            safety_margin = mu + 1.0 * sigma
+            # Calculate violation (only > 0 if it exceeds the max allowed BER)
+            violation = np.maximum(0, safety_margin - max_allowed_log_ber)
+            # Apply a massive soft penalty proportional to the violation
+            # This prevents NaN gradients in Phase 2 while effectively banning the region
+            acq -= 1000.0 * violation
+            
+        return acq
 
-    def suggest_next(self, n_coarse=20, n_fine_steps=50, patience=15, lr=0.1):
+    def suggest_next(self, n_coarse=20, n_fine_steps=50, patience=15, lr=0.1, max_allowed_log_ber=None):
         """ GS-EI: Phase 1 Coarse Sampling + Phase 2 Projected Gradient Ascent """
         # -------------------------------------------------------------
         # Phase 1: Coarse Sampling (Multi-Start Seed: Global + Local)
@@ -147,7 +158,7 @@ class BayesianOptimizer:
         if len(self.X_train) > 0:
             X_coarse = np.vstack((X_coarse, self.X_train))
         
-        ei_coarse = self.acquisition_function(X_coarse)
+        ei_coarse = self.acquisition_function(X_coarse, max_allowed_log_ber=max_allowed_log_ber)
         best_idx = np.argmax(ei_coarse)
         
         X_best = X_coarse[best_idx].copy()
@@ -161,7 +172,7 @@ class BayesianOptimizer:
         lr_current = lr
         
         for step in range(n_fine_steps):
-            current_ei = self.acquisition_function(np.array([X_best]))[0, 0]
+            current_ei = self.acquisition_function(np.array([X_best]), max_allowed_log_ber=max_allowed_log_ber)[0, 0]
             grad = np.zeros(self.D)
             
             # Calculate numerical gradient for EI (with projection implicitly included)
@@ -173,7 +184,7 @@ class BayesianOptimizer:
                 X_plus = np.clip(X_plus, self.bounds[:, 0], self.bounds[:, 1])
                 
                 
-                ei_plus = self.acquisition_function(np.array([X_plus]))[0, 0]
+                ei_plus = self.acquisition_function(np.array([X_plus]), max_allowed_log_ber=max_allowed_log_ber)[0, 0]
                 grad[i] = (ei_plus - current_ei) / eps
                 
             # Escaping flat regions (if gradient is exactly zero)
@@ -188,7 +199,7 @@ class BayesianOptimizer:
             
             
             # Evaluate new LCB
-            new_ei = self.acquisition_function(np.array([X_new]))[0, 0]
+            new_ei = self.acquisition_function(np.array([X_new]), max_allowed_log_ber=max_allowed_log_ber)[0, 0]
             
             # Adaptive learning rate and state update
             if new_ei > best_ei + 1e-7:
