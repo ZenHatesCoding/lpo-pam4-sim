@@ -25,6 +25,7 @@
 ### 1.4 全链路数据流框图
 
 ```mermaid
+%%{init: {'themeVariables': { 'background': 'transparent'}}}%%
 graph TD
     subgraph Tx_Host["Tx Host ASIC (Digital + Analog)"]
         A[Tx Data Bits] --> B[PAM4 Mapper]
@@ -39,7 +40,7 @@ graph TD
         G --> H["Optical Fiber (Loss)"]
         H --> I["O-E PD (Bandwidth Limit)"]
         I --> J["TIA Amplifier"]
-        N1(("AWGN Noise\n(Thermal/Shot)")) --> K{{"+"}}
+        N1(("AWGN Noise<br>(Thermal/Shot)")) --> K((+))
         J --> K
     end
 
@@ -51,6 +52,9 @@ graph TD
         O --> P[Rx Data Bits]
     end
 ```
+
+> [!TIP]
+> 上图仅展示了数据链路的流向。关于**整个系统的优化架构循环框图**（即不同优化器如何生成权重、与跑流仿真配合并根据 MLSE BER 决策下一步），请参阅：👉 [04. 优化算法架构与原理解析 (Optimization Algorithms)](04_Optimization_Algorithms.md#1-优化架构与系统配合框图)。
 
 ---
 
