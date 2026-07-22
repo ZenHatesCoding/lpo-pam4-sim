@@ -27,33 +27,34 @@
 ```mermaid
 %%{init: {'themeVariables': { 'background': 'transparent'}}}%%
 graph LR
-    subgraph Tx_Host["Tx Host (Digital + Analog)"]
-        direction LR
-        A[Data Bits] --> B[PAM4]
+    subgraph R1 ["1. Tx Host (Digital + Analog)"]
+        direction TB
+        A[Data Bits] --> B[PAM4 Mapper]
         B --> C["Tx FFE"]
         C --> D["DAC"]
         D --> E["Tx CTLE"]
     end
 
-    subgraph Channel["Physical Channel & Optics"]
-        direction LR
-        E --> F["Host PCB"]
-        F --> G["E-O MZM"]
+    subgraph R2 ["2. Physical Channel & Optics"]
+        direction TB
+        F["Host PCB"] --> G["E-O MZM"]
         G --> H["Optical Fiber"]
         H --> I["O-E PD"]
-        I --> J["TIA"]
-        N1(("AWGN Noise")) --> K((+))
+        I --> J["TIA Amplifier"]
+        N1(("AWGN")) --> K((+))
         J --> K
     end
 
-    subgraph Rx_Host["Rx Host (Analog + Digital)"]
-        direction LR
-        K --> L["Anti-Alias"]
-        L --> M["ADC"]
+    subgraph R3 ["3. Rx Host (Analog + Digital)"]
+        direction TB
+        L["Anti-Alias"] --> M["ADC"]
         M --> N["Rx FFE"]
         N --> O["MLSE Decoder"]
         O --> P[Data Bits]
     end
+    
+    E -.->|"出射"| F
+    K -.->|"采样"| L
 ```
 
 > [!TIP]
