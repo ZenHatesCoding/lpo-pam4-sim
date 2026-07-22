@@ -13,7 +13,7 @@
 ```mermaid
 %%{init: {'themeVariables': { 'background': 'transparent'}}}%%
 graph LR
-    subgraph Optimizer["1. 优化器引擎 (Optimizer Engine)"]
+    subgraph Optimizer["1. 优化引擎 (Opt Engine)"]
         direction TB
         Type{"算法核心"}
         Type --> BO["BO (贝叶斯)"]
@@ -21,29 +21,29 @@ graph LR
         Type --> SA["SA (退火)"]
         Type --> SHC["SHC (微步)"]
         
-        BO & GA & SA & SHC --> Suggest["生成候选物理参数<br>(Tx FFE & CTLE)"]
+        BO & GA & SA & SHC --> Suggest["生成候选参数<br>(Tx FFE & CTLE)"]
     end
 
-    subgraph Evaluator["2. 系统评估与数据链路 (Objective Function)"]
+    subgraph Evaluator["2. 评估与数据链路 (Objective Function)"]
         direction TB
-        Constraint["物理约束安全截断<br>sum(|taps|)<=0.6"]
-        Sim["执行物理链路仿真<br>(run_sim)"]
-        BER["提取全局性能指标<br>(min MLSE BER)"]
+        Constraint["安全截断<br>sum(|taps|)<=0.6"]
+        Sim["物理链路仿真<br>(run_sim)"]
+        BER["提取全局性能<br>(MLSE BER)"]
         
         Constraint --> Sim --> BER
     end
     
-    subgraph Feedback["3. 反馈与演化 (Feedback)"]
+    subgraph Feedback["3. 演化 (Feedback)"]
         direction TB
-        Log["持久化记录<br>(sim_log.txt)"]
-        Update["更新内部概率模型<br>optimizer.fit(X, y)"]
+        Log["持久化记录"]
+        Update["更新内部模型<br>optimizer.fit()"]
         
         Log --> Update
     end
 
-    Suggest -- "下发待测参数" --> Constraint
-    BER -- "反馈寻优代价" --> Log
-    Update -- "驱动下一轮迭代" --> Type
+    Suggest -- "下发参数" --> Constraint
+    BER -- "反馈代价" --> Log
+    Update -- "下一轮迭代" --> Type
 ```
 
 在上述闭环中，优化器作为“大脑”生成参数，通过 `objective_function` 下发给基于物理底座的 `run_sim` 进行跑流测试。测试结束后，系统提取出 **MLSE BER** 作为唯一判决标准（代价函数），反馈给优化器。优化器基于自身的算法逻辑（如 BO 的代理模型、SHC 的拒绝退化逻辑）更新内部状态，并决定下一步的走向。

@@ -26,30 +26,33 @@
 
 ```mermaid
 %%{init: {'themeVariables': { 'background': 'transparent'}}}%%
-graph TD
-    subgraph Tx_Host["Tx Host ASIC (Digital + Analog)"]
-        A[Tx Data Bits] --> B[PAM4 Mapper]
-        B --> C["Tx FFE (DSP, T-spaced)"]
-        C --> D["DAC (Zero-Order Hold)"]
-        D --> E["Tx CTLE (Analog Equalizer)"]
+graph LR
+    subgraph Tx_Host["Tx Host (Digital + Analog)"]
+        direction LR
+        A[Data Bits] --> B[PAM4]
+        B --> C["Tx FFE"]
+        C --> D["DAC"]
+        D --> E["Tx CTLE"]
     end
 
     subgraph Channel["Physical Channel & Optics"]
-        E --> F["Host PCB Trace Filter"]
-        F --> G["E-O MZM (Bandwidth Limit)"]
-        G --> H["Optical Fiber (Loss)"]
-        H --> I["O-E PD (Bandwidth Limit)"]
-        I --> J["TIA Amplifier"]
-        N1(("AWGN Noise<br>(Thermal/Shot)")) --> K((+))
+        direction LR
+        E --> F["Host PCB"]
+        F --> G["E-O MZM"]
+        G --> H["Optical Fiber"]
+        H --> I["O-E PD"]
+        I --> J["TIA"]
+        N1(("AWGN Noise")) --> K((+))
         J --> K
     end
 
-    subgraph Rx_Host["Rx Host ASIC (Analog + Digital)"]
-        K --> L["Rx Anti-Alias Filter"]
-        L --> M["ADC (Downsample)"]
-        M --> N["Rx FFE (DSP, T/2 spaced)"]
-        N --> O["Viterbi MLSE Decoder"]
-        O --> P[Rx Data Bits]
+    subgraph Rx_Host["Rx Host (Analog + Digital)"]
+        direction LR
+        K --> L["Anti-Alias"]
+        L --> M["ADC"]
+        M --> N["Rx FFE"]
+        N --> O["MLSE Decoder"]
+        O --> P[Data Bits]
     end
 ```
 
