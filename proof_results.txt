@@ -1,0 +1,3 @@
+=== Statistical Summary ===
+SHC           Mean Worst BER: 1.27e-02 (std: 3.88e-03)
+SafeQCD       Mean Worst BER: 5.54e-03 (std: 0.00e+00)

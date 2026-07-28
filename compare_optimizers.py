@@ -10,6 +10,9 @@ from bo_optimizer import BayesianOptimizer
 from sa_optimizer import SimulatedAnnealingOptimizer
 from ga_optimizer import GeneticAlgorithmOptimizer
 from shc_optimizer import SafeHillClimbingOptimizer
+from surrogate_shc_optimizer import SurrogateSHCOptimizer
+from safe_qcd_optimizer import SafeQCDOptimizer
+from esc_optimizer import SafeESCOptimizer
 from optimize_tx import objective_function
 
 def main():
@@ -27,7 +30,7 @@ def main():
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
         
-    algorithms = ['BO_Standard', 'BO_Safe'] # We will just compare these two as requested
+    algorithms = ['SHC', 'Surrogate_SHC', 'ESC_Safe', 'BO_Safe', 'SafeQCD']
     results_summary = {}
     all_histories = {}
     initial_ffe_ber = None
@@ -72,7 +75,13 @@ def main():
             optimizer = GeneticAlgorithmOptimizer(bounds, pop_size=5, mutation_rate=0.5, mutation_scale=0.05)
         elif opt_type == 'SHC':
             optimizer = SafeHillClimbingOptimizer(bounds, initial_step_size=0.05, max_regression_ratio=10.0)
-        else: # BO_Standard or BO_Safe
+        elif opt_type == 'Surrogate_SHC':
+            optimizer = SurrogateSHCOptimizer(bounds, initial_step_size=0.05, max_regression_ratio=10.0, max_allowed_log_ber=-2.0)
+        elif opt_type == 'ESC_Safe':
+            optimizer = SafeESCOptimizer(bounds, initial_step_size=0.05, max_allowed_log_ber=-2.0, dither_amplitude=0.05)
+        elif opt_type == 'SafeQCD':
+            optimizer = SafeQCDOptimizer(bounds, probe_delta=0.01, max_allowed_log_ber=-2.0)
+        else: # BO_Safe
             optimizer = BayesianOptimizer(bounds, noise_var=1e-3)
             
         # Write algorithm header to sim_log.txt
@@ -222,10 +231,10 @@ def main():
             f.write(f"- **{alg}**: `{results_summary[alg]['Best_Taps']}`\n")
             
         f.write("\n## Algorithm Configuration & Parameters\n")
-        f.write("- **BO**: Gaussian Process (RBF Kernel). (10 initial random points)\n")
-        f.write("- **GA**: Continuous Genetic Algorithm. (Population: 10, Mutation Rate: 0.3, Scale: 0.15)\n")
-        f.write("- **SA**: Aggressive Simulated Annealing. (Initial Temp: 0.5, Cooling: 0.95, Max Regression: 10.0)\n")
-        f.write("- **SHC**: Aggressive Hill Climbing. (Initial Step: 0.05, Max Regression: 10.0)\n")
+        f.write("- **BO_Safe**: Gaussian Process (RBF Kernel). Safe set penalty added when pred > threshold.\n")
+        f.write("- **Surrogate_SHC**: Ridge Regression sliding window (N=50). Predicts and rejects unsafe steps.\n")
+        f.write("- **ESC_Safe**: Dither-based gradient estimation with repulsive barrier function.\n")
+        f.write("- **SHC**: Blind micro-step Hill Climbing. No safety constraints before physical test.\n")
             
     print(f"\nComparison Complete! Results saved to {result_dir}/comparison_summary.md")
 

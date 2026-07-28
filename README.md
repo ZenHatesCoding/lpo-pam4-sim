@@ -44,11 +44,20 @@ DEFAULT_MODE = '112G'
 👉 **[03. 调试排坑与经验沉淀 (Troubleshooting History)](docs/03_Troubleshooting_History.md)**  
 > *查阅过去在 DFE 误差传播、发送端相位失真以及 FFE 抽头对齐上走过的弯路，避免重蹈覆辙。*
 
-👉 **[04. 优化算法架构与原理解析 (Optimization Algorithms)](docs/04_Optimization_Algorithms.md)**  
-> *全面解析本项目从零构建的 BO、GA、SA 与在线防掉线微步 SHC 四种白盒优化算法原理与配置指南。*
+## 三、 核心寻优算法 (Core Algorithms)
+项目当前搭载了多种白盒化重构的寻优算法，用以对比各类元启发式搜索在物理约束下的表现：
+- **GA (Genetic Algorithm)**: 经典连续遗传算法，全局寻优能力极强，但在线试错代价极大。
+- **SA (Simulated Annealing)**: 带激进退温机制的模拟退火算法，容易陷入次优谷底。
+- **SHC (Safe Hill Climbing)**: 针对 LPO 链路优化的安全爬山算法，微小步进，对链路冲击极小，但存在盲搜坠崖风险。
 
-👉 **[05. 在线安全寻优 (Safe Online Optimization) 改造方案设计](docs/05_Online_Safe_Optimization.md)**  
-> *分析在“所测即所发生”的硬性限制下，如何通过 Safe-BO 与代理守门员机制约束 GA/SA 等算法的探索空间，避免触发破坏性坏点。*
+### 在线安全寻优 (Safe Online Optimization) 原型验证
+在“所测即所发生”的硬性限制下，我们实现并对比了以下算法解决掉锁危机的能力：
+- [Safe Hill Climbing (SHC)](docs/shc_principle.md): 工业界最保守、带退避机制的安全爬山法。
+- [Safe Quadratic Coordinate Descent (Safe QCD)](docs/safe_qcd_principle.md): **(推荐)** 纯数学架构的二阶优化器。它通过微探针 (Micro-Probe) 探测物理梯度，利用二次抛物线精确求解悬崖边界与极值点。在 112G 的多种子盲测中表现出零方差的绝对稳定性，从理论和实测两方面彻底根除了 SHC 随机大步幅引发的掉锁危机。
+- Bayesian Optimization (BO): 用作理论极值探索的对照组，非白盒。
+
+👉 **[04. 寻优算法全景图 (Optimization Algorithms Panorama)](docs/04_Optimization_Algorithms.md)**  
+> *全面梳理项目中现存的 8 种白盒化算法（BO, GA, SA, SHC, ESC, Surrogate_SHC, Safe_GP, Safe_QCD），阐述其代码现状、原理机制、测试表现及多模无缝切换用法。*
 
 ---
 
