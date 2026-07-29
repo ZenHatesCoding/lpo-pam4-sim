@@ -97,6 +97,22 @@ class BayesianOptimizer:
         # Finalize K_inv for predictions
         K = self.rbf_kernel(self.X_train, self.X_train)
         self.K_inv = np.linalg.inv(K + self.noise_var * np.eye(len(self.X_train)))
+        
+        # TR Length Update
+        if hasattr(self, 'tr_length') and len(self.y_train) >= 2:
+            if self.y_train[-1] < np.min(self.y_train[:-1]):
+                self.success_count += 1
+                self.failure_count = 0
+            else:
+                self.success_count = 0
+                self.failure_count += 1
+                
+            if self.success_count >= 2:
+                self.tr_length = min(self.tr_length * 2.0, 2.0)
+                self.success_count = 0
+            elif self.failure_count >= 3:
+                self.tr_length = max(self.tr_length * 0.5, 1e-3)
+                self.failure_count = 0
 
     def predict(self, X_s):
         X_s = np.atleast_2d(X_s)
@@ -116,102 +132,101 @@ class BayesianOptimizer:
         """
         mu, sigma = self.predict(X_s)
         acq = -mu + kappa * sigma
-        
-        if max_allowed_log_ber is not None:
-            # Safe-BO: Check if the upper bound (worst case prediction) exceeds the threshold
-            safety_margin = mu + 1.0 * sigma
-            # Calculate violation (only > 0 if it exceeds the max allowed BER)
-            violation = np.maximum(0, safety_margin - max_allowed_log_ber)
-            # Apply a massive soft penalty proportional to the violation
-            # This prevents NaN gradients in Phase 2 while effectively banning the region
-            acq -= 1000.0 * violation
-            
         return acq
 
-    def suggest_next(self, n_coarse=20, n_fine_steps=50, patience=15, lr=0.1, max_allowed_log_ber=None):
-        """ GS-EI: Phase 1 Coarse Sampling + Phase 2 Projected Gradient Ascent """
-        # -------------------------------------------------------------
-        # Phase 1: Coarse Sampling (Multi-Start Seed: Global + Local)
-        # -------------------------------------------------------------
-        X_coarse = np.zeros((n_coarse, self.D))
-        half_n = n_coarse // 2
+    def suggest_next(self, n_coarse=2000, n_fine_steps=50, patience=15, lr=0.1, max_allowed_log_ber=None):
+        """ TuRBO-Safe: Trust Region with strict 3-sigma Safe-UCB filtering """
+        # Initialize TR state if not present
+        if not hasattr(self, 'tr_length'):
+            self.tr_length = 0.5 # Initial normalized trust region length
+            self.success_count = 0
+            self.failure_count = 0
+            
+        best_x = self.X_train[np.argmin(self.y_train)] if len(self.X_train) > 0 else np.zeros(self.D)
         
-        # 1. Global Exploration
-        X_coarse[:half_n] = np.random.uniform(self.bounds[:, 0], self.bounds[:, 1], size=(half_n, self.D))
+        # Determine sampling bounds based on TR length and dimension sensitivities
+        tr_bounds = np.zeros((self.D, 2))
+        for i in range(self.D):
+            scale = 0.3 if i < 8 else (20.0 if i == 8 else 4.0)
+            tr_min = max(self.bounds[i, 0], best_x[i] - self.tr_length * scale)
+            tr_max = min(self.bounds[i, 1], best_x[i] + self.tr_length * scale)
+            tr_bounds[i] = [tr_min, tr_max]
+            
+        # Dynamically shrink TR until safe candidates are found
+        safe_candidates = []
+        safe_ei = []
         
-        # 2. Local Exploitation (Perturb around best known point using Sobol/LHS-like structured random)
-        if len(self.X_train) > 0:
-            best_x = self.X_train[np.argmin(self.y_train)]
-            local_n = n_coarse - half_n
-            # Structured local sampling
-            for i in range(self.D):
-                intervals = np.linspace(-0.05, 0.05, local_n+1)
-                points = np.random.uniform(intervals[:-1], intervals[1:])
-                np.random.shuffle(points)
-                if i == self.D - 1:
-                    points *= 10.0
-                X_coarse[half_n:, i] = np.clip(best_x[i] + points, self.bounds[i, 0], self.bounds[i, 1])
-        else:
-            X_coarse[half_n:] = np.random.uniform(self.bounds[:, 0], self.bounds[:, 1], size=(n_coarse - half_n, self.D))
+        while len(safe_candidates) == 0 and self.tr_length > 1e-4:
+            X_coarse = np.random.uniform(tr_bounds[:, 0], tr_bounds[:, 1], size=(n_coarse, self.D))
+            
+            # Inject best known point to ensure at least one fallback
+            if len(self.X_train) > 0:
+                X_coarse[0] = best_x
+                
+            mu, sigma = self.predict(X_coarse)
+            
+            if max_allowed_log_ber is not None:
+                # Safe-UCB (99.7% confidence upper bound)
+                ucb = mu + 3.0 * sigma
+                safe_mask = ucb.flatten() <= max_allowed_log_ber
+                
+                # We require at least ONE new safe point (besides X_coarse[0] which is best_x)
+                if np.sum(safe_mask) > 1:
+                    safe_candidates = X_coarse[safe_mask]
+                    safe_ei = (-mu[safe_mask] + 0.5 * sigma[safe_mask]).flatten() # Standard LCB
+                else:
+                    # Shrink TR if no new safe points found (forces sampling closer to known safe point)
+                    self.tr_length *= 0.5
+                    safe_candidates = [] # Force while loop to continue
+                    for i in range(self.D):
+                        scale = 0.3 if i < 8 else (20.0 if i == 8 else 4.0)
+                        tr_bounds[i, 0] = max(self.bounds[i, 0], best_x[i] - self.tr_length * scale)
+                        tr_bounds[i, 1] = min(self.bounds[i, 1], best_x[i] + self.tr_length * scale)
+            else:
+                safe_candidates = X_coarse
+                safe_ei = (-mu + 0.5 * sigma).flatten()
+                
+        if len(safe_candidates) == 0:
+            # Absolute fallback if GP collapses
+            return best_x
+            
+        best_idx = np.argmax(safe_ei)
+        X_best = safe_candidates[best_idx].copy()
         
-        # Inject best known points to ensure we don't start from pure garbage
-        if len(self.X_train) > 0:
-            X_coarse = np.vstack((X_coarse, self.X_train))
-        
-        ei_coarse = self.acquisition_function(X_coarse, max_allowed_log_ber=max_allowed_log_ber)
-        best_idx = np.argmax(ei_coarse)
-        
-        X_best = X_coarse[best_idx].copy()
-        best_ei = ei_coarse[best_idx, 0]
-        
-        # -------------------------------------------------------------
-        # Phase 2: Projected Gradient Ascent on Acquisition Function
-        # -------------------------------------------------------------
-        no_improve_count = 0
+        # Phase 2: PGA (Constrained inside TR and Physical Bounds)
+        current_ei = float(safe_ei[best_idx])
         eps = 1e-5
-        lr_current = lr
         
         for step in range(n_fine_steps):
-            current_ei = self.acquisition_function(np.array([X_best]), max_allowed_log_ber=max_allowed_log_ber)[0, 0]
             grad = np.zeros(self.D)
-            
-            # Calculate numerical gradient for EI (with projection implicitly included)
             for i in range(self.D):
                 X_plus = X_best.copy()
                 X_plus[i] += eps
+                X_plus = np.clip(X_plus, tr_bounds[:, 0], tr_bounds[:, 1])
+                mu_p, sig_p = self.predict(np.array([X_plus]))
                 
-                # Projection (Bound clipping + L1 norm)
-                X_plus = np.clip(X_plus, self.bounds[:, 0], self.bounds[:, 1])
+                if max_allowed_log_ber is not None and (mu_p + 3.0 * sig_p)[0, 0] > max_allowed_log_ber:
+                    ei_plus = -np.inf
+                else:
+                    ei_plus = (-mu_p + 0.5 * sig_p)[0, 0]
+                    
+                grad[i] = (ei_plus - current_ei) / eps if ei_plus != -np.inf else 0.0
                 
-                
-                ei_plus = self.acquisition_function(np.array([X_plus]), max_allowed_log_ber=max_allowed_log_ber)[0, 0]
-                grad[i] = (ei_plus - current_ei) / eps
-                
-            # Escaping flat regions (if gradient is exactly zero)
             if np.all(grad == 0):
-                grad = np.random.randn(self.D) * 0.1
+                break
                 
-            # Ascent Step
-            X_new = X_best + lr_current * grad
+            X_new = X_best + lr * grad
+            X_new = np.clip(X_new, tr_bounds[:, 0], tr_bounds[:, 1])
             
-            # Reproject to physical bounds
-            X_new = np.clip(X_new, self.bounds[:, 0], self.bounds[:, 1])
-            
-            
-            # Evaluate new LCB
-            new_ei = self.acquisition_function(np.array([X_new]), max_allowed_log_ber=max_allowed_log_ber)[0, 0]
-            
-            # Adaptive learning rate and state update
-            if new_ei > best_ei + 1e-7:
-                best_ei = new_ei
+            mu_n, sig_n = self.predict(np.array([X_new]))
+            if max_allowed_log_ber is not None and (mu_n + 3.0 * sig_n)[0, 0] > max_allowed_log_ber:
+                break
+                
+            new_ei = (-mu_n + 0.5 * sig_n)[0, 0]
+            if new_ei > current_ei + 1e-7:
+                current_ei = new_ei
                 X_best = X_new
-                no_improve_count = 0
-                lr_current *= 1.2 # Accelerate on success
             else:
-                no_improve_count += 1
-                lr_current *= 0.5 # Decelerate / refine on failure
-                
-            if no_improve_count >= patience:
                 break
                 
         return X_best

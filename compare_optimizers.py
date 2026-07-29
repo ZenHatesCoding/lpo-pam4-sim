@@ -20,8 +20,8 @@ def main():
     create_config.generate_config()
     base_config = load_config('config.xlsx')
     
-    # 1e-4 level simulation (131k symbols)
-    base_config['channel']['snr_db'] = 26.0
+    # 1e-5 level simulation (1M symbols)
+    base_config['channel']['snr_db'] = 28.0
     print(f"Num Symbols: {base_config['system']['num_symbols']}")
     print(f"SNR (dB): {base_config['channel']['snr_db']}")
     
@@ -53,12 +53,12 @@ def main():
     
     # Extract ffe_pre
     ffe_pre = int(base_config['tx'].get('ffe_pre', 4))
-    base_config['system']['num_symbols'] = 131072
-    base_config['tx']['pattern_length'] = 65536
+    base_config['system']['num_symbols'] = 1048576
+    base_config['tx']['pattern_length'] = 524288
     if int(base_config['tx']['ffe_taps']) != 9:
         ffe_pre = 1
     
-    n_iterations = 40
+    n_iterations = 25
 
     for opt_type in algorithms:
         print(f"\n==============================================")
@@ -123,24 +123,9 @@ def main():
         mlse_history.append(mlse_ber)
         ffe_history.append(ffe_ber)
         
-        # Initial random points for BO
-        if 'BO' in opt_type:
-            print("Evaluating 10 Local Initial Points for BO...")
-            for i in range(10):
-                # Localized sampling around default_params for sample efficiency
-                rand_params = default_params + np.random.randn(D) * 0.05
-                rand_params[8] = default_params[8] + np.random.randn() * 1.0 # CTLE wider
-                if D > 9:
-                    rand_params[9] = default_params[9] + np.random.randn() * 0.5
-                    rand_params[10] = default_params[10] + np.random.randn() * 0.5
-                    rand_params[11] = default_params[11] + np.random.randn() * 0.2
-                rand_params = np.clip(rand_params, bounds[:, 0], bounds[:, 1])
-                
-                obj_val, ffe_ber, mlse_ber = objective_function(config, rand_params, result_dir, iter_count)
-                X_data.append(rand_params)
-                y_data.append(obj_val)
-                mlse_history.append(mlse_ber)
-                ffe_history.append(ffe_ber)
+        # Initialize with default point ONLY for BO_Safe
+        if opt_type == 'BO_Safe':
+            optimizer.fit([default_params], [np.log10(mlse_ber)])
                 
         # Optimization Loop
         print(f"Entering {opt_type} Optimization Loop ({n_iterations} iters)...")
@@ -168,13 +153,9 @@ def main():
         best_ffe_ber = ffe_history[best_idx]
         best_mlse_ber = mlse_history[best_idx]
         
-        # Max FFE BER encountered during standard loop (ignore BO initialization)
-        if 'BO' in opt_type:
-            loop_ffe_data = ffe_history[11:]
-            loop_mlse_data = mlse_history[11:]
-        else:
-            loop_ffe_data = ffe_history[1:]
-            loop_mlse_data = mlse_history[1:]
+        # Max FFE BER encountered during standard loop
+        loop_ffe_data = ffe_history[1:]
+        loop_mlse_data = mlse_history[1:]
         max_ffe_ber_in_loop = np.max(loop_ffe_data) if len(loop_ffe_data) > 0 else best_ffe_ber
         max_mlse_ber_in_loop = np.max(loop_mlse_data) if len(loop_mlse_data) > 0 else best_mlse_ber
         

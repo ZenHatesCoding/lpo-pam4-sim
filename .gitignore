@@ -3,5 +3,8 @@ __pycache__/
 *.png
 *.pptx
 diagnostic_results/
-result/
+result/*
+!result/latest_comparison/
+!result/latest_comparison/*
+!result/latest_comparison/*.png
 scratch/*.mmd

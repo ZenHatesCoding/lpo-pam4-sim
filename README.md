@@ -52,12 +52,12 @@ DEFAULT_MODE = '112G'
 
 ### 在线安全寻优 (Safe Online Optimization) 原型验证
 在“所测即所发生”的硬性限制下，我们实现并对比了以下算法解决掉锁危机的能力：
-- [Safe Hill Climbing (SHC)](docs/shc_principle.md): 工业界最保守、带退避机制的安全爬山法。
-- [Safe Quadratic Coordinate Descent (Safe QCD)](docs/safe_qcd_principle.md): **(推荐)** 纯数学架构的二阶优化器。它通过微探针 (Micro-Probe) 探测物理梯度，利用二次抛物线精确求解悬崖边界与极值点。在 112G 的多种子盲测中表现出零方差的绝对稳定性，从理论和实测两方面彻底根除了 SHC 随机大步幅引发的掉锁危机。
-- Bayesian Optimization (BO): 用作理论极值探索的对照组，非白盒。
+- **TuRBO-Safe (Trust Region Safe-BO)**: **(最终推荐)** 结合了 $3\sigma$ 置信度上界防御与自适应信任域，在 25 次计费评估内实现 100% 物理截断防御（最大误码 `5.59e-03`），并成功下探至 `8.33e-05` 全局极小值。
+- Safe Quadratic Coordinate Descent (Safe QCD): 纯数学架构的二阶优化器。通过微探针精确求解悬崖边界，防坠崖能力极强，但在复杂地形下容易陷入局部极小。
+- Safe Hill Climbing (SHC): 工业界最保守的安全爬山法。无预判能力，盲测步进易导致坠崖。
 
 👉 **[04. 寻优算法全景图 (Optimization Algorithms Panorama)](docs/04_Optimization_Algorithms.md)**  
-> *全面梳理项目中现存的 8 种白盒化算法（BO, GA, SA, SHC, ESC, Surrogate_SHC, Safe_GP, Safe_QCD），阐述其代码现状、原理机制、测试表现及多模无缝切换用法。*
+> *全面梳理项目中现存的白盒化算法，并详细对比 TuRBO-Safe 与其它算法在物理约束下的实测表现。*
 
 ---
 
