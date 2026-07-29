@@ -56,7 +56,7 @@ DEFAULT_MODE = '112G'
 - Safe Quadratic Coordinate Descent (Safe QCD): 纯数学架构的二阶优化器。通过微探针精确求解悬崖边界，防坠崖能力极强，但在复杂地形下容易陷入局部极小。
 - Safe Hill Climbing (SHC): 工业界最保守的安全爬山法。无预判能力，盲测步进易导致坠崖。
 
-👉 **[04. 寻优算法全景图 (Optimization Algorithms Panorama)](docs/04_Optimization_Algorithms.md)**  
+👉 **[04. 寻优算法全景图 (Optimization Algorithms Panorama)](docs/04_Algorithms/README.md)**  
 > *全面梳理项目中现存的白盒化算法，并详细对比 TuRBO-Safe 与其它算法在物理约束下的实测表现。*
 
 ---
