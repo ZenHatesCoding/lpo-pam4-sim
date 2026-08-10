@@ -37,6 +37,37 @@ def apply_ctle(x, fs, f_z, f_p1, f_p2, g_dc_db):
     
     X_filtered = X * H_ctle
     return np.fft.irfft(X_filtered, n=N)
+def apply_cd_dgd(x, fs, cd_ps_nm, dgd_ps, pol_angle_deg=45.0):
+    """
+    Apply Chromatic Dispersion (CD) and Differential Group Delay (DGD) impairments.
+    Modeled as frequency domain filters for an IM/DD system.
+    """
+    if cd_ps_nm == 0 and dgd_ps == 0:
+        return x
+    
+    N = len(x)
+    X = np.fft.rfft(x)
+    f = np.fft.rfftfreq(N, d=1.0/fs)
+    
+    # 1. CD (Chromatic Dispersion) Filter
+    H_CD = 1.0
+    if cd_ps_nm != 0:
+        lambda_nm = 1310.0
+        c_nm_ps = 299792.458
+        f_thz = f * 1e-12
+        phase_cd = np.pi * (lambda_nm**2) * cd_ps_nm / c_nm_ps * (f_thz**2)
+        H_CD = np.cos(phase_cd)
+        
+    # 2. DGD (Polarization Mode Dispersion) Filter
+    H_DGD = 1.0
+    if dgd_ps != 0:
+        # Power splitting based on polarization angle
+        gamma = np.cos(np.radians(pol_angle_deg))**2
+        delta_tau = dgd_ps * 1e-12
+        H_DGD = gamma + (1 - gamma) * np.exp(-1j * 2 * np.pi * f * delta_tau)
+        
+    X_filtered = X * H_CD * H_DGD
+    return np.fft.irfft(X_filtered, n=N)
 
 def dac_zoh(x, sps_in, sps_out):
     """ DAC Zero-Order Hold upsampling """
@@ -176,6 +207,13 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     loss_db = config_ch['fiber_length_km'] * config_ch['fiber_loss_db_km']
     loss_linear = 10**(-loss_db / 20.0) # Voltage/Amplitude scaling
     x = x * loss_linear
+    
+    # Apply CD and DGD impairments
+    cd_ps_nm = config_ch.get('cd_ps_nm', 0.0)
+    dgd_ps = config_ch.get('dgd_ps', 0.0)
+    pol_angle_deg = config_ch.get('pol_angle_deg', 45.0)
+    if cd_ps_nm != 0 or dgd_ps != 0:
+        x = apply_cd_dgd(x, fs_analog, cd_ps_nm, dgd_ps, pol_angle_deg)
     
     # 4. O-E Conversion (PD)
     x = lowpass_filter(x, config_ch['pd_bw'], fs_analog)

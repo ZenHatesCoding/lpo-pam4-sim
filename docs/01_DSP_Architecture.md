@@ -65,10 +65,18 @@ graph LR
 ## 2. `config.xlsx` 关键参数字典
 
 ### [System] 全局配置
+- `target_case`: 设定目标应力用例。脚本会根据该标识符去 `stress_cases` 寻找并覆盖加载环境配置（如色散和 DGD）。
 - `baud_rate`: 112.5e9 (即 112.5 GBd，对应 224G PAM4)。
 - `sps_dsp` / `sps_channel`: DSP 与模拟信道的采样率（通常为 2 和 8）。
-- `snr_db`: 加性白高斯噪声 (AWGN) 的信噪比设定，默认 `25 dB`。
 - `plot_intermediate_eyes`: `True`/`False`。控制是否绘制中间各个物理节点的 50Sps 高清平滑眼图，输出至 `result/`。
+
+### [Stress Cases] 物理损伤应力配置
+- `stress_cases` 是一个独立的二维表，每一行代表一个特定的物理应力环境，包含以下关键字段：
+  - `case_id`: 用例标识符，供 `target_case` 选用。
+  - `cd_ps_nm`: 色散 (CD) 容限，利用 $\lambda=1310$ nm 零色散区附近的特性进行频域衰落建模。
+  - `dgd_ps`: 差分群时延 (DGD) 容限。
+  - `pol_angle_deg`: 偏振角度（默认 $45^\circ$ 为最恶劣能量平分情况，此时会产生深陷波）。
+  - `snr_db`: 加性白高斯噪声 (AWGN) 的信噪比设定，默认 `26.5 dB`。
 
 ### [Tx] 发送端配置
 - `ffe_taps`: Tx FFE 总抽头数。

@@ -31,6 +31,7 @@ def generate_config(mode=DEFAULT_MODE):
 
     config = {
         'system': {
+            'target_case': 'case_baseline', # Pointer to a row in stress_cases
             'baud_rate': baud_rate,     
             'sps_dsp': 2,             
             'sps_dac': 2,             
@@ -89,13 +90,25 @@ def generate_config(mode=DEFAULT_MODE):
         }
     }
     
+    # Define stress cases for typical IEEE standards (DR/FR1/LR1) limits
+    stress_cases = [
+        {'case_id': 'case_baseline', 'cd_ps_nm': 0.0, 'dgd_ps': 0.0, 'pol_angle_deg': 0.0, 'snr_db': 26.5},
+        {'case_id': 'case_dr_500m_limit', 'cd_ps_nm': 2.0, 'dgd_ps': 2.24, 'pol_angle_deg': 45.0, 'snr_db': 26.5},
+        {'case_id': 'case_fr1_2km_limit', 'cd_ps_nm': 6.0, 'dgd_ps': 3.3, 'pol_angle_deg': 45.0, 'snr_db': 26.5},
+        {'case_id': 'case_lr1_10km_limit', 'cd_ps_nm': 28.0, 'dgd_ps': 5.0, 'pol_angle_deg': 45.0, 'snr_db': 26.5},
+    ]
+    
     if target_il is not None:
         config['channel']['target_il_nyquist_db'] = target_il
 
     with pd.ExcelWriter('config.xlsx') as writer:
+        # Write basic param sheets
         for sheet_name, params in config.items():
             df = pd.DataFrame(list(params.items()), columns=['Parameter', 'Value'])
             df.to_excel(writer, sheet_name=sheet_name, index=False)
+        # Write stress_cases sheet
+        df_stress = pd.DataFrame(stress_cases)
+        df_stress.to_excel(writer, sheet_name='stress_cases', index=False)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Generate simulation config')
