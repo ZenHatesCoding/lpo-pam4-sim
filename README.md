@@ -51,13 +51,17 @@ DEFAULT_MODE = '112G'
 - **SHC (Safe Hill Climbing)**: 针对 LPO 链路优化的安全爬山算法，微小步进，对链路冲击极小，但存在盲搜坠崖风险。
 
 ### 在线安全寻优 (Safe Online Optimization) 原型验证
-在“所测即所发生”的硬性限制下，我们实现并对比了以下算法解决掉锁危机的能力：
-- **TuRBO-Safe (Trust Region Safe-BO)**: **(最终推荐)** 结合了 $3\sigma$ 置信度上界防御与自适应信任域，在 25 次计费评估内实现 100% 物理截断防御（最大误码 `5.59e-03`），并成功下探至 `8.33e-05` 全局极小值。
-- Safe Quadratic Coordinate Descent (Safe QCD): 纯数学架构的二阶优化器。通过微探针精确求解悬崖边界，防坠崖能力极强，但在复杂地形下容易陷入局部极小。
-- Safe Hill Climbing (SHC): 工业界最保守的安全爬山法。无预判能力，盲测步进易导致坠崖。
+在“所测即所发生”的硬性限制下，我们实现并对比了多种解决掉锁危机的架构与单体能力：
+
+👉 **[两阶段在线优化工作流 (Two-Stage Online Optimization)](docs/04_Algorithms/Two_Stage_Optimization.md)**  **(最终推荐架构)**
+> *通过拆分“离线模型探索”与“在线代理约束跟线”，结合 **SA / BO $\rightarrow$ Surrogate_SHC**，在 1e-5 量级实测中实现了微调阶段**真正的零物理坠崖 (Zero Jitter)**。这是目前既兼顾大范围跳跃，又能绝对保证硬调安全的终极手段。*
+
+- **TuRBO-Safe (Trust Region Safe-BO)**: 结合了 $3\sigma$ 置信度上界防御与自适应信任域，单体防御力极强，作为 Stage 1 能够平稳快速拿到底噪。
+- **Safe Quadratic Coordinate Descent (Safe QCD)**: 纯数学架构的二阶优化器。通过微探针精确求解悬崖边界，防坠崖能力极强，但在复杂地形下容易陷入局部极小。
+- **Surrogate_SHC (代理辅助爬山)**: 通过 Directional Tabu Filter 提前否决危险方向，作为 Stage 2 时防守坚如磐石。
 
 👉 **[04. 寻优算法全景图 (Optimization Algorithms Panorama)](docs/04_Algorithms/README.md)**  
-> *全面梳理项目中现存的白盒化算法，并详细对比 TuRBO-Safe 与其它算法在物理约束下的实测表现。*
+> *全面梳理项目中现存的白盒化算法，并详细对比各类算法的物理约束特性与源码路径。*
 
 ---
 
