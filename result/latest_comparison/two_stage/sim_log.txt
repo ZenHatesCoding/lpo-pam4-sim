@@ -1,0 +1,323 @@
+=== Starting Two-Stage Optimization (1e-5 Level Validation) ===
+Generating config for 112G mode...
+Num Symbols: 1048576
+SNR (dB): 28.0
+
+==============================================
+  Running Combo: BO->Surrogate (BO_Safe -> Surrogate_SHC)
+==============================================
+Default -> FFE BER: 2.33e-02 | MLSE BER: 1.44e-03
+  [BO Tuned] sigma_f=2.30 | L_FFE_avg=0.50 | L_CTLE=20.0
+Entering Stage 1 (BO_Safe) for 20 iters...
+  [BO Tuned] sigma_f=2.80 | L_FFE_avg=0.50 | L_CTLE=20.0
+Stage 1 [1/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.54e-02 | Cur MLSE: 1.51e-03
+  [BO Tuned] sigma_f=2.07 | L_FFE_avg=0.50 | L_CTLE=20.0
+Stage 1 [2/20] | Best MLSE: 1.44e-03 | Cur FFE: 4.20e-02 | Cur MLSE: 2.11e-02
+  [BO Tuned] sigma_f=2.49 | L_FFE_avg=0.39 | L_CTLE=19.4
+Stage 1 [3/20] | Best MLSE: 1.44e-03 | Cur FFE: 3.15e-02 | Cur MLSE: 6.97e-03
+  [BO Tuned] sigma_f=2.29 | L_FFE_avg=0.34 | L_CTLE=20.0
+Stage 1 [4/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.82e-02 | Cur MLSE: 5.04e-03
+  [BO Tuned] sigma_f=1.72 | L_FFE_avg=0.30 | L_CTLE=20.0
+Stage 1 [5/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.20e-02 | Cur MLSE: 1.40e-03
+  [BO Tuned] sigma_f=1.53 | L_FFE_avg=0.31 | L_CTLE=20.0
+Stage 1 [6/20] | Best MLSE: 1.40e-03 | Cur FFE: 2.46e-02 | Cur MLSE: 2.28e-03
+  [BO Tuned] sigma_f=1.62 | L_FFE_avg=0.31 | L_CTLE=20.0
+Stage 1 [7/20] | Best MLSE: 1.40e-03 | Cur FFE: 2.32e-02 | Cur MLSE: 2.56e-03
+  [BO Tuned] sigma_f=2.03 | L_FFE_avg=0.33 | L_CTLE=20.0
+Stage 1 [8/20] | Best MLSE: 1.40e-03 | Cur FFE: 2.21e-02 | Cur MLSE: 2.19e-03
+  [BO Tuned] sigma_f=1.99 | L_FFE_avg=0.33 | L_CTLE=20.0
+Stage 1 [9/20] | Best MLSE: 1.40e-03 | Cur FFE: 2.24e-02 | Cur MLSE: 1.37e-03
+  [BO Tuned] sigma_f=1.79 | L_FFE_avg=0.21 | L_CTLE=20.0
+Stage 1 [10/20] | Best MLSE: 1.37e-03 | Cur FFE: 2.10e-02 | Cur MLSE: 8.50e-04
+  [BO Tuned] sigma_f=1.79 | L_FFE_avg=0.28 | L_CTLE=20.0
+Stage 1 [11/20] | Best MLSE: 8.50e-04 | Cur FFE: 1.71e-02 | Cur MLSE: 2.27e-04
+  [BO Tuned] sigma_f=2.32 | L_FFE_avg=0.33 | L_CTLE=18.1
+Stage 1 [12/20] | Best MLSE: 2.27e-04 | Cur FFE: 1.56e-02 | Cur MLSE: 1.16e-04
+  [BO Tuned] sigma_f=2.17 | L_FFE_avg=0.30 | L_CTLE=19.6
+Stage 1 [13/20] | Best MLSE: 1.16e-04 | Cur FFE: 2.28e-02 | Cur MLSE: 2.43e-03
+  [BO Tuned] sigma_f=2.68 | L_FFE_avg=0.14 | L_CTLE=19.0
+Stage 1 [14/20] | Best MLSE: 1.16e-04 | Cur FFE: 1.14e-02 | Cur MLSE: 3.76e-05
+  [BO Tuned] sigma_f=2.82 | L_FFE_avg=0.20 | L_CTLE=16.8
+Stage 1 [15/20] | Best MLSE: 3.76e-05 | Cur FFE: 2.50e-02 | Cur MLSE: 2.89e-03
+  [BO Tuned] sigma_f=4.19 | L_FFE_avg=0.30 | L_CTLE=17.5
+Stage 1 [16/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.84e-02 | Cur MLSE: 1.51e-04
+  [BO Tuned] sigma_f=4.16 | L_FFE_avg=0.24 | L_CTLE=15.2
+Stage 1 [17/20] | Best MLSE: 3.76e-05 | Cur FFE: 7.02e-03 | Cur MLSE: 3.76e-05
+  [BO Tuned] sigma_f=3.98 | L_FFE_avg=0.23 | L_CTLE=12.9
+Stage 1 [18/20] | Best MLSE: 3.76e-05 | Cur FFE: 6.66e-03 | Cur MLSE: 3.76e-05
+  [BO Tuned] sigma_f=4.16 | L_FFE_avg=0.28 | L_CTLE=15.2
+Stage 1 [19/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.16e-02 | Cur MLSE: 3.76e-05
+  [BO Tuned] sigma_f=4.05 | L_FFE_avg=0.28 | L_CTLE=17.6
+Stage 1 [20/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.25e-02 | Cur MLSE: 4.14e-05
+Entering Stage 2 (Surrogate_SHC) for 20 iters...
+Stage 2 [1/20] | Best MLSE: 3.76e-05 | Cur FFE: 9.45e-03 | Cur MLSE: 3.76e-05
+Stage 2 [2/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.17e-02 | Cur MLSE: 4.14e-05
+Stage 2 [3/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.28e-02 | Cur MLSE: 4.14e-05
+Stage 2 [4/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.14e-02 | Cur MLSE: 3.76e-05
+Stage 2 [5/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.06e-02 | Cur MLSE: 3.76e-05
+Stage 2 [6/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.05e-02 | Cur MLSE: 3.76e-05
+Stage 2 [7/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.16e-02 | Cur MLSE: 3.76e-05
+Stage 2 [8/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.04e-02 | Cur MLSE: 3.76e-05
+Stage 2 [9/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.13e-02 | Cur MLSE: 3.76e-05
+Stage 2 [10/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.14e-02 | Cur MLSE: 3.76e-05
+Stage 2 [11/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.16e-02 | Cur MLSE: 3.76e-05
+Stage 2 [12/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.14e-02 | Cur MLSE: 3.76e-05
+Stage 2 [13/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.14e-02 | Cur MLSE: 3.76e-05
+Stage 2 [14/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.06e-02 | Cur MLSE: 3.76e-05
+Stage 2 [15/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.14e-02 | Cur MLSE: 3.76e-05
+Stage 2 [16/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.14e-02 | Cur MLSE: 3.76e-05
+Stage 2 [17/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.14e-02 | Cur MLSE: 3.76e-05
+Stage 2 [18/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.14e-02 | Cur MLSE: 3.76e-05
+Stage 2 [19/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.16e-02 | Cur MLSE: 3.76e-05
+Stage 2 [20/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.17e-02 | Cur MLSE: 4.14e-05
+Combo Complete: Best Stage 1 MLSE: 3.76e-05, Max Stage 2 MLSE: 4.14e-05, Final Best MLSE: 3.76e-05
+
+==============================================
+  Running Combo: SA->Surrogate (SA -> Surrogate_SHC)
+==============================================
+Default -> FFE BER: 2.33e-02 | MLSE BER: 1.44e-03
+Entering Stage 1 (SA) for 20 iters...
+Stage 1 [1/20] | Best MLSE: 1.44e-03 | Cur FFE: 4.83e-02 | Cur MLSE: 4.23e-02
+Stage 1 [2/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.63e-02 | Cur MLSE: 3.32e-03
+Stage 1 [3/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.86e-02 | Cur MLSE: 6.02e-03
+Stage 1 [4/20] | Best MLSE: 1.44e-03 | Cur FFE: 4.97e-02 | Cur MLSE: 3.63e-02
+Stage 1 [5/20] | Best MLSE: 1.44e-03 | Cur FFE: 9.32e-02 | Cur MLSE: 9.32e-02
+Stage 1 [6/20] | Best MLSE: 1.44e-03 | Cur FFE: 3.23e-02 | Cur MLSE: 7.27e-03
+Stage 1 [7/20] | Best MLSE: 1.44e-03 | Cur FFE: 3.21e-02 | Cur MLSE: 6.99e-03
+Stage 1 [8/20] | Best MLSE: 1.44e-03 | Cur FFE: 3.21e-02 | Cur MLSE: 6.99e-03
+Stage 1 [9/20] | Best MLSE: 1.44e-03 | Cur FFE: 3.00e-02 | Cur MLSE: 5.07e-03
+Stage 1 [10/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.88e-02 | Cur MLSE: 3.39e-03
+Stage 1 [11/20] | Best MLSE: 1.44e-03 | Cur FFE: 4.54e-02 | Cur MLSE: 2.51e-02
+Stage 1 [12/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.85e-02 | Cur MLSE: 3.04e-03
+Stage 1 [13/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.69e-02 | Cur MLSE: 1.91e-03
+Stage 1 [14/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.69e-02 | Cur MLSE: 1.91e-03
+Stage 1 [15/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.75e-02 | Cur MLSE: 2.59e-03
+Stage 1 [16/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.65e-02 | Cur MLSE: 1.77e-03
+Stage 1 [17/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.79e-02 | Cur MLSE: 2.39e-03
+Stage 1 [18/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.43e-02 | Cur MLSE: 9.54e-04
+Stage 1 [19/20] | Best MLSE: 9.54e-04 | Cur FFE: 2.20e-02 | Cur MLSE: 2.98e-04
+Stage 1 [20/20] | Best MLSE: 2.98e-04 | Cur FFE: 3.07e-02 | Cur MLSE: 4.70e-03
+Entering Stage 2 (Surrogate_SHC) for 20 iters...
+Stage 2 [1/20] | Best MLSE: 2.98e-04 | Cur FFE: 2.20e-02 | Cur MLSE: 3.02e-04
+Stage 2 [2/20] | Best MLSE: 2.98e-04 | Cur FFE: 2.17e-02 | Cur MLSE: 2.84e-04
+Stage 2 [3/20] | Best MLSE: 2.84e-04 | Cur FFE: 2.17e-02 | Cur MLSE: 2.76e-04
+Stage 2 [4/20] | Best MLSE: 2.76e-04 | Cur FFE: 2.17e-02 | Cur MLSE: 2.76e-04
+Stage 2 [5/20] | Best MLSE: 2.76e-04 | Cur FFE: 2.17e-02 | Cur MLSE: 2.76e-04
+Stage 2 [6/20] | Best MLSE: 2.76e-04 | Cur FFE: 2.21e-02 | Cur MLSE: 3.25e-04
+Stage 2 [7/20] | Best MLSE: 2.76e-04 | Cur FFE: 2.21e-02 | Cur MLSE: 3.16e-04
+Stage 2 [8/20] | Best MLSE: 2.76e-04 | Cur FFE: 2.12e-02 | Cur MLSE: 2.68e-04
+Stage 2 [9/20] | Best MLSE: 2.68e-04 | Cur FFE: 2.16e-02 | Cur MLSE: 2.76e-04
+Stage 2 [10/20] | Best MLSE: 2.68e-04 | Cur FFE: 2.12e-02 | Cur MLSE: 2.68e-04
+Stage 2 [11/20] | Best MLSE: 2.68e-04 | Cur FFE: 2.16e-02 | Cur MLSE: 2.76e-04
+Stage 2 [12/20] | Best MLSE: 2.68e-04 | Cur FFE: 2.12e-02 | Cur MLSE: 2.69e-04
+Stage 2 [13/20] | Best MLSE: 2.68e-04 | Cur FFE: 2.12e-02 | Cur MLSE: 2.68e-04
+Stage 2 [14/20] | Best MLSE: 2.68e-04 | Cur FFE: 2.16e-02 | Cur MLSE: 2.71e-04
+Stage 2 [15/20] | Best MLSE: 2.68e-04 | Cur FFE: 2.12e-02 | Cur MLSE: 2.51e-04
+Stage 2 [16/20] | Best MLSE: 2.51e-04 | Cur FFE: 2.12e-02 | Cur MLSE: 2.51e-04
+Stage 2 [17/20] | Best MLSE: 2.51e-04 | Cur FFE: 2.17e-02 | Cur MLSE: 2.72e-04
+Stage 2 [18/20] | Best MLSE: 2.51e-04 | Cur FFE: 2.13e-02 | Cur MLSE: 2.68e-04
+Stage 2 [19/20] | Best MLSE: 2.51e-04 | Cur FFE: 2.12e-02 | Cur MLSE: 2.51e-04
+Stage 2 [20/20] | Best MLSE: 2.51e-04 | Cur FFE: 2.12e-02 | Cur MLSE: 2.51e-04
+Combo Complete: Best Stage 1 MLSE: 2.98e-04, Max Stage 2 MLSE: 3.25e-04, Final Best MLSE: 2.51e-04
+
+==============================================
+  Running Combo: GA->Surrogate (GA -> Surrogate_SHC)
+==============================================
+Default -> FFE BER: 2.33e-02 | MLSE BER: 1.44e-03
+Entering Stage 1 (GA) for 20 iters...
+Stage 1 [1/20] | Best MLSE: 1.44e-03 | Cur FFE: 1.88e-01 | Cur MLSE: 1.88e-01
+Stage 1 [2/20] | Best MLSE: 1.44e-03 | Cur FFE: 7.26e-02 | Cur MLSE: 6.60e-02
+Stage 1 [3/20] | Best MLSE: 1.44e-03 | Cur FFE: 1.99e-01 | Cur MLSE: 1.99e-01
+Stage 1 [4/20] | Best MLSE: 1.44e-03 | Cur FFE: 1.64e-01 | Cur MLSE: 1.64e-01
+Stage 1 [5/20] | Best MLSE: 1.44e-03 | Cur FFE: 1.13e-01 | Cur MLSE: 1.13e-01
+Stage 1 [6/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.33e-02 | Cur MLSE: 1.44e-03
+Stage 1 [7/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.33e-02 | Cur MLSE: 1.44e-03
+Stage 1 [8/20] | Best MLSE: 1.44e-03 | Cur FFE: 1.33e-01 | Cur MLSE: 1.33e-01
+Stage 1 [9/20] | Best MLSE: 1.44e-03 | Cur FFE: 1.40e-01 | Cur MLSE: 1.40e-01
+Stage 1 [10/20] | Best MLSE: 1.44e-03 | Cur FFE: 1.15e-01 | Cur MLSE: 1.15e-01
+Stage 1 [11/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.33e-02 | Cur MLSE: 1.44e-03
+Stage 1 [12/20] | Best MLSE: 1.44e-03 | Cur FFE: 3.38e-02 | Cur MLSE: 6.99e-03
+Stage 1 [13/20] | Best MLSE: 1.44e-03 | Cur FFE: 7.60e-02 | Cur MLSE: 7.18e-02
+Stage 1 [14/20] | Best MLSE: 1.44e-03 | Cur FFE: 7.26e-02 | Cur MLSE: 6.60e-02
+Stage 1 [15/20] | Best MLSE: 1.44e-03 | Cur FFE: 3.53e-02 | Cur MLSE: 9.53e-03
+Stage 1 [16/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.33e-02 | Cur MLSE: 1.44e-03
+Stage 1 [17/20] | Best MLSE: 1.44e-03 | Cur FFE: 3.43e-02 | Cur MLSE: 9.16e-03
+Stage 1 [18/20] | Best MLSE: 1.44e-03 | Cur FFE: 3.21e-02 | Cur MLSE: 6.55e-03
+Stage 1 [19/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.38e-02 | Cur MLSE: 1.31e-03
+Stage 1 [20/20] | Best MLSE: 1.31e-03 | Cur FFE: 4.20e-02 | Cur MLSE: 2.42e-02
+Entering Stage 2 (Surrogate_SHC) for 20 iters...
+Stage 2 [1/20] | Best MLSE: 1.31e-03 | Cur FFE: 2.38e-02 | Cur MLSE: 1.31e-03
+Stage 2 [2/20] | Best MLSE: 1.31e-03 | Cur FFE: 2.38e-02 | Cur MLSE: 1.31e-03
+Stage 2 [3/20] | Best MLSE: 1.31e-03 | Cur FFE: 2.38e-02 | Cur MLSE: 1.30e-03
+Stage 2 [4/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.38e-02 | Cur MLSE: 1.31e-03
+Stage 2 [5/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.38e-02 | Cur MLSE: 1.31e-03
+Stage 2 [6/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.38e-02 | Cur MLSE: 1.30e-03
+Stage 2 [7/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.38e-02 | Cur MLSE: 1.30e-03
+Stage 2 [8/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.37e-02 | Cur MLSE: 1.30e-03
+Stage 2 [9/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.37e-02 | Cur MLSE: 1.30e-03
+Stage 2 [10/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.37e-02 | Cur MLSE: 1.30e-03
+Stage 2 [11/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.37e-02 | Cur MLSE: 1.30e-03
+Stage 2 [12/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.38e-02 | Cur MLSE: 1.30e-03
+Stage 2 [13/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.37e-02 | Cur MLSE: 1.30e-03
+Stage 2 [14/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.38e-02 | Cur MLSE: 1.30e-03
+Stage 2 [15/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.38e-02 | Cur MLSE: 1.30e-03
+Stage 2 [16/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.38e-02 | Cur MLSE: 1.30e-03
+Stage 2 [17/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.38e-02 | Cur MLSE: 1.30e-03
+Stage 2 [18/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.37e-02 | Cur MLSE: 1.30e-03
+Stage 2 [19/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.37e-02 | Cur MLSE: 1.30e-03
+Stage 2 [20/20] | Best MLSE: 1.30e-03 | Cur FFE: 2.37e-02 | Cur MLSE: 1.30e-03
+Combo Complete: Best Stage 1 MLSE: 1.31e-03, Max Stage 2 MLSE: 1.31e-03, Final Best MLSE: 1.30e-03
+
+==============================================
+  Running Combo: BO->ESC (BO_Safe -> ESC_Safe)
+==============================================
+Default -> FFE BER: 2.33e-02 | MLSE BER: 1.44e-03
+  [BO Tuned] sigma_f=2.30 | L_FFE_avg=0.50 | L_CTLE=20.0
+Entering Stage 1 (BO_Safe) for 20 iters...
+  [BO Tuned] sigma_f=2.80 | L_FFE_avg=0.50 | L_CTLE=20.0
+Stage 1 [1/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.55e-02 | Cur MLSE: 1.36e-03
+  [BO Tuned] sigma_f=2.08 | L_FFE_avg=0.50 | L_CTLE=20.0
+Stage 1 [2/20] | Best MLSE: 1.36e-03 | Cur FFE: 2.62e-02 | Cur MLSE: 1.71e-03
+  [BO Tuned] sigma_f=1.75 | L_FFE_avg=0.50 | L_CTLE=20.0
+Stage 1 [3/20] | Best MLSE: 1.36e-03 | Cur FFE: 3.57e-02 | Cur MLSE: 1.21e-02
+  [BO Tuned] sigma_f=1.73 | L_FFE_avg=0.42 | L_CTLE=19.8
+Stage 1 [4/20] | Best MLSE: 1.36e-03 | Cur FFE: 3.22e-02 | Cur MLSE: 5.29e-03
+  [BO Tuned] sigma_f=1.55 | L_FFE_avg=0.38 | L_CTLE=20.0
+Stage 1 [5/20] | Best MLSE: 1.36e-03 | Cur FFE: 3.43e-02 | Cur MLSE: 9.71e-03
+  [BO Tuned] sigma_f=1.68 | L_FFE_avg=0.36 | L_CTLE=20.0
+Stage 1 [6/20] | Best MLSE: 1.36e-03 | Cur FFE: 2.55e-02 | Cur MLSE: 3.34e-03
+  [BO Tuned] sigma_f=1.28 | L_FFE_avg=0.31 | L_CTLE=20.0
+Stage 1 [7/20] | Best MLSE: 1.36e-03 | Cur FFE: 2.98e-02 | Cur MLSE: 5.49e-03
+  [BO Tuned] sigma_f=1.15 | L_FFE_avg=0.29 | L_CTLE=20.0
+Stage 1 [8/20] | Best MLSE: 1.36e-03 | Cur FFE: 2.45e-02 | Cur MLSE: 1.32e-03
+  [BO Tuned] sigma_f=1.13 | L_FFE_avg=0.30 | L_CTLE=20.0
+Stage 1 [9/20] | Best MLSE: 1.32e-03 | Cur FFE: 3.04e-02 | Cur MLSE: 4.75e-03
+  [BO Tuned] sigma_f=1.82 | L_FFE_avg=0.31 | L_CTLE=19.7
+Stage 1 [10/20] | Best MLSE: 1.32e-03 | Cur FFE: 2.67e-02 | Cur MLSE: 1.99e-03
+  [BO Tuned] sigma_f=1.63 | L_FFE_avg=0.27 | L_CTLE=20.0
+Stage 1 [11/20] | Best MLSE: 1.32e-03 | Cur FFE: 2.48e-02 | Cur MLSE: 1.33e-03
+  [BO Tuned] sigma_f=1.79 | L_FFE_avg=0.29 | L_CTLE=20.0
+Stage 1 [12/20] | Best MLSE: 1.32e-03 | Cur FFE: 2.36e-02 | Cur MLSE: 9.29e-04
+  [BO Tuned] sigma_f=1.71 | L_FFE_avg=0.29 | L_CTLE=19.9
+Stage 1 [13/20] | Best MLSE: 9.29e-04 | Cur FFE: 2.19e-02 | Cur MLSE: 7.18e-04
+  [BO Tuned] sigma_f=1.72 | L_FFE_avg=0.30 | L_CTLE=17.4
+Stage 1 [14/20] | Best MLSE: 7.18e-04 | Cur FFE: 1.88e-02 | Cur MLSE: 1.42e-04
+  [BO Tuned] sigma_f=1.88 | L_FFE_avg=0.25 | L_CTLE=16.3
+Stage 1 [15/20] | Best MLSE: 1.42e-04 | Cur FFE: 1.92e-02 | Cur MLSE: 1.35e-04
+  [BO Tuned] sigma_f=1.88 | L_FFE_avg=0.27 | L_CTLE=14.8
+Stage 1 [16/20] | Best MLSE: 1.35e-04 | Cur FFE: 2.02e-02 | Cur MLSE: 2.42e-04
+  [BO Tuned] sigma_f=1.94 | L_FFE_avg=0.28 | L_CTLE=12.5
+Stage 1 [17/20] | Best MLSE: 1.35e-04 | Cur FFE: 2.06e-02 | Cur MLSE: 2.45e-04
+  [BO Tuned] sigma_f=2.32 | L_FFE_avg=0.26 | L_CTLE=10.6
+Stage 1 [18/20] | Best MLSE: 1.35e-04 | Cur FFE: 2.06e-02 | Cur MLSE: 2.29e-04
+  [BO Tuned] sigma_f=1.86 | L_FFE_avg=0.23 | L_CTLE=8.1
+Stage 1 [19/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.91e-02 | Cur MLSE: 1.42e-04
+  [BO Tuned] sigma_f=2.00 | L_FFE_avg=0.29 | L_CTLE=7.4
+Stage 1 [20/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.94e-02 | Cur MLSE: 1.54e-04
+Entering Stage 2 (ESC_Safe) for 20 iters...
+Stage 2 [1/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.25e-01 | Cur MLSE: 1.25e-01
+Stage 2 [2/20] | Best MLSE: 1.35e-04 | Cur FFE: 6.89e-02 | Cur MLSE: 5.70e-02
+Stage 2 [3/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.61e-01 | Cur MLSE: 1.61e-01
+Stage 2 [4/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.06e-01 | Cur MLSE: 1.06e-01
+Stage 2 [5/20] | Best MLSE: 1.35e-04 | Cur FFE: 9.84e-02 | Cur MLSE: 9.82e-02
+Stage 2 [6/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.41e-01 | Cur MLSE: 1.41e-01
+Stage 2 [7/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.37e-01 | Cur MLSE: 1.37e-01
+Stage 2 [8/20] | Best MLSE: 1.35e-04 | Cur FFE: 9.75e-02 | Cur MLSE: 9.62e-02
+Stage 2 [9/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.49e-01 | Cur MLSE: 1.49e-01
+Stage 2 [10/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.42e-01 | Cur MLSE: 1.43e-01
+Stage 2 [11/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.55e-01 | Cur MLSE: 1.55e-01
+Stage 2 [12/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.27e-01 | Cur MLSE: 1.26e-01
+Stage 2 [13/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.18e-01 | Cur MLSE: 1.17e-01
+Stage 2 [14/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.23e-01 | Cur MLSE: 1.23e-01
+Stage 2 [15/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.72e-01 | Cur MLSE: 1.72e-01
+Stage 2 [16/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.09e-01 | Cur MLSE: 1.09e-01
+Stage 2 [17/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.26e-01 | Cur MLSE: 1.24e-01
+Stage 2 [18/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.39e-01 | Cur MLSE: 1.40e-01
+Stage 2 [19/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.28e-01 | Cur MLSE: 1.28e-01
+Stage 2 [20/20] | Best MLSE: 1.35e-04 | Cur FFE: 1.27e-01 | Cur MLSE: 1.27e-01
+Combo Complete: Best Stage 1 MLSE: 1.35e-04, Max Stage 2 MLSE: 1.72e-01, Final Best MLSE: 1.35e-04
+
+==============================================
+  Running Combo: BO->SafeQCD (BO_Safe -> SafeQCD)
+==============================================
+Default -> FFE BER: 2.33e-02 | MLSE BER: 1.44e-03
+  [BO Tuned] sigma_f=2.30 | L_FFE_avg=0.50 | L_CTLE=20.0
+Entering Stage 1 (BO_Safe) for 20 iters...
+  [BO Tuned] sigma_f=2.80 | L_FFE_avg=0.50 | L_CTLE=20.0
+Stage 1 [1/20] | Best MLSE: 1.44e-03 | Cur FFE: 3.31e-02 | Cur MLSE: 6.05e-03
+  [BO Tuned] sigma_f=3.15 | L_FFE_avg=0.18 | L_CTLE=19.4
+Stage 1 [2/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.64e-02 | Cur MLSE: 3.32e-03
+  [BO Tuned] sigma_f=2.50 | L_FFE_avg=0.39 | L_CTLE=17.7
+Stage 1 [3/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.67e-02 | Cur MLSE: 3.46e-03
+  [BO Tuned] sigma_f=2.18 | L_FFE_avg=0.37 | L_CTLE=16.8
+Stage 1 [4/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.70e-02 | Cur MLSE: 3.37e-03
+  [BO Tuned] sigma_f=2.07 | L_FFE_avg=0.35 | L_CTLE=15.0
+Stage 1 [5/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.66e-02 | Cur MLSE: 3.67e-03
+  [BO Tuned] sigma_f=1.59 | L_FFE_avg=0.36 | L_CTLE=13.3
+Stage 1 [6/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.50e-02 | Cur MLSE: 2.23e-03
+  [BO Tuned] sigma_f=1.88 | L_FFE_avg=0.32 | L_CTLE=15.5
+Stage 1 [7/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.42e-02 | Cur MLSE: 2.11e-03
+  [BO Tuned] sigma_f=1.60 | L_FFE_avg=0.28 | L_CTLE=17.2
+Stage 1 [8/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.40e-02 | Cur MLSE: 1.95e-03
+  [BO Tuned] sigma_f=1.67 | L_FFE_avg=0.35 | L_CTLE=16.4
+Stage 1 [9/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.53e-02 | Cur MLSE: 2.75e-03
+  [BO Tuned] sigma_f=2.18 | L_FFE_avg=0.35 | L_CTLE=14.7
+Stage 1 [10/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.46e-02 | Cur MLSE: 2.08e-03
+  [BO Tuned] sigma_f=1.40 | L_FFE_avg=0.35 | L_CTLE=16.1
+Stage 1 [11/20] | Best MLSE: 1.44e-03 | Cur FFE: 2.32e-02 | Cur MLSE: 1.37e-03
+  [BO Tuned] sigma_f=1.53 | L_FFE_avg=0.32 | L_CTLE=13.6
+Stage 1 [12/20] | Best MLSE: 1.37e-03 | Cur FFE: 2.27e-02 | Cur MLSE: 1.16e-03
+  [BO Tuned] sigma_f=1.63 | L_FFE_avg=0.24 | L_CTLE=12.3
+Stage 1 [13/20] | Best MLSE: 1.16e-03 | Cur FFE: 2.15e-02 | Cur MLSE: 7.71e-04
+  [BO Tuned] sigma_f=1.80 | L_FFE_avg=0.23 | L_CTLE=9.7
+Stage 1 [14/20] | Best MLSE: 7.71e-04 | Cur FFE: 2.16e-02 | Cur MLSE: 7.82e-04
+  [BO Tuned] sigma_f=1.90 | L_FFE_avg=0.28 | L_CTLE=6.9
+Stage 1 [15/20] | Best MLSE: 7.71e-04 | Cur FFE: 2.17e-02 | Cur MLSE: 8.45e-04
+  [BO Tuned] sigma_f=1.80 | L_FFE_avg=0.23 | L_CTLE=5.2
+Stage 1 [16/20] | Best MLSE: 7.71e-04 | Cur FFE: 2.14e-02 | Cur MLSE: 6.81e-04
+  [BO Tuned] sigma_f=1.78 | L_FFE_avg=0.26 | L_CTLE=2.1
+Stage 1 [17/20] | Best MLSE: 6.81e-04 | Cur FFE: 2.06e-02 | Cur MLSE: 4.87e-04
+  [BO Tuned] sigma_f=1.71 | L_FFE_avg=0.26 | L_CTLE=1.0
+Stage 1 [18/20] | Best MLSE: 4.87e-04 | Cur FFE: 1.93e-02 | Cur MLSE: 2.85e-04
+  [BO Tuned] sigma_f=1.64 | L_FFE_avg=0.26 | L_CTLE=1.0
+Stage 1 [19/20] | Best MLSE: 2.85e-04 | Cur FFE: 1.75e-02 | Cur MLSE: 1.68e-04
+  [BO Tuned] sigma_f=1.61 | L_FFE_avg=0.26 | L_CTLE=1.0
+Stage 1 [20/20] | Best MLSE: 1.68e-04 | Cur FFE: 1.74e-02 | Cur MLSE: 1.42e-04
+Entering Stage 2 (SafeQCD) for 20 iters...
+  [BO Tuned] sigma_f=2.30 | L_FFE_avg=0.50 | L_CTLE=20.0
+  [BO Tuned] sigma_f=2.78 | L_FFE_avg=0.36 | L_CTLE=19.4
+  [BO Tuned] sigma_f=2.20 | L_FFE_avg=0.36 | L_CTLE=20.0
+  [BO Tuned] sigma_f=1.77 | L_FFE_avg=0.30 | L_CTLE=20.0
+  [BO Tuned] sigma_f=1.77 | L_FFE_avg=0.17 | L_CTLE=18.8
+  [BO Tuned] sigma_f=2.73 | L_FFE_avg=0.18 | L_CTLE=16.9
+  [BO Tuned] sigma_f=2.51 | L_FFE_avg=0.18 | L_CTLE=14.5
+Stage 2 [1/20] | Best MLSE: 1.42e-04 | Cur FFE: 2.12e-02 | Cur MLSE: 1.24e-03
+  [BO Tuned] sigma_f=2.21 | L_FFE_avg=0.18 | L_CTLE=12.0
+Stage 2 [2/20] | Best MLSE: 1.42e-04 | Cur FFE: 1.77e-02 | Cur MLSE: 1.51e-04
+Stage 2 [3/20] | Best MLSE: 1.42e-04 | Cur FFE: 2.15e-02 | Cur MLSE: 6.67e-04
+Stage 2 [4/20] | Best MLSE: 1.42e-04 | Cur FFE: 1.74e-02 | Cur MLSE: 1.42e-04
+  [BO Tuned] sigma_f=2.14 | L_FFE_avg=0.18 | L_CTLE=9.6
+Stage 2 [5/20] | Best MLSE: 1.42e-04 | Cur FFE: 1.80e-02 | Cur MLSE: 1.27e-04
+Stage 2 [6/20] | Best MLSE: 1.27e-04 | Cur FFE: 1.69e-02 | Cur MLSE: 1.64e-04
+Stage 2 [7/20] | Best MLSE: 1.27e-04 | Cur FFE: 1.93e-02 | Cur MLSE: 1.57e-04
+  [BO Tuned] sigma_f=2.09 | L_FFE_avg=0.18 | L_CTLE=7.3
+Stage 2 [8/20] | Best MLSE: 1.27e-04 | Cur FFE: 1.80e-02 | Cur MLSE: 1.27e-04
+Stage 2 [9/20] | Best MLSE: 1.27e-04 | Cur FFE: 1.69e-02 | Cur MLSE: 1.64e-04
+Stage 2 [10/20] | Best MLSE: 1.27e-04 | Cur FFE: 1.80e-02 | Cur MLSE: 1.27e-04
+  [BO Tuned] sigma_f=2.07 | L_FFE_avg=0.18 | L_CTLE=5.0
+Stage 2 [11/20] | Best MLSE: 1.27e-04 | Cur FFE: 2.25e-02 | Cur MLSE: 9.72e-04
+Stage 2 [12/20] | Best MLSE: 1.27e-04 | Cur FFE: 1.60e-02 | Cur MLSE: 4.38e-05
+Stage 2 [13/20] | Best MLSE: 4.38e-05 | Cur FFE: 1.53e-02 | Cur MLSE: 4.38e-05
+  [BO Tuned] sigma_f=2.71 | L_FFE_avg=0.18 | L_CTLE=2.3
+Stage 2 [14/20] | Best MLSE: 4.38e-05 | Cur FFE: 1.34e-02 | Cur MLSE: 3.76e-05
+Stage 2 [15/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.88e-02 | Cur MLSE: 1.82e-04
+Stage 2 [16/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.37e-02 | Cur MLSE: 3.76e-05
+  [BO Tuned] sigma_f=2.43 | L_FFE_avg=0.16 | L_CTLE=1.0
+Stage 2 [17/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.67e-02 | Cur MLSE: 4.67e-05
+Stage 2 [18/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.31e-02 | Cur MLSE: 4.14e-05
+Stage 2 [19/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.35e-02 | Cur MLSE: 3.76e-05
+  [BO Tuned] sigma_f=2.91 | L_FFE_avg=0.18 | L_CTLE=1.0
+Stage 2 [20/20] | Best MLSE: 3.76e-05 | Cur FFE: 1.28e-02 | Cur MLSE: 3.76e-05
+Combo Complete: Best Stage 1 MLSE: 1.42e-04, Max Stage 2 MLSE: 1.24e-03, Final Best MLSE: 3.76e-05
+
+Optimization Complete! Results saved to result\20260803_165234_two_stage/two_stage_summary.md
