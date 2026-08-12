@@ -55,7 +55,7 @@ DEFAULT_MODE = '112G'
 在“所测即所发生”的硬性限制下，我们实现并对比了多种解决掉锁危机的架构与单体能力：
 
 👉 **[两阶段在线优化工作流 (Two-Stage Online Optimization)](docs/04_Algorithms/Two_Stage_Optimization.md)**  **(最终推荐架构)**
-> *通过拆分“离线模型探索”与“在线代理约束跟线”，结合 **SA / BO $\rightarrow$ Surrogate_SHC**，在 1e-5 量级实测中实现了微调阶段**真正的零物理坠崖 (Zero Jitter)**。这是目前既兼顾大范围跳跃，又能绝对保证硬调安全的终极手段。*
+> *通过拆分“离线模型探索”与“在线代理约束跟线”，结合 **BO_Safe $\rightarrow$ Surrogate**。在 Stage 2 中彻底切断真实的 MLSE_BER 反馈，仅依靠提取发端眼图的 10 维统计特征，并代入纯白盒线性回归模型 (Ridge Regression) 生成的物理下落梯度进行寻优。在实测中实现了微调阶段**真正的零物理坠崖 (Zero Jitter) 且成功下钻至 1e-5 的物理底座**。这是目前兼顾探索与安全的终极绝杀手段。*
 
 - **TuRBO-Safe (Trust Region Safe-BO)**: 结合了 $3\sigma$ 置信度上界防御与自适应信任域，单体防御力极强，作为 Stage 1 能够平稳快速拿到底噪。
 - **Safe Quadratic Coordinate Descent (Safe QCD)**: 纯数学架构的二阶优化器。通过微探针精确求解悬崖边界，防坠崖能力极强，但在复杂地形下容易陷入局部极小。

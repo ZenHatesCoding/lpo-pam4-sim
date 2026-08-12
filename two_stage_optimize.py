@@ -14,10 +14,11 @@ from surrogate_shc_optimizer import SurrogateSHCOptimizer
 from safe_qcd_optimizer import SafeQCDOptimizer
 from esc_optimizer import SafeESCOptimizer
 from optimize_tx import objective_function
+from surrogate_metric import build_golden_cluster, evaluate_surrogate_metric
 
-def get_optimizer(opt_type, bounds, config):
+def get_optimizer(opt_type, bounds, config, is_surrogate=False):
     if opt_type == 'SA':
-        return SimulatedAnnealingOptimizer(bounds, max_regression_ratio=10.0, initial_temp=1.0, cooling_rate=0.85)
+        return SimulatedAnnealingOptimizer(bounds, max_regression_ratio=10.0, initial_temp=1.0 if not is_surrogate else 10.0, cooling_rate=0.85)
     elif opt_type == 'GA':
         return GeneticAlgorithmOptimizer(bounds, pop_size=5, mutation_rate=0.5, mutation_scale=0.05)
     elif opt_type == 'SHC':
@@ -33,9 +34,9 @@ def get_optimizer(opt_type, bounds, config):
     else:
         raise ValueError(f"Unknown optimizer: {opt_type}")
 
-def run_two_stage_optimization(combo_name, stage1_type, stage2_type, base_config, bounds, result_dir, n_stage1=20, n_stage2=20):
+def run_two_stage_optimization(combo_name, stage1_type, stage2_type, base_config, bounds, result_dir, n_stage1=20, n_stage2=20, stage2_metric_mode='mlse_ber'):
     print(f"\n==============================================")
-    print(f"  Running Combo: {combo_name} ({stage1_type} -> {stage2_type})")
+    print(f"  Running Combo: {combo_name} ({stage1_type} -> {stage2_type} | Mode: {stage2_metric_mode})")
     print(f"==============================================")
     
     config = {k: v.copy() if isinstance(v, dict) else v for k, v in base_config.items()}
@@ -46,7 +47,7 @@ def run_two_stage_optimization(combo_name, stage1_type, stage2_type, base_config
         f.write(f"\n{'='*50}\n")
         f.write(f"  Starting Combo: {combo_name}\n")
         f.write(f"  Stage 1: {stage1_type} (Budget: {n_stage1})\n")
-        f.write(f"  Stage 2: {stage2_type} (Budget: {n_stage2})\n")
+        f.write(f"  Stage 2: {stage2_type} (Budget: {n_stage2}) [Metric: {stage2_metric_mode}]\n")
         f.write(f"{'='*50}\n")
         
     X_data = []
@@ -105,30 +106,54 @@ def run_two_stage_optimization(combo_name, stage1_type, stage2_type, base_config
     # Identify Stage 1 performance
     best_mlse_stage1 = np.min(mlse_history)
     
-    # ------------------ STAGE 2 ------------------
-    stage2_opt = get_optimizer(stage2_type, bounds, config)
-    print(f"Entering Stage 2 ({stage2_type}) for {n_stage2} iters...")
+    # --- Prepare Stage 2 ---
+    is_surrogate = (stage2_metric_mode == 'tx_surrogate')
+    stage2_opt = get_optimizer(stage2_type, bounds, config, is_surrogate=is_surrogate)
+    
+    X_data_stage2 = X_data.copy()
+    if is_surrogate:
+        print(f"Building TX Surrogate Statistical Model from all Stage 1 results...")
+        mu_golden, cov_golden_inv, mapping_params, tx_pam4_eval = build_golden_cluster(X_data, y_data, config)
+        
+        # We need to re-evaluate history using the surrogate distance to seed the stage 2 optimizer properly
+        y_data_stage2 = []
+        for x in X_data_stage2:
+            pseudo_log = evaluate_surrogate_metric(x, mu_golden, cov_golden_inv, mapping_params, tx_pam4_eval, config)
+            y_data_stage2.append(pseudo_log)
+    else:
+        y_data_stage2 = y_data.copy()
+        
+    print(f"Entering Stage 2 ({stage2_type}) for {n_stage2} iters (Mode: {stage2_metric_mode})...")
     
     # Replay history to build Stage 2's model state
-    for i in range(len(X_data)):
-        stage2_opt.fit(X_data[:i+1], y_data[:i+1])
+    for i in range(len(X_data_stage2)):
+        stage2_opt.fit(X_data_stage2[:i+1], y_data_stage2[:i+1])
         
     for step in range(n_stage2):
         if stage2_type == 'GA':
-            next_taps = stage2_opt.suggest_next(X_data=X_data)
+            next_taps = stage2_opt.suggest_next(X_data=X_data_stage2)
         elif stage2_type == 'BO_Safe':
             next_taps = stage2_opt.suggest_next(n_coarse=2000, n_fine_steps=50, patience=15, lr=0.1, max_allowed_log_ber=-2.0)
         else:
             next_taps = stage2_opt.suggest_next(n_coarse=2000, n_fine_steps=50, patience=15, lr=0.1)
             
+        # We STILL run the true objective_function just to log the actual MLSE BER for our comparison plot
+        # But the optimizer will ONLY see the surrogate distance if is_surrogate=True
         obj_val, ffe_ber, mlse_ber = objective_function(config, next_taps, result_dir, iter_count)
-        print(f"Stage 2 [{step+1}/{n_stage2}] | Best MLSE: {np.min(mlse_history):.2e} | Cur FFE: {ffe_ber:.2e} | Cur MLSE: {mlse_ber:.2e}")
         
-        X_data.append(next_taps)
-        y_data.append(obj_val)
+        if is_surrogate:
+            pseudo_log = evaluate_surrogate_metric(next_taps, mu_golden, cov_golden_inv, mapping_params, tx_pam4_eval, config)
+            y_val_for_opt = pseudo_log
+            print(f"Stage 2 [{step+1}/{n_stage2}] | Best MLSE: {np.min(mlse_history):.2e} | PsLogBER: {pseudo_log:.2f} | Cur MLSE: {mlse_ber:.2e}")
+        else:
+            y_val_for_opt = obj_val
+            print(f"Stage 2 [{step+1}/{n_stage2}] | Best MLSE: {np.min(mlse_history):.2e} | Cur FFE: {ffe_ber:.2e} | Cur MLSE: {mlse_ber:.2e}")
+        
+        X_data_stage2.append(next_taps)
+        y_data_stage2.append(y_val_for_opt)
         mlse_history.append(mlse_ber)
         ffe_history.append(ffe_ber)
-        stage2_opt.fit(X_data, y_data) # Update model with the new point
+        stage2_opt.fit(X_data_stage2, y_data_stage2) # Update model with the new point
         
     # Metrics
     stage2_mlse_data = mlse_history[n_stage1+1:]
@@ -190,42 +215,84 @@ def main():
     n_stage1 = 20
     n_stage2 = 20
     
-    for name, s1, s2 in combinations:
-        results[name] = run_two_stage_optimization(name, s1, s2, base_config, bounds, result_dir, n_stage1, n_stage2)
+    for idx, (name, s1, s2) in enumerate(combinations):
+        # Generate a unique deterministic seed for this combination
+        combo_seed = 42 + idx
         
+        # Run Baseline (MLSE BER feedback in Stage 2)
+        np.random.seed(combo_seed)
+        res_baseline = run_two_stage_optimization(f"{name}_Baseline", s1, s2, base_config, bounds, result_dir, n_stage1, n_stage2, stage2_metric_mode='mlse_ber')
+        results[f"{name}_Baseline"] = res_baseline
+        
+        # Run Surrogate (TX-Only Statistical Feedback in Stage 2)
+        # Reset the seed to the exact same value so Stage 1 is mathematically identical
+        np.random.seed(combo_seed)
+        res_surrogate = run_two_stage_optimization(f"{name}_Surrogate", s1, s2, base_config, bounds, result_dir, n_stage1, n_stage2, stage2_metric_mode='tx_surrogate')
+        results[f"{name}_Surrogate"] = res_surrogate
+        
+    # Group by base combo name (without _Baseline or _Surrogate)
+    base_combos = {}
+    for key in results.keys():
+        if key.endswith('_Baseline'):
+            base = key.replace('_Baseline', '')
+            if base not in base_combos:
+                base_combos[base] = {}
+            base_combos[base]['Baseline'] = results[key]
+        elif key.endswith('_Surrogate'):
+            base = key.replace('_Surrogate', '')
+            if base not in base_combos:
+                base_combos[base] = {}
+            base_combos[base]['Surrogate'] = results[key]
+            
     # Plotting
-    plt.figure(figsize=(12, 7))
-    for name, res in results.items():
-        plt.semilogy(res['mlse_history'], label=name, marker='o', markersize=4)
+    n_combos = len(base_combos)
+    fig, axes = plt.subplots(n_combos, 1, figsize=(12, 4 * n_combos), sharex=True)
+    if n_combos == 1:
+        axes = [axes]
         
-    # Vertical line separating stages
-    plt.axvline(x=n_stage1, color='black', linestyle='--', label='Stage 1 / Stage 2 Boundary')
-    
-    plt.title(f"Two-Stage MLSE BER Convergence (SNR={base_config['channel']['snr_db']} dB)")
-    plt.xlabel("Evaluation Step")
-    plt.ylabel("MLSE BER")
-    plt.grid(True, which="both", ls="--")
-    plt.legend()
+    for ax, (base, modes) in zip(axes, base_combos.items()):
+        if 'Baseline' in modes:
+            ax.semilogy(modes['Baseline']['mlse_history'], label='RX MLSE Feedback (Baseline)', color='blue', linestyle='-', marker='o', markersize=4)
+        if 'Surrogate' in modes:
+            ax.semilogy(modes['Surrogate']['mlse_history'], label='TX Statistical Surrogate (Proposed)', color='red', linestyle='--', marker='x', markersize=4)
+            
+        ax.axvline(x=n_stage1, color='black', linestyle=':', label='Stage 1 / Stage 2 Boundary')
+        ax.set_title(f"Optimization Combination: {base} (SNR={base_config['channel']['snr_db']} dB)")
+        ax.set_ylabel("MLSE BER")
+        ax.grid(True, which="both", ls="--", alpha=0.6)
+        ax.legend()
+        
+    axes[-1].set_xlabel("Evaluation Step")
+    plt.tight_layout()
     plot_path = os.path.join(result_dir, "two_stage_convergence.png")
     plt.savefig(plot_path)
     plt.close()
     
     # Write Summary Markdown
-    with open(os.path.join(result_dir, 'two_stage_summary.md'), 'w') as f:
-        f.write(f"# Two-Stage Optimization Comparison\n\n")
-        f.write(f"**Goal:** Stage 1 explores and builds a model to find a good starting point and surrogate model. Stage 2 exploits this to perform online tuning with minimal jitter.\n\n")
+    with open(os.path.join(result_dir, 'two_stage_summary.md'), 'w', encoding='utf-8') as f:
+        f.write("# 两阶段优化对比报告 (双模式对比)\n\n")
+        f.write("此报告对比了 **Baseline (依赖收端 BER反馈)** 和 **Surrogate (依赖发端统计特征距离)** 两种模式在第二阶段 (Stage 2) 的表现。\n\n")
         f.write(f"- **Symbols**: {base_config['system']['num_symbols']}\n")
         f.write(f"- **SNR**: {base_config['channel']['snr_db']} dB\n")
         f.write(f"- **Stage 1 Iters**: {n_stage1}\n")
         f.write(f"- **Stage 2 Iters**: {n_stage2}\n\n")
-        f.write(f"![Two-Stage Convergence](file:///{os.path.abspath(plot_path).replace(os.sep, '/')})\n\n")
-        f.write("| Combination (S1->S2) | Best MLSE (Stage 1) | Max MLSE (Stage 2 Jitter) | Std Dev Log(BER) S2 | Final Best MLSE |\n")
-        f.write("| --- | --- | --- | --- | --- |\n")
         
-        for name, res in results.items():
-            f.write(f"| **{name}** | `{res['best_mlse_stage1']:.2e}` | `{res['max_mlse_stage2']:.2e}` | `{res['std_mlse_stage2_log']:.3f}` | `{res['best_mlse_final']:.2e}` |\n")
+        f.write(f"![Two-Stage Convergence](file:///{os.path.abspath(plot_path).replace(os.sep, '/')})\n\n")
+        
+        for base, modes in base_combos.items():
+            f.write(f"## {base}\n")
+            f.write("| 模式 (Mode) | 第一阶段最优 (Stage 1 Best) | 第二阶段最差抖动 (Stage 2 Max) | 最终收敛最优 (Final Best) | Stage 2 对数BER标准差 |\n")
+            f.write("| --- | --- | --- | --- | --- |\n")
             
-    print(f"\nOptimization Complete! Results saved to {result_dir}/two_stage_summary.md")
+            for mode_name, res in modes.items():
+                s1_best = res['best_mlse_stage1']
+                s2_max = res['max_mlse_stage2']
+                final_best = res['best_mlse_final']
+                std_log = res['std_mlse_stage2_log']
+                f.write(f"| **{mode_name}** | `{s1_best:.2e}` | `{s2_max:.2e}` | `{final_best:.2e}` | `{std_log:.3f}` |\n")
+            f.write("\n")
+            
+    print(f"\nOptimization Complete! Results saved to {os.path.join(result_dir, 'two_stage_summary.md')}")
 
 if __name__ == '__main__':
     main()
