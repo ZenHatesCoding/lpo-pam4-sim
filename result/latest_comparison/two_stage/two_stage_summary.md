@@ -7,7 +7,7 @@
 - **Stage 1 Iters**: 20
 - **Stage 2 Iters**: 20
 
-![Two-Stage Convergence](file:///C:/DSPPlayground/eLPO_antigravity/result/20260813_112031_two_stage/two_stage_convergence.png)
+![Two-Stage Convergence](two_stage_convergence.png)
 
 ## BO->Surrogate
 | 模式 (Mode) | 第一阶段最优 (Stage 1 Best) | 第二阶段最差抖动 (Stage 2 Max) | 最终收敛最优 (Final Best) | Stage 2 对数BER标准差 |

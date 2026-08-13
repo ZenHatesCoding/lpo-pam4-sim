@@ -288,7 +288,7 @@ def main():
         f.write(f"- **Stage 1 Iters**: {n_stage1}\n")
         f.write(f"- **Stage 2 Iters**: {n_stage2}\n\n")
         
-        f.write(f"![Two-Stage Convergence](file:///{os.path.abspath(plot_path).replace(os.sep, '/')})\n\n")
+        f.write(f"![Two-Stage Convergence](two_stage_convergence.png)\n\n")
         
         for base, modes in base_combos.items():
             f.write(f"## {base}\n")
