@@ -177,10 +177,21 @@ def main():
     create_config.generate_config()
     base_config = load_config('config.xlsx')
     
-    # 1e-5 level settings
-    base_config['channel']['snr_db'] = 28.0
-    base_config['system']['num_symbols'] = 1048576
-    base_config['tx']['pattern_length'] = 524288
+    # ==========================================
+    # 🚀 Simulation Depth Toggle
+    # Options: 'FAST_1E4' (Quick), 'DEEP_1E5' (Thorough)
+    # ==========================================
+    TEST_MODE = 'DEEP_1E5'
+    
+    if TEST_MODE == 'FAST_1E4':
+        base_config['channel']['snr_db'] = 26.0
+        base_config['system']['num_symbols'] = 200000
+        base_config['tx']['pattern_length'] = 100000
+    elif TEST_MODE == 'DEEP_1E5':
+        base_config['channel']['snr_db'] = 28.0
+        base_config['system']['num_symbols'] = 1048576
+        base_config['tx']['pattern_length'] = 524288
+        
     if 'pcb_loss_nyquist_db' not in base_config['channel']:
         base_config['channel']['pcb_loss_nyquist_db'] = 15.0
         
