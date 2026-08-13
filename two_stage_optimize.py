@@ -265,7 +265,7 @@ def main():
         if 'Baseline' in modes:
             ax.semilogy(modes['Baseline']['mlse_history'], label='RX MLSE Feedback (Baseline)', color='blue', linestyle='-', marker='o', markersize=4)
         if 'Surrogate' in modes:
-            ax.semilogy(modes['Surrogate']['mlse_history'], label='TX Statistical Surrogate (Proposed)', color='red', linestyle='--', marker='x', markersize=4)
+            ax.semilogy(modes['Surrogate']['mlse_history'], label='TX GPR+UCB Surrogate (Proposed)', color='red', linestyle='--', marker='x', markersize=4)
             
         ax.axvline(x=n_stage1, color='black', linestyle=':', label='Stage 1 / Stage 2 Boundary')
         ax.set_title(f"Optimization Combination: {base} (SNR={base_config['channel']['snr_db']} dB)")
@@ -282,7 +282,7 @@ def main():
     # Write Summary Markdown
     with open(os.path.join(result_dir, 'two_stage_summary.md'), 'w', encoding='utf-8') as f:
         f.write("# 两阶段优化对比报告 (双模式对比)\n\n")
-        f.write("此报告对比了 **Baseline (依赖收端 BER反馈)** 和 **Surrogate (依赖发端统计特征距离)** 两种模式在第二阶段 (Stage 2) 的表现。\n\n")
+        f.write("此报告对比了 **Baseline (依赖收端 BER反馈)** 和 **Surrogate (搭载 GPR + UCB 护栏的发端统计模型)** 两种模式在第二阶段 (Stage 2) 的表现。\n\n")
         f.write(f"- **Symbols**: {base_config['system']['num_symbols']}\n")
         f.write(f"- **SNR**: {base_config['channel']['snr_db']} dB\n")
         f.write(f"- **Stage 1 Iters**: {n_stage1}\n")

@@ -1,6 +1,6 @@
 # 两阶段优化对比报告 (双模式对比)
 
-此报告对比了 **Baseline (依赖收端 BER反馈)** 和 **Surrogate (依赖发端统计特征距离)** 两种模式在第二阶段 (Stage 2) 的表现。
+此报告对比了 **Baseline (依赖收端 BER反馈)** 和 **Surrogate (搭载 GPR + UCB 护栏的发端统计模型)** 两种模式在第二阶段 (Stage 2) 的表现。
 
 - **Symbols**: 200000
 - **SNR**: 26.0 dB
