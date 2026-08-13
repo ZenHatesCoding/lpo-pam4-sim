@@ -181,7 +181,7 @@ def main():
     # 🚀 Simulation Depth Toggle
     # Options: 'FAST_1E4' (Quick), 'DEEP_1E5' (Thorough)
     # ==========================================
-    TEST_MODE = 'FAST_1E4'
+    TEST_MODE = 'DEEP_1E5'
     
     if TEST_MODE == 'FAST_1E4':
         base_config['channel']['snr_db'] = 26.0
