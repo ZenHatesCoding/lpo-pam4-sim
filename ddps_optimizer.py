@@ -4,7 +4,7 @@ import glob
 import pandas as pd
 from datetime import datetime
 from scipy.optimize import minimize
-from scipy.stats import qmc
+from scipy.stats import qmc, spearmanr
 from utils_config import load_config
 from main import run_sim
 from tx_channel_extract import extract_tx_s21
@@ -13,30 +13,39 @@ from train_surrogates import train_from_df
 # ============================================================
 # DDPS (Data-Driven Physical Surrogate) 数据驱动物理代理优化器
 #
-# 完全离线的数据驱动寻优路线：
-#   1. 以“已知次优工作点”为种子，在其邻域做扰动采样（真实物理仿真），
-#      得到一批覆盖好解区域 + 死区的 (配置 -> 真实 MLSE BER) 数据。
-#   2. 训练两个白盒 Ridge 代理：
-#        Model A (物理代理): 发端 7-tap 等效 FIR -> log10(BER)
-#        Model B (配置代理): FFE 9-tap + CTLE    -> log10(BER)
-#   3. 用 SLSQP 在代理上寻优，物理回验 + 主动学习迭代下钻。
+# 架构定位（两阶段分工）：
+#   Stage 1（离线，模型供给）——
+#     目标不是“穷尽地形/找到全局最优”，而是产出两样东西：
+#        (1) 一个“不错的起点” x0（例如上一版已能用的工作点）；
+#        (2) 两个白盒代理模型：
+#            Model A（物理代理）: 发端 7-tap 等效 FIR -> log10(BER)，充当寻优目标
+#            Model B（安全代理）: FFE 9-tap + CTLE    -> log10(BER)，充当安全约束
+#     在 x0 邻域采样只是为了“训练模型”，采样覆盖不代表完整地图。
 #
-# 说明：纯全局随机采样很难命中这条极窄的“好解谷底”（实测 1000 个全优化域
-# 随机样本 BER 全部 > 0.17）。因此 DDPS 采用“围绕已知工作点做邻域采样”的
-# 现实做法——这与真实工程中“在当前工作点附近精细调优”的场景一致。
+#   Stage 2（约束梯度下降）——
+#     从 x0 出发，在 Model A 上做梯度下降（SLSQP），
+#     约束：Model B 预测不越安全红线（不掉锁）。
+#     **不回传真实 MLSE_BER**（仅记录用于事后验证），
+#     直接优化“发端指标”(Model A) 以实现对“收端 MLSE_BER”的等效优化。
+#     理想情况下，Stage 2 能沿 Model A 的梯度走到 Stage 1 采样没见过的更优点。
+#
+#   跨 SNR 迁移：模型在 26.5 dB 训练，能否同样指导 28 dB（及其它 SNR）的寻优，
+#     通过“沿 26.5 dB 引导的下降轨迹，在 28 dB 深水回测”来检验。
 # ============================================================
 
 FFE_BOUND = 0.3
 CTLE_MIN = -20.0
 CTLE_MAX = 0.0
-PEAK_SUM_LIMIT = 0.8     # sum(|pre_post|) <= 0.8 -> 主抽头 >= 0.2
-ENSEMBLE_W_A = 0.7       # 物理代理 Model A 在集成目标中的权重
+PEAK_SUM_LIMIT = 0.8          # sum(|pre_post|) <= 0.8 -> 主抽头 >= 0.2
+SAFETY_LOG_BER = -2.0         # Model B 安全红线：预测 log10(BER) 不得超过 -2.0（BER 1e-2）
+TRUST_FFE = 0.10              # Stage 2 信任域半径（FFE，相对起点）：防代理外推越界
+TRUST_CTLE = 6.0              # Stage 2 信任域半径（CTLE）
 
-# 已知次优工作点（种子）：来自两阶段实验的“初始次优点”，MLSE ~1.4e-3 @ SNR28/1M
+# 已知“不错的起点”（种子）：来自两阶段实验的初始次优点
 SEED_TAPS = np.array([0.0, 0.0, -0.034, -0.2987, 0.6091, 0.0, 0.0582, 0.0, 0.0])
 SEED_CTLE = 0.0
-FFE_SPREAD = 0.05        # 邻域采样：FFE 游标扰动幅度（好解谷底极窄，需小步幅）
-CTLE_SPREAD = 3.0        # 邻域采样：CTLE DC 扰动幅度
+FFE_SPREAD = 0.05             # Stage 1 邻域采样幅值
+CTLE_SPREAD = 3.0
 
 
 def construct_9tap(pre_post, ffe_pre):
@@ -82,21 +91,35 @@ def _make_row(sample_id, taps, ctle, logber, mlse_ber, tx_fir):
     return row
 
 
-def _collect_seed_data(config, n_samples, ffe_pre, seed_taps=SEED_TAPS,
-                       seed_ctle=SEED_CTLE, seed=42):
-    """围绕已知次优点做 LHS 邻域扰动采样，覆盖好解区域。"""
+def _predict_a(model_a, config, taps, ctle):
+    config['tx']['ctle_g_dc_db'] = ctle
+    tx_fir = extract_tx_s21(config, custom_tx_taps=taps, num_taps=7)
+    return float(model_a.predict([tx_fir])[0])
+
+
+def _predict_b(model_b, taps, ctle):
+    full_cfg = list(taps) + [ctle]
+    return float(model_b.predict([full_cfg])[0])
+
+
+# ============================================================
+# Stage 1：模型供给（采样 + 训练 A/B）
+# ============================================================
+
+def _stage1_collect(config, n_samples, ffe_pre, seed=42):
+    """围绕起点 x0 做 LHS 邻域采样，仅为训练 A/B 模型（不追求穷尽地形）。"""
     seed_pre_post = np.zeros(8)
-    seed_pre_post[:ffe_pre] = seed_taps[:ffe_pre]
-    seed_pre_post[ffe_pre:] = seed_taps[ffe_pre + 1:]
+    seed_pre_post[:ffe_pre] = SEED_TAPS[:ffe_pre]
+    seed_pre_post[ffe_pre:] = SEED_TAPS[ffe_pre + 1:]
 
     sampler = qmc.LatinHypercube(d=9, seed=seed)
     sp = sampler.random(n=n_samples)
 
     rows = []
-    print(f"Phase 1: seed-neighborhood sampling ({n_samples} samples around seed)...")
+    print(f"[Stage 1] neighborhood sampling ({n_samples} samples around x0)...")
     for i in range(n_samples):
         pre_post = seed_pre_post + (sp[i, :8] * 2 - 1.0) * FFE_SPREAD
-        ctle = float(np.clip(seed_ctle + (sp[i, 8] * 2 - 1.0) * CTLE_SPREAD, CTLE_MIN, CTLE_MAX))
+        ctle = float(np.clip(SEED_CTLE + (sp[i, 8] * 2 - 1.0) * CTLE_SPREAD, CTLE_MIN, CTLE_MAX))
         taps = construct_9tap(pre_post, ffe_pre)
         logber, mlse_ber = _physical_eval(config, taps, ctle)
         tx_fir = extract_tx_s21(config, custom_tx_taps=taps, num_taps=7)
@@ -106,25 +129,100 @@ def _collect_seed_data(config, n_samples, ffe_pre, seed_taps=SEED_TAPS,
     return pd.DataFrame(rows)
 
 
-def _make_objective(config, model_a, model_b, ffe_pre):
+def _stage1_train(df, model_dir):
+    return train_from_df(df, model_dir, verbose=True)
+
+
+# ============================================================
+# Stage 2：约束梯度下降（不回传真实 MLSE_BER）
+# ============================================================
+
+def _make_objective_a(config, model_a, ffe_pre):
     def objective(x):
         taps = construct_9tap(x[:8], ffe_pre)
-        ctle = x[8]
-        config['tx']['ctle_g_dc_db'] = ctle
-        tx_fir = extract_tx_s21(config, custom_tx_taps=taps, num_taps=7)
-        pred_a = model_a.predict([tx_fir])[0]
-        full_cfg = list(taps) + [ctle]
-        pred_b = model_b.predict([full_cfg])[0]
-        return ENSEMBLE_W_A * pred_a + (1.0 - ENSEMBLE_W_A) * pred_b
+        return _predict_a(model_a, config, taps, x[8])
     return objective
 
 
-def _run_slsqp(config, model_a, model_b, x0, ffe_pre, maxiter=20):
-    objective = _make_objective(config, model_a, model_b, ffe_pre)
-    res = minimize(objective, x0, method='SLSQP', bounds=_bounds(),
-                   options={'maxiter': maxiter, 'disp': False, 'eps': 0.01})
-    return res.x, res.fun
+def _make_constraint_b(model_b, ffe_pre, safety_log_ber):
+    # 可行条件：safety_log_ber - Model_B(x) >= 0
+    def constraint(x):
+        taps = construct_9tap(x[:8], ffe_pre)
+        return safety_log_ber - _predict_b(model_b, taps, x[8])
+    return constraint
 
+
+def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_log_ber, rng):
+    """在 Model A 上做 SLSQP 梯度下降，Model B 作安全不等式约束；只记录真实 BER，不回传。
+
+    信任域：SLSQP 的边界被收紧到起点 x0 的邻域内（防代理在未采样区外推越界）。
+    """
+    objective_a = _make_objective_a(config, model_a, ffe_pre)
+    cons_b = _make_constraint_b(model_b, ffe_pre, safety_log_ber)
+
+    # 信任域边界（相对 x0 收紧，并裁剪到全局边界）
+    gbounds = _bounds()
+    radius = np.array([TRUST_FFE] * 8 + [TRUST_CTLE])
+    x0 = np.array(x0, dtype=float)
+    tr_bounds = np.stack([
+        np.maximum(gbounds[:, 0], x0 - radius),
+        np.minimum(gbounds[:, 1], x0 + radius),
+    ], axis=1)
+
+    trace = []
+    x_cur = x0.copy()
+
+    for step in range(n_steps):
+        # 1. 受约束的代理梯度下降（信任域内）
+        res = minimize(
+            objective_a, x_cur, method='SLSQP', bounds=tr_bounds,
+            constraints={'type': 'ineq', 'fun': cons_b},
+            options={'maxiter': 20, 'disp': False, 'eps': 0.01}
+        )
+        x_next = res.x
+
+        # 2. 每 5 步加一次信任域内随机重启，帮助跳出代理局部极小
+        if step % 5 == 4:
+            x_rand = rng.uniform(tr_bounds[:, 0], tr_bounds[:, 1])
+            res_rand = minimize(
+                objective_a, x_rand, method='SLSQP', bounds=tr_bounds,
+                constraints={'type': 'ineq', 'fun': cons_b},
+                options={'maxiter': 20, 'disp': False, 'eps': 0.01}
+            )
+            if res_rand.fun < res.fun:
+                x_next = res_rand.x
+
+        taps, ctle = _x_to_taps_ctle(x_next, ffe_pre)
+
+        # 3. 代理预测（寻优依据）+ 真实 BER（仅记录验证）
+        pred_a = _predict_a(model_a, config, taps, ctle)
+        pred_b = _predict_b(model_b, taps, ctle)
+        real_logber, real_mlse = _physical_eval(config, taps, ctle)
+
+        trace.append({
+            'step': step,
+            'x': x_next,
+            'taps': taps,
+            'ctle': ctle,
+            'pred_a': pred_a,
+            'pred_b': pred_b,
+            'safe': pred_b <= safety_log_ber,
+            'real_logber': real_logber,
+            'real_mlse': real_mlse,
+        })
+
+        print(f"[Stage 2] step {step + 1}/{n_steps} | ModelA {10.0 ** pred_a:.2e} "
+              f"| ModelB {10.0 ** pred_b:.2e} ({'safe' if pred_b <= safety_log_ber else 'UNSAFE'}) "
+              f"| real MLSE {real_mlse:.2e} (recorded only)")
+
+        x_cur = x_next
+
+    return trace
+
+
+# ============================================================
+# 编排 + 日志/图/summary
+# ============================================================
 
 def _find_latest_dataset():
     files = glob.glob('dataset/ddps_dataset_*.csv')
@@ -133,8 +231,18 @@ def _find_latest_dataset():
     return max(files, key=os.path.getctime)
 
 
-def run_ddps(dataset_csv=None, model_dir="models", n_seed_samples=600, n_iter=25,
-             result_dir=None, deep_validate=True):
+def _deep_config(config):
+    dc = {k: v.copy() if isinstance(v, dict) else v for k, v in config.items()}
+    dc['channel']['snr_db'] = 28.0
+    dc['system']['num_symbols'] = 1048576
+    dc['tx']['pattern_length'] = 524288
+    dc['system']['enable_eye_plot'] = False
+    dc['system']['enable_spectrum_plot'] = False
+    return dc
+
+
+def run_ddps(dataset_csv=None, model_dir="models", n_stage1_samples=600, n_stage2_steps=25,
+             result_dir=None, deep_validate=True, cross_snr_probes=5):
     import create_config
     create_config.generate_config()
     config = load_config('config.xlsx')
@@ -143,164 +251,193 @@ def run_ddps(dataset_csv=None, model_dir="models", n_seed_samples=600, n_iter=25
 
     ffe_pre = int(config['tx'].get('ffe_pre', 4))
 
-    # ---- Phase 1: 种子邻域采样 ----
-    df = _collect_seed_data(config, n_seed_samples, ffe_pre)
+    # ---------- Stage 1：模型供给 ----------
+    df = _stage1_collect(config, n_stage1_samples, ffe_pre)
 
-    # ---- 可选：并入全局随机覆盖数据集（定义死区惩罚地形）----
     if dataset_csv is None:
         dataset_csv = _find_latest_dataset()
     if dataset_csv and os.path.exists(dataset_csv):
         df_warm = pd.read_csv(dataset_csv)
         df = pd.concat([df_warm, df], ignore_index=True)
-        print(f"Merged global-coverage dataset {dataset_csv}: total {len(df)} samples")
-    n_good = (df['mlse_ber'] < 1e-2).sum()
-    print(f"Coverage: {len(df)} samples | BER < 1e-2: {n_good} | "
-          f"log10_ber in [{df['log10_ber'].min():.3f}, {df['log10_ber'].max():.3f}]")
+        print(f"[Stage 1] merged global-coverage dataset {dataset_csv}: total {len(df)} samples")
 
-    # ---- Phase 2: 训练初始代理 ----
-    model_a, model_b = train_from_df(df, model_dir, verbose=True)
-    print("Initial surrogate models trained.")
+    model_a, model_b = _stage1_train(df, model_dir)
 
-    best_idx = df['log10_ber'].idxmin()
-    best_logber = float(df.loc[best_idx, 'log10_ber'])
-    best_taps = df.loc[best_idx, [f'ffe_tap_{i}' for i in range(9)]].values.astype(float)
-    best_ctle = float(df.loc[best_idx, 'ctle_dc'])
-    best_x = _taps_to_x(best_taps, best_ctle, ffe_pre)
+    # Stage 1 采样最优（用于证明 Stage 2 能“超出地图”，不作为 Stage 2 目标）
+    stage1_best_idx = df['log10_ber'].idxmin()
+    stage1_best_logber = float(df.loc[stage1_best_idx, 'log10_ber'])
+    stage1_best_taps = df.loc[stage1_best_idx, [f'ffe_tap_{i}' for i in range(9)]].values.astype(float)
+    stage1_best_ctle = float(df.loc[stage1_best_idx, 'ctle_dc'])
 
-    # 种子点本身也作为“初始已知”加入对比
-    seed_logber, _ = _physical_eval(config, SEED_TAPS.copy(), SEED_CTLE)
+    # 起点 x0 = 种子（“不错的起点”）
+    x0 = _taps_to_x(SEED_TAPS.copy(), SEED_CTLE, ffe_pre)
+    seed_logber, seed_mlse = _physical_eval(config, SEED_TAPS.copy(), SEED_CTLE)
 
-    history_logber = [best_logber]
-    history_mlse = [10.0 ** best_logber]
-    raw_mlse_history = [10.0 ** best_logber]
+    print(f"[Stage 1] done. start x0 real MLSE = {seed_mlse:.2e} | "
+          f"Stage-1 sampled best = {10.0 ** stage1_best_logber:.2e}")
+
+    # ---------- Stage 2：约束下降（不回传真实 BER）----------
     rng = np.random.RandomState(0)
+    trace = _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_stage2_steps,
+                            SAFETY_LOG_BER, rng)
 
-    print(f"Seed point MLSE BER: {10.0 ** seed_logber:.2e}")
-    print(f"Initial best (from sampling): MLSE BER = {10.0 ** best_logber:.2e}")
-    print(f"Phase 2: {n_iter} active-learning SLSQP refinements...")
+    real_mlses = np.array([t['real_mlse'] for t in trace])
+    best_i = int(np.argmin(real_mlses))
+    best_taps = trace[best_i]['taps']
+    best_ctle = trace[best_i]['ctle']
+    stage2_best_mlse = real_mlses[best_i]
+    max_mlse = float(np.max(real_mlses))
 
-    for it in range(n_iter):
-        x_opt, pred_opt = _run_slsqp(config, model_a, model_b, best_x, ffe_pre)
+    # 等效性：Model A 预测 vs 真实 log10(BER) 的秩相关
+    pred_a = np.array([t['pred_a'] for t in trace])
+    real_logber = np.array([t['real_logber'] for t in trace])
+    spearman = spearmanr(pred_a, real_logber).correlation
 
-        if it % 5 == 4:
-            x_rand = np.concatenate([rng.uniform(-FFE_BOUND, FFE_BOUND, 8),
-                                     rng.uniform(CTLE_MIN, CTLE_MAX, 1)])
-            x_rand_opt, pred_rand = _run_slsqp(config, model_a, model_b, x_rand, ffe_pre)
-            if pred_rand < pred_opt:
-                x_opt, pred_opt = x_rand_opt, pred_rand
+    print(f"[Stage 2] done. best real MLSE = {stage2_best_mlse:.2e} (step {best_i}) | "
+          f"max real MLSE = {max_mlse:.2e} | Spearman(ModelA, real) = {spearman:.3f}")
 
-        taps, ctle = _x_to_taps_ctle(x_opt, ffe_pre)
-        logber, mlse_ber = _physical_eval(config, taps, ctle)
-        raw_mlse_history.append(mlse_ber)
-        history_logber.append(min(history_logber[-1], logber))
-        history_mlse.append(min(history_mlse[-1], mlse_ber))
+    # ---------- 跨 SNR 迁移回测 ----------
+    cross_snr = []
+    if deep_validate and cross_snr_probes > 0:
+        dc = _deep_config(config)
+        idxs = sorted(set([0, best_i] + list(np.linspace(0, len(trace) - 1, cross_snr_probes).astype(int))))
+        for i in idxs:
+            t = trace[i]
+            _, mlse_28 = _physical_eval(dc, t['taps'], t['ctle'])
+            cross_snr.append({'step': i, 'real_mlse_26dB': t['real_mlse'], 'real_mlse_28dB': mlse_28})
 
-        tx_fir = extract_tx_s21(config, custom_tx_taps=taps, num_taps=7)
-        df = pd.concat([df, pd.DataFrame([_make_row(len(df) + 1, taps, ctle, logber, mlse_ber, tx_fir)])],
-                       ignore_index=True)
-
-        improved = logber < best_logber
-        if improved:
-            best_logber = logber
-            best_taps = taps
-            best_ctle = ctle
-            best_x = x_opt
-
-        model_a, model_b = train_from_df(df, model_dir, verbose=False)
-
-        print(f"Refine {it + 1}/{n_iter} | surrogate pred {10.0 ** pred_opt:.2e} -> "
-              f"physical {mlse_ber:.2e} | best {10.0 ** best_logber:.2e}"
-              + ("  *new best*" if improved else ""))
-
-    # ---- Phase 3: 深水校验 (DEEP_1E5) ----
-    final_mlse = 10.0 ** best_logber
+    # ---------- 深水校验 ----------
     deep_summary = ""
     if deep_validate:
-        deep_config = {k: v.copy() if isinstance(v, dict) else v for k, v in config.items()}
-        deep_config['channel']['snr_db'] = 28.0
-        deep_config['system']['num_symbols'] = 1048576
-        deep_config['tx']['pattern_length'] = 524288
-        deep_config['system']['enable_eye_plot'] = False
-        deep_config['system']['enable_spectrum_plot'] = False
-
-        _, ddps_deep = _physical_eval(deep_config, best_taps, best_ctle)
-        _, seed_deep = _physical_eval(deep_config, SEED_TAPS.copy(), SEED_CTLE)
+        dc = _deep_config(config)
+        _, seed_deep = _physical_eval(dc, SEED_TAPS.copy(), SEED_CTLE)
+        _, ddps_deep = _physical_eval(dc, best_taps, best_ctle)
         shc_taps = np.array([0.0, 0.0, -0.0195, -0.2987, 0.6636, 0.0, 0.0182, 0.0, 0.0])
-        _, shc_deep_9d = _physical_eval(deep_config, shc_taps, 0.0)
-        deep_config['tx']['ctle_fp2_ratio'] = 0.9
-        _, shc_deep_12d = _physical_eval(deep_config, shc_taps, 0.0)
-
-        deep_summary = (f"Seed (initial sub-optimal) @DEEP_1E5: {seed_deep:.2e}\n"
+        _, shc_deep_9d = _physical_eval(dc, shc_taps, 0.0)
+        dc['tx']['ctle_fp2_ratio'] = 0.9
+        _, shc_deep_12d = _physical_eval(dc, shc_taps, 0.0)
+        deep_summary = (f"start x0  @DEEP_1E5: {seed_deep:.2e}\n"
                         f"DDPS best @DEEP_1E5 (9D): {ddps_deep:.2e}\n"
-                        f"SHC  ref  @DEEP_1E5 (9D): {shc_deep_9d:.2e}\n"
-                        f"SHC  ref  @DEEP_1E5 (12D fp2=0.9): {shc_deep_12d:.2e}")
+                        f"SHC ref   @DEEP_1E5 (9D): {shc_deep_9d:.2e}\n"
+                        f"SHC ref   @DEEP_1E5 (12D fp2=0.9): {shc_deep_12d:.2e}")
 
-    # ---- 保存结果 ----
+    # ---------- 保存结果 ----------
     if result_dir is None:
         result_dir = os.path.join("result", f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_ddps")
     os.makedirs(result_dir, exist_ok=True)
 
-    with open(os.path.join(result_dir, "sim_log.txt"), "w", encoding='utf-8') as f:
-        f.write("--- DDPS Data-Driven Physical Surrogate Optimization ---\n")
-        f.write(f"Seed-neighborhood samples: {n_seed_samples}\n")
-        f.write(f"Active refinement iters: {n_iter}\n")
-        f.write(f"Total samples: {len(df)}\n")
-        f.write(f"Warm-up fidelity SNR: {config['channel']['snr_db']} dB, "
-                f"num_symbols: {config['system']['num_symbols']}\n\n")
-        f.write(f"Seed log10(MLSE BER): {seed_logber:.4f} ({10.0 ** seed_logber:.2e})\n")
-        f.write(f"Best log10(MLSE BER): {best_logber:.4f} ({final_mlse:.2e})\n")
-        f.write(f"Best Taps: {np.round(best_taps, 4).tolist()}\n")
-        f.write(f"Best CTLE DC: {best_ctle:.3f} dB\n")
-        if deep_summary:
-            f.write(f"\n{deep_summary}\n")
-        f.write("\n--- Physical cost per refinement step (raw MLSE BER) ---\n")
-        for i, v in enumerate(raw_mlse_history):
-            f.write(f"Step {i}: {v:.2e}\n")
-        f.write("\n--- Best-so-far MLSE BER ---\n")
-        for i, v in enumerate(history_mlse):
-            f.write(f"Step {i}: {v:.2e}\n")
+    _write_sim_log(result_dir, config, df, n_stage1_samples, n_stage2_steps, trace,
+                   stage1_best_logber, seed_logber, stage2_best_mlse, best_taps, best_ctle,
+                   max_mlse, spearman, cross_snr, deep_summary)
+    _write_summary_md(result_dir, config, trace, stage1_best_logber, seed_logber,
+                      stage2_best_mlse, best_taps, best_ctle, max_mlse, spearman,
+                      cross_snr, deep_summary)
+    _plot_convergence(result_dir, trace, seed_logber, stage1_best_logber)
 
-    try:
-        import matplotlib
-        matplotlib.use('Agg')
-        import matplotlib.pyplot as plt
-        plt.figure(figsize=(9, 5))
-        plt.semilogy(history_mlse, marker='o', markersize=4, label='DDPS best-so-far')
-        plt.axhline(10.0 ** seed_logber, color='red', ls='--', label='seed (initial)')
-        plt.xlabel('Active-learning step')
-        plt.ylabel('MLSE BER')
-        plt.title('DDPS Convergence (seed-neighborhood surrogate refinement)')
-        plt.grid(True, which='both', ls='--', alpha=0.6)
-        plt.legend()
-        png = os.path.join(result_dir, "ddps_convergence.png")
-        plt.savefig(png)
-        plt.close()
-        print(f"Convergence plot saved: {png}")
-    except Exception as e:
-        print(f"(plot skipped: {e})")
-
-    print("\n--- DDPS Optimization Complete ---")
-    print(f"Best MLSE BER (warm-up fidelity): {final_mlse:.2e}")
-    print(f"Best Taps: {np.round(best_taps, 4)}")
-    print(f"Best CTLE DC: {best_ctle:.3f} dB")
+    print("\n--- DDPS Complete ---")
+    print(f"Stage-1 sampled best MLSE: {10.0 ** stage1_best_logber:.2e}")
+    print(f"Stage-2 best MLSE (no feedback): {stage2_best_mlse:.2e}  (step {best_i})")
+    print(f"Stage-2 max MLSE (safety): {max_mlse:.2e}")
+    print(f"Spearman(ModelA, real logBER): {spearman:.3f}")
     if deep_summary:
         print(deep_summary)
     print(f"Results saved to {result_dir}")
 
     return {
-        'best_taps': best_taps,
-        'best_ctle': best_ctle,
-        'best_logber': best_logber,
-        'history_mlse': history_mlse,
-        'result_dir': result_dir,
+        'best_taps': best_taps, 'best_ctle': best_ctle,
+        'stage1_best_mlse': 10.0 ** stage1_best_logber,
+        'stage2_best_mlse': stage2_best_mlse,
+        'max_mlse': max_mlse, 'spearman': spearman,
+        'cross_snr': cross_snr, 'result_dir': result_dir,
     }
+
+
+def _write_sim_log(result_dir, config, df, n_s1, n_s2, trace, s1_best, seed_lb,
+                   s2_best, best_taps, best_ctle, max_mlse, spearman, cross_snr, deep_summary):
+    with open(os.path.join(result_dir, "sim_log.txt"), "w", encoding='utf-8') as f:
+        f.write("--- DDPS Data-Driven Physical Surrogate Optimization ---\n")
+        f.write(f"Stage 1 samples: {n_s1} (total after merge: {len(df)})\n")
+        f.write(f"Stage 2 steps: {n_s2} (constrained descent, NO real-BER feedback)\n")
+        f.write(f"Safety threshold (Model B): log10(BER) <= {SAFETY_LOG_BER}\n")
+        f.write(f"Warm-up fidelity: SNR {config['channel']['snr_db']} dB, "
+                f"num_symbols {config['system']['num_symbols']}\n\n")
+        f.write(f"Start x0 log10(MLSE BER): {seed_lb:.4f} ({10.0 ** seed_lb:.2e})\n")
+        f.write(f"Stage-1 sampled best log10(BER): {s1_best:.4f} ({10.0 ** s1_best:.2e})\n")
+        f.write(f"Stage-2 best log10(BER): {np.log10(max(s2_best, 1e-8)):.4f} ({s2_best:.2e})\n")
+        f.write(f"Stage-2 max MLSE (safety): {max_mlse:.2e}\n")
+        f.write(f"Spearman(ModelA, real logBER): {spearman:.3f}\n")
+        f.write(f"Best Taps: {np.round(best_taps, 4).tolist()}\n")
+        f.write(f"Best CTLE DC: {best_ctle:.3f} dB\n")
+        if deep_summary:
+            f.write(f"\n{deep_summary}\n")
+        f.write("\n--- Stage 2 trace (step | ModelA | ModelB | safe | real MLSE) ---\n")
+        for t in trace:
+            f.write(f"step {t['step']:2d} | A {t['pred_a']:+.3f} | B {t['pred_b']:+.3f} | "
+                    f"{'safe' if t['safe'] else 'UNSAFE'} | {t['real_mlse']:.2e}\n")
+        if cross_snr:
+            f.write("\n--- Cross-SNR transfer (26.5dB models guiding 28dB descent) ---\n")
+            for c in cross_snr:
+                f.write(f"step {c['step']:2d} | 26.5dB {c['real_mlse_26dB']:.2e} | "
+                        f"28dB {c['real_mlse_28dB']:.2e}\n")
+
+
+def _write_summary_md(result_dir, config, trace, s1_best, seed_lb, s2_best,
+                      best_taps, best_ctle, max_mlse, spearman, cross_snr, deep_summary):
+    with open(os.path.join(result_dir, "ddps_summary.md"), "w", encoding='utf-8') as f:
+        f.write("# DDPS 数据驱动物理代理优化器 — 结果报告\n\n")
+        f.write("## 架构\n")
+        f.write("- **Stage 1**：在起点邻域采样，训练 Model A（发端 7-tap FIR → logBER）与 "
+                "Model B（配置 → logBER）。产出 = 起点 + 双模型，不追求穷尽地形。\n")
+        f.write("- **Stage 2**：在 Model A 上做 SLSQP 梯度下降，Model B 作安全不等式约束；"
+                "**不回传真实 MLSE_BER**（仅记录验证）。\n\n")
+        f.write("## 关键指标\n")
+        f.write(f"- 起点 x0 真实 MLSE：`{10.0 ** seed_lb:.2e}`\n")
+        f.write(f"- Stage 1 采样最优 MLSE：`{10.0 ** s1_best:.2e}`\n")
+        f.write(f"- **Stage 2 最优 MLSE（不回传）**：`{s2_best:.2e}`\n")
+        f.write(f"- Stage 2 最大 MLSE（安全上限）：`{max_mlse:.2e}`\n")
+        f.write(f"- 等效性 Spearman(ModelA, real logBER)：`{spearman:.3f}`\n")
+        f.write(f"- 最优 Taps：`{np.round(best_taps, 4).tolist()}`\n")
+        f.write(f"- 最优 CTLE DC：`{best_ctle:.3f} dB`\n\n")
+        if cross_snr:
+            f.write("## 跨 SNR 迁移（26.5 dB 模型引导 28 dB 下降）\n")
+            f.write("| step | 26.5dB MLSE | 28dB MLSE |\n| --- | --- | --- |\n")
+            for c in cross_snr:
+                f.write(f"| {c['step']} | `{c['real_mlse_26dB']:.2e}` | `{c['real_mlse_28dB']:.2e}` |\n")
+            f.write("\n")
+        if deep_summary:
+            f.write("## 深水校验 (DEEP_1E5)\n```\n" + deep_summary + "\n```\n")
+
+
+def _plot_convergence(result_dir, trace, seed_lb, s1_best):
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        steps = [t['step'] for t in trace]
+        real = [t['real_mlse'] for t in trace]
+        pred_a = [10.0 ** t['pred_a'] for t in trace]
+        plt.figure(figsize=(9, 5))
+        plt.semilogy(steps, real, marker='o', markersize=4, label='real MLSE (recorded only)')
+        plt.semilogy(steps, pred_a, marker='x', markersize=4, ls='--', label='Model A prediction')
+        plt.axhline(10.0 ** seed_lb, color='red', ls=':', label='start x0')
+        plt.axhline(10.0 ** s1_best, color='green', ls=':', label='Stage-1 sampled best')
+        plt.xlabel('Stage 2 step')
+        plt.ylabel('MLSE BER')
+        plt.title('DDPS Stage 2: constrained descent on Model A (no real-BER feedback)')
+        plt.grid(True, which='both', ls='--', alpha=0.6)
+        plt.legend()
+        plt.savefig(os.path.join(result_dir, "ddps_convergence.png"))
+        plt.close()
+    except Exception as e:
+        print(f"(plot skipped: {e})")
 
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, default=None, help='Optional global-coverage dataset CSV')
-    parser.add_argument('--n-seed-samples', type=int, default=600, help='Seed-neighborhood samples')
-    parser.add_argument('--n-iter', type=int, default=25, help='Active-learning iterations')
+    parser.add_argument('--n-stage1-samples', type=int, default=600)
+    parser.add_argument('--n-stage2-steps', type=int, default=25)
     args = parser.parse_args()
-    run_ddps(dataset_csv=args.dataset, n_seed_samples=args.n_seed_samples, n_iter=args.n_iter)
+    run_ddps(dataset_csv=args.dataset, n_stage1_samples=args.n_stage1_samples,
+             n_stage2_steps=args.n_stage2_steps)

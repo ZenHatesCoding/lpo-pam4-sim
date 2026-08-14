@@ -60,7 +60,7 @@ DEFAULT_MODE = '112G'
 - **TuRBO-Safe (Trust Region Safe-BO)**: 结合了 $3\sigma$ 置信度上界防御与自适应信任域，单体防御力极强，作为 Stage 1 能够平稳快速拿到底噪。
 - **Safe Quadratic Coordinate Descent (Safe QCD)**: 纯数学架构的二阶优化器。通过微探针精确求解悬崖边界，防坠崖能力极强，但在复杂地形下容易陷入局部极小。
 - **Surrogate_SHC (代理辅助爬山)**: 通过 Directional Tabu Filter 提前否决危险方向，作为 Stage 2 时防守坚如磐石。
-- **DDPS (数据驱动物理代理优化器)**: 完全离线路线。离线采 `(配置 → 真实 BER)` 数据训练双 Ridge 代理（Model A 看发端物理 FIR、Model B 看原始配置），再用 SLSQP 代理寻优 + 物理回验 + 主动学习迭代下钻，适合无代价环境下的极限冲刺。详见 [DDPS.md](docs/04_Algorithms/DDPS.md)。
+- **DDPS (数据驱动物理代理优化器)**: 完全离线路线。Stage 1 产出「不错起点 + 双 Ridge 代理」，Stage 2 在 Model A（发端物理 FIR）上做带 Model B 安全约束的梯度下降、不回传真实 BER，通过优化发端指标等效优化收端 MLSE BER。详见 [DDPS.md](docs/04_Algorithms/DDPS.md)。
 
 👉 **[04. 寻优算法全景图 (Optimization Algorithms Panorama)](docs/04_Algorithms/README.md)**  
 > *全面梳理项目中现存的白盒化算法，并详细对比各类算法的物理约束特性与源码路径。*
