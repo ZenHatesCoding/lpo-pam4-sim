@@ -100,6 +100,9 @@ class WhiteBoxGPR:
             return mu, np.sqrt(var)
         return mu
 
+    def predict_with_std(self, X):
+        return self.predict(X, return_std=True)
+
 
 # ---------- 白盒 train/test 划分与评估 ----------
 def _train_test_split_idx(n, test_size=0.2, seed=42):

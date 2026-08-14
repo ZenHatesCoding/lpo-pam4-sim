@@ -66,6 +66,7 @@ Stage 1 的目标**不是**“穷尽地形、找到全局最优”。真实地�
   - [`dataset_generator.py`](../../dataset_generator.py) — 全局随机覆盖采样（可选死区数据）
   - [`train_surrogates.py`](../../train_surrogates.py) — 白盒代理训练（Ridge 闭式解 / GPR RBF 闭式后验）
   - [`tx_channel_extract.py`](../../tx_channel_extract.py) — 发端 7-tap 物理 FIR 特征提取（固定参考对齐）
+  - [`compare_surrogates.py`](../../compare_surrogates.py) — 代理模型综合对比（Ridge / GPR / GPR+UCB）
 - **底层架构**：**100% 纯 Numpy / Scipy，面向芯片实现**。Ridge 用闭式解、多项式特征手写、梯度有限差分
   手写、GPR 后验闭式解手写，**不依赖 sklearn / scipy.optimize 等任何现成算法**。
 - **状态**：离线极限冲刺组，与在线安全算法互补。
@@ -121,3 +122,19 @@ python ddps_optimizer.py --n-stage1-samples 600 --n-stage2-steps 40
 - **sim_log.txt**：逐步 `step | ModelA | ModelB | safe? | 真实MLSE(仅记录)` 全量 trace。
 - **ddps_convergence.png**：真实 BER（实线）与 Model A 预测（虚线）随 step 变化，并画起点/Stage1最优参考线。
 - **ddps_summary.md**：架构说明 + 上述四个命题的关键数字 + 深水校验对照表。
+
+## 6. 代理模型对比（Ridge vs GPR vs GPR+UCB）
+
+同数据集、同起点、同 Model B 安全约束、同信任域/步长衰减，仅换 Model A 代理，都不回传真实 BER：
+
+| 变体 | 热身最优 MLSE | 收敛步 | 全程最大 MLSE | Spearman | DEEP_1E5 |
+| --- | --- | --- | --- | --- | --- |
+| Ridge + GD | `7.20e-04` | 3 | `7.99e-03` | `0.521` | `3.76e-05` |
+| GPR(μ) + GD | `7.20e-04` | 2 | `1.22e-03` | `0.378` | `3.76e-05` |
+| GPR(μ+3σ) + GD | `7.20e-04` | 2 | `1.39e-03` | `0.622` | `4.14e-05` |
+
+**结论**：
+1. **三者都收敛到同一最优**（深水 `3.76e-05`），说明代理类型不改变最终可达极限——代理只是“梯度提供者”。
+2. **GPR 收敛更快、首步过冲更小**（最大 BER `1.22e-3` vs Ridge 的 `7.99e-3`）：RBF 核的平滑后验把首步过冲压下来了。
+3. **UCB 护栏不改变结果**（`4.14e-05` vs `3.76e-05`）：在信任域已经兜底的情况下，σ 惩罚对低维平滑问题作用有限。
+4. **面向芯片实现，Ridge 是更务实的选择**：闭式解无矩阵求逆迭代、无超参调优，代价是首步过冲略大（仍 < 1e-2 安全）。

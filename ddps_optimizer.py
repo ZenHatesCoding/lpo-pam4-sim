@@ -7,7 +7,7 @@ from scipy.stats import qmc, spearmanr
 from utils_config import load_config
 from main import run_sim
 from tx_channel_extract import extract_tx_s21
-from train_surrogates import train_from_df
+from train_surrogates import train_from_df, WhiteBoxRidge, WhiteBoxGPR
 
 # ============================================================
 # DDPS (Data-Driven Physical Surrogate) 数据驱动物理代理优化器
@@ -91,9 +91,13 @@ def _make_row(sample_id, taps, ctle, logber, mlse_ber, tx_fir):
     return row
 
 
-def _predict_a(model_a, config, taps, ctle):
+def _predict_a(model_a, config, taps, ctle, ucb_kappa=0.0):
+    """Model A 预测：Ridge 返回均值；带 predict_with_std 的模型（GPR）可返回 mu + kappa*sigma。"""
     config['tx']['ctle_g_dc_db'] = ctle
     tx_fir = extract_tx_s21(config, custom_tx_taps=taps, num_taps=7)
+    if hasattr(model_a, 'predict_with_std'):
+        mu, sigma = model_a.predict_with_std([tx_fir])
+        return float(mu[0] + ucb_kappa * sigma[0])
     return float(model_a.predict([tx_fir])[0])
 
 
@@ -137,10 +141,10 @@ def _stage1_train(df, model_dir):
 # Stage 2：约束梯度下降（不回传真实 MLSE_BER）
 # ============================================================
 
-def _make_objective_a(config, model_a, ffe_pre):
+def _make_objective_a(config, model_a, ffe_pre, ucb_kappa=0.0):
     def objective(x):
         taps = construct_9tap(x[:8], ffe_pre)
-        return _predict_a(model_a, config, taps, x[8])
+        return _predict_a(model_a, config, taps, x[8], ucb_kappa)
     return objective
 
 
@@ -156,16 +160,17 @@ def _numerical_gradient(fn, x, eps=0.01):
     return g
 
 
-def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_ref, lr, rng):
+def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_ref, lr, rng,
+                    ucb_kappa=0.0):
     """手写投影梯度下降（白盒、逐步可见）：
 
         x_{k+1} = clip( x_k - lr * g/|g| , 信任域 )
 
-    - 目标：Model A 的负梯度方向（有限差分求得）。
+    - 目标：Model A 的负梯度方向（有限差分求得）；ucb_kappa>0 时用 GPR 的 UCB 护栏。
     - 安全：Model B 否决“相对种子点显著恶化”的步子（校准无关的相对红线）。
     - 只记录真实 BER，不回传。
     """
-    objective_a = _make_objective_a(config, model_a, ffe_pre)
+    objective_a = _make_objective_a(config, model_a, ffe_pre, ucb_kappa)
 
     # 信任域边界（相对 x0 收紧，并裁剪到全局边界）
     gbounds = _bounds()
