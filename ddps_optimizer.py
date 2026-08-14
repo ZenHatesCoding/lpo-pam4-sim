@@ -3,7 +3,6 @@ import os
 import glob
 import pandas as pd
 from datetime import datetime
-from scipy.optimize import minimize
 from scipy.stats import qmc, spearmanr
 from utils_config import load_config
 from main import run_sim
@@ -23,7 +22,7 @@ from train_surrogates import train_from_df
 #     在 x0 邻域采样只是为了“训练模型”，采样覆盖不代表完整地图。
 #
 #   Stage 2（约束梯度下降）——
-#     从 x0 出发，在 Model A 上做梯度下降（SLSQP），
+#     从 x0 出发，在 Model A 上做手写投影梯度下降（白盒），
 #     约束：Model B 预测不越安全红线（不掉锁）。
 #     **不回传真实 MLSE_BER**（仅记录用于事后验证），
 #     直接优化“发端指标”(Model A) 以实现对“收端 MLSE_BER”的等效优化。
@@ -37,9 +36,10 @@ FFE_BOUND = 0.3
 CTLE_MIN = -20.0
 CTLE_MAX = 0.0
 PEAK_SUM_LIMIT = 0.8          # sum(|pre_post|) <= 0.8 -> 主抽头 >= 0.2
-SAFETY_LOG_BER = -2.0         # Model B 安全红线：预测 log10(BER) 不得超过 -2.0（BER 1e-2）
+SAFETY_MARGIN = 0.3           # Model B 安全裕度：允许相对种子点恶化 0.3 个 log10（≈2× BER）
 TRUST_FFE = 0.10              # Stage 2 信任域半径（FFE，相对起点）：防代理外推越界
 TRUST_CTLE = 6.0              # Stage 2 信任域半径（CTLE）
+GD_LR = 0.02                  # Stage 2 归一化梯度下降初始步长（随 step 以 0.92 衰减）
 
 # 已知“不错的起点”（种子）：来自两阶段实验的初始次优点
 SEED_TAPS = np.array([0.0, 0.0, -0.034, -0.2987, 0.6091, 0.0, 0.0582, 0.0, 0.0])
@@ -144,21 +144,28 @@ def _make_objective_a(config, model_a, ffe_pre):
     return objective
 
 
-def _make_constraint_b(model_b, ffe_pre, safety_log_ber):
-    # 可行条件：safety_log_ber - Model_B(x) >= 0
-    def constraint(x):
-        taps = construct_9tap(x[:8], ffe_pre)
-        return safety_log_ber - _predict_b(model_b, taps, x[8])
-    return constraint
+def _numerical_gradient(fn, x, eps=0.01):
+    """白盒有限差分梯度。"""
+    x = np.asarray(x, dtype=float)
+    f0 = fn(x)
+    g = np.zeros_like(x)
+    for i in range(len(x)):
+        xp = x.copy()
+        xp[i] += eps
+        g[i] = (fn(xp) - f0) / eps
+    return g
 
 
-def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_log_ber, rng):
-    """在 Model A 上做 SLSQP 梯度下降，Model B 作安全不等式约束；只记录真实 BER，不回传。
+def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_ref, lr, rng):
+    """手写投影梯度下降（白盒、逐步可见）：
 
-    信任域：SLSQP 的边界被收紧到起点 x0 的邻域内（防代理在未采样区外推越界）。
+        x_{k+1} = clip( x_k - lr * g/|g| , 信任域 )
+
+    - 目标：Model A 的负梯度方向（有限差分求得）。
+    - 安全：Model B 否决“相对种子点显著恶化”的步子（校准无关的相对红线）。
+    - 只记录真实 BER，不回传。
     """
     objective_a = _make_objective_a(config, model_a, ffe_pre)
-    cons_b = _make_constraint_b(model_b, ffe_pre, safety_log_ber)
 
     # 信任域边界（相对 x0 收紧，并裁剪到全局边界）
     gbounds = _bounds()
@@ -169,53 +176,58 @@ def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_log_b
         np.minimum(gbounds[:, 1], x0 + radius),
     ], axis=1)
 
+    safety_limit = safety_ref + SAFETY_MARGIN
+
     trace = []
-    x_cur = x0.copy()
+    x = x0.copy()
 
     for step in range(n_steps):
-        # 1. 受约束的代理梯度下降（信任域内）
-        res = minimize(
-            objective_a, x_cur, method='SLSQP', bounds=tr_bounds,
-            constraints={'type': 'ineq', 'fun': cons_b},
-            options={'maxiter': 20, 'disp': False, 'eps': 0.01}
-        )
-        x_next = res.x
+        # 1. 数值梯度 + 归一化下降方向
+        g = _numerical_gradient(objective_a, x, eps=0.01)
+        gn = np.linalg.norm(g)
+        if gn < 1e-9:
+            break
+        direction = g / gn
 
-        # 2. 每 5 步加一次信任域内随机重启，帮助跳出代理局部极小
-        if step % 5 == 4:
-            x_rand = rng.uniform(tr_bounds[:, 0], tr_bounds[:, 1])
-            res_rand = minimize(
-                objective_a, x_rand, method='SLSQP', bounds=tr_bounds,
-                constraints={'type': 'ineq', 'fun': cons_b},
-                options={'maxiter': 20, 'disp': False, 'eps': 0.01}
-            )
-            if res_rand.fun < res.fun:
-                x_next = res_rand.x
+        # 2. 回溯线搜索：Model B 保证安全（相对种子点的红线），步长随 step 衰减以收敛
+        alpha = lr * (0.92 ** step)
+        x_new = None
+        for _ in range(20):
+            x_cand = np.clip(x - alpha * direction, tr_bounds[:, 0], tr_bounds[:, 1])
+            taps_c, ctle_c = _x_to_taps_ctle(x_cand, ffe_pre)
+            if _predict_b(model_b, taps_c, ctle_c) <= safety_limit:
+                x_new = x_cand
+                break
+            alpha *= 0.5
+        if x_new is None:
+            break  # 信任域内找不到安全方向，停止
 
-        taps, ctle = _x_to_taps_ctle(x_next, ffe_pre)
-
-        # 3. 代理预测（寻优依据）+ 真实 BER（仅记录验证）
+        # 3. 代理预测 + 真实 BER（仅记录验证）
+        taps, ctle = _x_to_taps_ctle(x_new, ffe_pre)
         pred_a = _predict_a(model_a, config, taps, ctle)
         pred_b = _predict_b(model_b, taps, ctle)
         real_logber, real_mlse = _physical_eval(config, taps, ctle)
 
         trace.append({
             'step': step,
-            'x': x_next,
+            'x': x_new,
             'taps': taps,
             'ctle': ctle,
             'pred_a': pred_a,
             'pred_b': pred_b,
-            'safe': pred_b <= safety_log_ber,
+            'safe': pred_b <= safety_limit,
             'real_logber': real_logber,
             'real_mlse': real_mlse,
+            'grad_norm': gn,
         })
 
-        print(f"[Stage 2] step {step + 1}/{n_steps} | ModelA {10.0 ** pred_a:.2e} "
-              f"| ModelB {10.0 ** pred_b:.2e} ({'safe' if pred_b <= safety_log_ber else 'UNSAFE'}) "
-              f"| real MLSE {real_mlse:.2e} (recorded only)")
+        print(f"[Stage 2] gd {step + 1}/{n_steps} | ModelA {10.0 ** pred_a:.2e} "
+              f"| ModelB {10.0 ** pred_b:.2e} (safe) | real {real_mlse:.2e} | |g| {gn:.2e}")
 
-        x_cur = x_next
+        # 4. 收敛判断：位移几乎为零则提前停止
+        if np.linalg.norm(x_new - x) < 1e-4:
+            break
+        x = x_new
 
     return trace
 
@@ -241,7 +253,7 @@ def _deep_config(config):
     return dc
 
 
-def run_ddps(dataset_csv=None, model_dir="models", n_stage1_samples=600, n_stage2_steps=25,
+def run_ddps(dataset_csv=None, model_dir="models", n_stage1_samples=600, n_stage2_steps=40,
              result_dir=None, deep_validate=True, cross_snr_probes=5):
     import create_config
     create_config.generate_config()
@@ -277,9 +289,11 @@ def run_ddps(dataset_csv=None, model_dir="models", n_stage1_samples=600, n_stage
           f"Stage-1 sampled best = {10.0 ** stage1_best_logber:.2e}")
 
     # ---------- Stage 2：约束下降（不回传真实 BER）----------
+    # 安全参考 = Model B 对种子点（已知安全）的预测；红线 = 参考 + 裕度（相对、校准无关）
+    safety_ref = _predict_b(model_b, SEED_TAPS.copy(), SEED_CTLE)
     rng = np.random.RandomState(0)
     trace = _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_stage2_steps,
-                            SAFETY_LOG_BER, rng)
+                            safety_ref, GD_LR, rng)
 
     real_mlses = np.array([t['real_mlse'] for t in trace])
     best_i = int(np.argmin(real_mlses))
@@ -358,7 +372,7 @@ def _write_sim_log(result_dir, config, df, n_s1, n_s2, trace, s1_best, seed_lb,
         f.write("--- DDPS Data-Driven Physical Surrogate Optimization ---\n")
         f.write(f"Stage 1 samples: {n_s1} (total after merge: {len(df)})\n")
         f.write(f"Stage 2 steps: {n_s2} (constrained descent, NO real-BER feedback)\n")
-        f.write(f"Safety threshold (Model B): log10(BER) <= {SAFETY_LOG_BER}\n")
+        f.write(f"Safety rule (Model B): <= seed_pred + {SAFETY_MARGIN} log10 (relative)\n")
         f.write(f"Warm-up fidelity: SNR {config['channel']['snr_db']} dB, "
                 f"num_symbols {config['system']['num_symbols']}\n\n")
         f.write(f"Start x0 log10(MLSE BER): {seed_lb:.4f} ({10.0 ** seed_lb:.2e})\n")
@@ -388,7 +402,7 @@ def _write_summary_md(result_dir, config, trace, s1_best, seed_lb, s2_best,
         f.write("## 架构\n")
         f.write("- **Stage 1**：在起点邻域采样，训练 Model A（发端 7-tap FIR → logBER）与 "
                 "Model B（配置 → logBER）。产出 = 起点 + 双模型，不追求穷尽地形。\n")
-        f.write("- **Stage 2**：在 Model A 上做 SLSQP 梯度下降，Model B 作安全不等式约束；"
+        f.write("- **Stage 2**：在 Model A 上做手写投影梯度下降，Model B 作安全回溯约束 + 信任域；"
                 "**不回传真实 MLSE_BER**（仅记录验证）。\n\n")
         f.write("## 关键指标\n")
         f.write(f"- 起点 x0 真实 MLSE：`{10.0 ** seed_lb:.2e}`\n")
@@ -437,7 +451,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, default=None, help='Optional global-coverage dataset CSV')
     parser.add_argument('--n-stage1-samples', type=int, default=600)
-    parser.add_argument('--n-stage2-steps', type=int, default=25)
+    parser.add_argument('--n-stage2-steps', type=int, default=40)
     args = parser.parse_args()
     run_ddps(dataset_csv=args.dataset, n_stage1_samples=args.n_stage1_samples,
              n_stage2_steps=args.n_stage2_steps)

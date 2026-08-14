@@ -8,12 +8,26 @@ except ImportError:
     rf = None
 
 _s4p_cache = {}
+_ref_peak_idx = None
+
 
 def _load_s4p_cached(path):
     """Cache the Touchstone Network so repeated extractions don't re-parse the file."""
     if path not in _s4p_cache:
         _s4p_cache[path] = rf.Network(path)
     return _s4p_cache[path]
+
+
+def _fixed_peak_idx(x):
+    """固定参考对齐：首次调用时锁定峰值位置，之后所有提取共用同一基准。
+
+    （argmax 会在两个近等峰值之间跳变，导致 FIR 特征在 FFE 系数上不连续，
+      进而污染梯度下降。固定对齐使 FIR 成为 x 的光滑函数。）
+    """
+    global _ref_peak_idx
+    if _ref_peak_idx is None:
+        _ref_peak_idx = int(np.argmax(np.abs(x)))
+    return _ref_peak_idx
 
 def extract_tx_s21(config, custom_tx_taps=None, num_taps=7):
     """
@@ -116,8 +130,8 @@ def extract_tx_s21(config, custom_tx_taps=None, num_taps=7):
     
     # 7. Extract the T-spaced equivalent FIR from the overall impulse response
     # The signal `x` is sampled at `sps_channel`. We want to downsample to 1 sps.
-    # To find the optimal sampling phase, we look for the peak.
-    peak_idx = np.argmax(np.abs(x))
+    # 用固定参考对齐（而非每次 argmax），保证 FIR 特征对 FFE 系数光滑。
+    peak_idx = _fixed_peak_idx(x)
     
     # We want to extract `num_taps` around the peak at `sps_channel` intervals.
     # The peak is the main cursor.
