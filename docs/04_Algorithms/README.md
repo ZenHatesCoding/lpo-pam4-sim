@@ -18,6 +18,10 @@
 **当前状态**：核心服役中 | **代码路径**：`two_stage_optimize.py`  
 **简介**：通过将优化过程拆分为“Stage 1: 离线探索获取好初值与地形记忆”以及“Stage 2: 基于 Surrogate 代理约束的零抖动在线微调”，完美融合了全局深层探索能力与在线零坠崖的绝对安全跟踪能力。我们在 1e-4 及 1e-5 (百万 Symbols) 级别证明了 **SA $\rightarrow$ Surrogate_SHC** 与 **BO $\rightarrow$ Surrogate_SHC** 是兼顾深度与安全性的绝佳组合。
 
+👉 **[DDPS 数据驱动物理代理优化器 (Data-Driven Physical Surrogate)](DDPS.md)**  
+**当前状态**：离线极限冲刺组 | **代码路径**：`ddps_optimizer.py`  
+**简介**：完全离线的“数据驱动”路线。离线采一批 `(配置 → 真实 BER)` 数据，训练双 Ridge 代理（Model A 看发端物理 FIR、Model B 看原始配置），再用 SLSQP 在代理上寻优，并通过“物理回验 + 主动学习”迭代下钻。与在线安全算法互补，适合无代价环境下的深度冲刺。
+
 ## 2. 在线安全调优单体算法 (Live Tuning)
 这是专门为物理链路“不掉锁”设计的单体防御性算法。
 

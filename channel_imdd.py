@@ -7,6 +7,14 @@ try:
 except ImportError:
     rf = None
 
+_s4p_cache = {}
+
+def _load_s4p_cached(path):
+    """Cache the Touchstone Network so repeated simulations don't re-parse the file."""
+    if path not in _s4p_cache:
+        _s4p_cache[path] = rf.Network(path)
+    return _s4p_cache[path]
+
 def lowpass_filter(x, bw, fs, order=4):
     """ Butterworth low-pass filter """
     nyq = 0.5 * fs
@@ -149,8 +157,8 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     if config_ch.get('use_s4p', False) and rf is not None:
         s4p_path = config_ch.get('s4p_file', '')
         if os.path.exists(s4p_path):
-            # Load Touchstone file
-            nw = rf.Network(s4p_path)
+            # Load Touchstone file (cached)
+            nw = _load_s4p_cached(s4p_path)
             
             # Sdd21 for differential. The 802.3dj models are usually 4-port:
             # 1,3 are input, 2,4 are output. Sdd21 = 0.5 * (S21 - S23 - S41 + S43)

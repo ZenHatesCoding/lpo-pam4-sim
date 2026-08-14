@@ -8,3 +8,5 @@ result/*
 !result/latest_comparison/*
 !result/latest_comparison/*.png
 scratch/*.mmd
+# DDPS 离线数据集（可经 dataset_generator.py 再生）
+dataset/*.csv

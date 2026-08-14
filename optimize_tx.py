@@ -79,6 +79,11 @@ def main():
         bounds[11] = [0.5, 3.0]  # fp2_ratio
     
     opt_type = config['tx'].get('optimizer_type', 'BO').upper()
+    if opt_type == 'DDPS':
+        import ddps_optimizer
+        ddps_optimizer.run_ddps()
+        return
+        
     if opt_type == 'SA':
         optimizer = SimulatedAnnealingOptimizer(bounds, max_regression_ratio=5.0, initial_temp=0.1, cooling_rate=0.85)
     elif opt_type == 'GA':
