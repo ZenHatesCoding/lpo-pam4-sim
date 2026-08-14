@@ -446,6 +446,10 @@ def _plot_convergence(result_dir, trace, seed_lb, s1_best):
         plt.grid(True, which='both', ls='--', alpha=0.6)
         plt.legend()
         plt.savefig(os.path.join(result_dir, "ddps_convergence.png"))
+        # 同时落到 latest_comparison，作为可追踪的对比图
+        lc_dir = os.path.join("result", "latest_comparison", "ddps")
+        os.makedirs(lc_dir, exist_ok=True)
+        plt.savefig(os.path.join(lc_dir, "ddps_convergence.png"))
         plt.close()
     except Exception as e:
         print(f"(plot skipped: {e})")

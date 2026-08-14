@@ -55,6 +55,10 @@ def main(n_seed=600, n_steps=40, deep=True):
     csv = D._find_latest_dataset()
     if csv:
         df = pd.concat([pd.read_csv(csv), df], ignore_index=True)
+    # 保存完整数据集，供复用 / 复现
+    _ds_csv = os.path.join("dataset", f"ddps_stage1_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+    df.to_csv(_ds_csv, index=False)
+    print(f"Stage 1 dataset saved to {_ds_csv}")
     df = df[df['log10_ber'] < -0.1].copy()
 
     XA = df[T.FIR_COLS].values.astype(float)
@@ -96,6 +100,7 @@ def main(n_seed=600, n_steps=40, deep=True):
         results[name] = {
             'best_mlse': real[best_i], 'best_step': best_i, 'max_mlse': float(real.max()),
             'spearman': sp, 'best_taps': trace[best_i]['taps'], 'best_ctle': trace[best_i]['ctle'],
+            'real': real, 'best_so_far': np.minimum.accumulate(real),
         }
         print(f"[{name}] best {real[best_i]:.2e} @step{best_i} | max {real.max():.2e} | "
               f"Spearman {sp:.3f}")
@@ -105,6 +110,31 @@ def main(n_seed=600, n_steps=40, deep=True):
         for name, r in results.items():
             r['deep_mlse'] = _deep_validate(config, r['best_taps'], r['best_ctle'])
             print(f"[{name}] DEEP_1E5 = {r['deep_mlse']:.2e}")
+
+    # ---------- 对比图（best-so-far 曲线，存到 latest_comparison）----------
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(9, 5))
+        styles = [('Ridge + GD', 'o-'), ('GPR(mu) + GD', 's--'), ('GPR(UCB 3sigma) + GD', '^:')]
+        for (name, fmt), r in zip(styles, [results[k] for k in
+                                            ['Ridge + GD', 'GPR(mu) + GD', 'GPR(UCB 3sigma) + GD']]):
+            plt.semilogy(r['best_so_far'], fmt, markersize=4, label=name)
+        plt.axhline(10.0 ** D._physical_eval(config, D.SEED_TAPS.copy(), D.SEED_CTLE)[0],
+                    color='red', ls='--', alpha=0.5, label='start x0')
+        plt.xlabel('Stage 2 gradient step')
+        plt.ylabel('MLSE BER (best-so-far)')
+        plt.title('Surrogate comparison (same data/start/safety, no real-BER feedback)')
+        plt.grid(True, which='both', ls='--', alpha=0.6)
+        plt.legend()
+        lc_dir = os.path.join("result", "latest_comparison", "ddps")
+        os.makedirs(lc_dir, exist_ok=True)
+        plt.savefig(os.path.join(lc_dir, "surrogate_comparison.png"))
+        plt.close()
+        print(f"Comparison figure saved to {lc_dir}/surrogate_comparison.png")
+    except Exception as e:
+        print(f"(comparison figure skipped: {e})")
 
     # ---------- 输出 ----------
     out_dir = os.path.join("result", f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_surrogate_cmp")
