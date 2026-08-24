@@ -40,3 +40,17 @@ DDPS best @DEEP_1E5 (9D): 3.76e-05
 SHC ref   @DEEP_1E5 (9D): 3.76e-05
 SHC ref   @DEEP_1E5 (12D fp2=0.9): 3.76e-05
 ```
+
+## 跨 SNR 排序迁移（离线标定的 Model A 能否跨链路条件用）
+
+![Cross-SNR Ranking](cross_snr_ranking.png)
+
+| SNR | Spearman(ModelA 预测, 真实) | Spearman(真实@26.5, 真实@SNR) |
+| --- | --- | --- |
+| 24.0 dB | `0.703` | `1.000` |
+| 26.5 dB | `0.704` | `1.000` |
+| 28.0 dB | `0.704` | `1.000` |
+| 30.0 dB | `0.704` | `1.000` |
+
+**结论**：真实排序跨 SNR 完全不变（Spearman=1.0），Model A 排序精度 ≈0.70 且与 SNR 无关 → **无需分桶**，
+只需对绝对值做单调/分位数校准；0.70 的排序精度是 7-tap FIR 特征的表达能力上限，与 SNR 无关。
