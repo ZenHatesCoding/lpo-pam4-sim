@@ -29,7 +29,7 @@ def _fixed_peak_idx(x):
         _ref_peak_idx = int(np.argmax(np.abs(x)))
     return _ref_peak_idx
 
-def extract_tx_s21(config, custom_tx_taps=None, num_taps=7):
+def extract_tx_s21(config, custom_tx_taps=None, num_taps=7, pre_cursors=2):
     """
     Extract the equivalent T-spaced FIR representation of the entire 
     transmitter (Tx FFE -> DAC -> CTLE -> PCB -> MZM Modulator).
@@ -37,6 +37,7 @@ def extract_tx_s21(config, custom_tx_taps=None, num_taps=7):
     config: system configuration dict
     custom_tx_taps: 9-tap FFE weights (if None, reads from config)
     num_taps: number of central taps to extract (default 7)
+    pre_cursors: number of pre-cursors before the main cursor (default 2)
     
     Returns:
         np.ndarray of shape (num_taps,) representing the Tx equivalent impulse response.
@@ -144,7 +145,6 @@ def extract_tx_s21(config, custom_tx_taps=None, num_taps=7):
     # The delay introduced by tx_dsp (pulse shaping) is `pad_len * sps_channel`.
     # Let's just find the global peak and extract relative to it.
     
-    pre_cursors = 2
     post_cursors = num_taps - pre_cursors - 1
     
     fir_taps = np.zeros(num_taps)
