@@ -1,5 +1,7 @@
-case,final_mlse,steps
-"Baseline (SNR=26.5, CD=15dB loss)",0.0007202535292422932,10
-"Low SNR (SNR=24.0, CD=15dB loss)",0.0007202535292422932,10
-"High SNR (SNR=30.0, CD=15dB loss)",0.0007202535292422932,10
-"High Dispersion (SNR=26.5, CD=20dB loss)",0.0007202535292422932,10
+case,cd,dgd,sop,final_mlse,steps,plot_file
+Baseline,0.0,0.0,45.0,0.0007202535292422932,25,ddps_generalization_Baseline.png
+CD_Only,150.0,0.0,45.0,0.17447241428983,25,ddps_generalization_CD_Only.png
+DGD_Only,0.0,5.0,45.0,0.0008192883895131087,25,ddps_generalization_DGD_Only.png
+CD_plus_DGD_SOP_45,150.0,5.0,45.0,0.183889729184673,25,ddps_generalization_CD_plus_DGD_SOP_45.png
+CD_plus_DGD_SOP_0,150.0,5.0,0.0,0.17447241428983,25,ddps_generalization_CD_plus_DGD_SOP_0.png
+CD_plus_DGD_SOP_90,150.0,5.0,90.0,0.17387820512820512,25,ddps_generalization_CD_plus_DGD_SOP_90.png
