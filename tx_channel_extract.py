@@ -29,7 +29,8 @@ def _fixed_peak_idx(x):
         _ref_peak_idx = int(np.argmax(np.abs(x)))
     return _ref_peak_idx
 
-def extract_tx_s21(config, custom_tx_taps=None, num_taps=7, pre_cursors=2):
+def extract_tx_s21(config, custom_tx_taps=None, num_taps=7):
+    pre_cursors = 2
     """
     Extract the equivalent T-spaced FIR representation of the entire 
     transmitter (Tx FFE -> DAC -> CTLE -> PCB -> MZM Modulator).
