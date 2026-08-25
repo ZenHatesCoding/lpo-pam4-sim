@@ -94,6 +94,10 @@ def run_generalization_test(snr_db):
         cfg['channel']['dgd_ps'] = case['dgd']
         cfg['channel']['pol_angle_deg'] = case['sop']
         
+        if snr_db >= 28.0:
+            cfg['system']['num_symbols'] = 1048576
+            cfg['tx']['pattern_length'] = 524288
+            
         ffe_pre = int(cfg['tx'].get('ffe_pre', 4))
         x0 = D._taps_to_x(D.SEED_TAPS.copy(), D.SEED_CTLE, ffe_pre)
         
