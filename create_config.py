@@ -8,6 +8,11 @@ import os
 # ==========================================
 DEFAULT_MODE = '112G'
 
+# ==========================================
+# LPO 标准模式开关
+# ==========================================
+LPO_MODE = True  # True: 使用典型 LPO (分布式噪声, Tx/Rx 插损分别为 10dB)；False: 传统模式
+
 def generate_config(mode=DEFAULT_MODE):
     print(f"Generating config for {mode} mode...")
     
@@ -61,7 +66,18 @@ def generate_config(mode=DEFAULT_MODE):
         },
         'channel': {
             'sps_channel': 8,
-            'snr_db': 26.5,           
+            'snr_db': 26.5,  # Fallback for old mode
+            
+            # --- Electrical Channel Insertion Loss ---
+            'tx_pcb_loss_nyquist_db': 7.0 if LPO_MODE else 15.0,
+            'rx_pcb_loss_nyquist_db': 7.0 if LPO_MODE else 15.0,
+            
+            # --- Distributed Noise Parameters (LPO Spec) ---
+            'use_distributed_noise': LPO_MODE,
+            'host_tx_noise_rms': 0.003 if LPO_MODE else 0.0,
+            'module_tx_noise_rms': 0.003 if LPO_MODE else 0.0,
+            'module_rx_noise_rms': 0.003 if LPO_MODE else 0.0,
+            'host_rx_noise_rms': 0.003 if LPO_MODE else 0.0,
             
             'use_s4p': True,
             's4p_file': s4p_file,
@@ -79,14 +95,16 @@ def generate_config(mode=DEFAULT_MODE):
         },
         'rx': {
             'sps_adc': 2,
-            'ffe_taps': 31,           
-            'ffe_spacing': 0.5,       
-            'ffe_pre': 8,
-            'ffe_mu': 1e-4,  
-            'lms_mu': 1e-4,  
+            # LPO MSA Spec 9.10 specifies: 22-tap T-spaced FFE and 1-tap DFE
+            'ffe_taps': 22 if LPO_MODE else 31,
+            'ffe_spacing': 1.0 if LPO_MODE else 0.5,
+            'ffe_pre': 6 if LPO_MODE else 8,
+            'ffe_mu': 1e-4,
+            'lms_mu': 1e-4,
             'train_len': 10000,
-            'dfe_taps': 0,            
-            'mlse_memory': 1,         
+            'dfe_taps': 1 if LPO_MODE else 0,
+            # Standard reference equalizer does not use MLSE
+            'mlse_memory': 0 if LPO_MODE else 1,
         }
     }
     
@@ -98,8 +116,9 @@ def generate_config(mode=DEFAULT_MODE):
         {'case_id': 'case_lr1_10km_limit', 'cd_ps_nm': 28.0, 'dgd_ps': 5.0, 'pol_angle_deg': 45.0, 'snr_db': 26.5},
     ]
     
-    if target_il is not None:
-        config['channel']['target_il_nyquist_db'] = target_il
+    if target_il is not None and not LPO_MODE:
+        config['channel']['tx_pcb_loss_nyquist_db'] = target_il
+        config['channel']['rx_pcb_loss_nyquist_db'] = target_il
 
     with pd.ExcelWriter('config.xlsx') as writer:
         # Write basic param sheets

@@ -171,6 +171,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, default=None, help='Path to dataset CSV')
+    parser.add_argument('--out_dir', type=str, default='models', help='Output directory for trained models')
     args = parser.parse_args()
 
     dataset_file = args.dataset
@@ -182,4 +183,4 @@ if __name__ == "__main__":
         dataset_file = max(files, key=os.path.getctime)
         print(f"Auto-selected latest dataset: {dataset_file}")
 
-    train_models(dataset_file)
+    train_models(dataset_file, output_dir=args.out_dir)

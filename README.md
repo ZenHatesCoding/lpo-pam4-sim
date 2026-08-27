@@ -36,6 +36,9 @@ DEFAULT_MODE = '112G'
 
 为保证项目整洁可读，本平台的文档已进行全面梳理，请通过以下入口深入了解：
 
+👉 **[LPO 信道升级与参数依据 (LPO Channel Upgrade Justification)](docs/LPO_Channel_Upgrade_Justification.md)**  
+> *LPO_MODE 下的 Tx 9-tap FFE、22-tap T-spaced Rx FFE+1-DFE 及 7dB 典型插损的完全对齐与自检报告。*
+
 👉 **[01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md)**  
 > *了解收发机模型、多采样率机制以及 `config.xlsx` 中几十个神秘参数的详细物理含义。*
 

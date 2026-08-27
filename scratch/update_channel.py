@@ -1,109 +1,11 @@
-import numpy as np
-from scipy import signal
-import os
+import re
 
-try:
-    import skrf as rf
-except ImportError:
-    rf = None
+def update():
+    with open('channel_imdd.py', 'r') as f:
+        content = f.read()
 
-_s4p_cache = {}
-
-def _load_s4p_cached(path):
-    """Cache the Touchstone Network so repeated simulations don't re-parse the file."""
-    if path not in _s4p_cache:
-        _s4p_cache[path] = rf.Network(path)
-    return _s4p_cache[path]
-
-def lowpass_filter(x, bw, fs, order=4):
-    """ Butterworth low-pass filter """
-    nyq = 0.5 * fs
-    normal_cutoff = bw / nyq
-    if normal_cutoff >= 1.0:
-        return x
-    b, a = signal.butter(order, normal_cutoff, btype='low', analog=False)
-    y = signal.lfilter(b, a, x)
-    return y
-
-def apply_ctle(x, fs, f_z, f_p1, f_p2, g_dc_db):
-    """
-    Apply IEEE COM standard 2-pole 1-zero CTLE in the frequency domain.
-    H(f) = (10^(G_DC/20) + j*f/f_z) / (1 + j*f/f_p1) / (1 + j*f/f_p2)
-    """
-    N = len(x)
-    X = np.fft.rfft(x)
-    f = np.fft.rfftfreq(N, d=1.0/fs)
-    
-    g_dc = 10**(g_dc_db / 20)
-    
-    # Avoid 0 division in formula by adding a small epsilon to f, or just handle f=0
-    # Actually f_z, f_p1, f_p2 are strictly > 0 so no division by zero.
-    num = g_dc + 1j * f / f_z
-    den = (1 + 1j * f / f_z) * (1 + 1j * f / f_p1) * (1 + 1j * f / f_p2)
-    
-    H_ctle = num / den
-    
-    X_filtered = X * H_ctle
-    return np.fft.irfft(X_filtered, n=N)
-def apply_cd_dgd(x, fs, cd_ps_nm, dgd_ps, pol_angle_deg=45.0):
-    """
-    Apply Chromatic Dispersion (CD) and Differential Group Delay (DGD) impairments.
-    Modeled as frequency domain filters for an IM/DD system.
-    """
-    if cd_ps_nm == 0 and dgd_ps == 0:
-        return x
-    
-    N = len(x)
-    X = np.fft.rfft(x)
-    f = np.fft.rfftfreq(N, d=1.0/fs)
-    
-    # 1. CD (Chromatic Dispersion) Filter
-    H_CD = 1.0
-    if cd_ps_nm != 0:
-        lambda_nm = 1310.0
-        c_nm_ps = 299792.458
-        f_thz = f * 1e-12
-        phase_cd = np.pi * (lambda_nm**2) * cd_ps_nm / c_nm_ps * (f_thz**2)
-        H_CD = np.cos(phase_cd)
-        
-    # 2. DGD (Polarization Mode Dispersion) Filter
-    H_DGD = 1.0
-    if dgd_ps != 0:
-        # Power splitting based on polarization angle
-        gamma = np.cos(np.radians(pol_angle_deg))**2
-        delta_tau = dgd_ps * 1e-12
-        H_DGD = gamma + (1 - gamma) * np.exp(-1j * 2 * np.pi * f * delta_tau)
-        
-    X_filtered = X * H_CD * H_DGD
-    return np.fft.irfft(X_filtered, n=N)
-
-def dac_zoh(x, sps_in, sps_out):
-    """ DAC Zero-Order Hold upsampling """
-    factor = sps_out // sps_in
-    return np.repeat(x, factor)
-
-def find_f_scale_for_target_il(freqs, sdd21, target_il_db, nyquist):
-    """ Find the frequency scaling factor to hit exactly target_il_db at nyquist """
-    mag_db = 20 * np.log10(np.abs(sdd21) + 1e-12)
-    idx = np.where(mag_db <= target_il_db)[0]
-    if len(idx) > 0:
-        first_cross_idx = idx[0]
-        if first_cross_idx > 0:
-            f1, f2 = freqs[first_cross_idx-1], freqs[first_cross_idx]
-            m1, m2 = mag_db[first_cross_idx-1], mag_db[first_cross_idx]
-            f_match = f1 + (target_il_db - m1) / (m2 - m1) * (f2 - f1)
-        else:
-            f_match = freqs[0]
-    else:
-        f_match = freqs[-1]
-        
-    if f_match <= 0:
-        f_match = 1e9
-        
-    f_scale = nyquist / f_match
-    return f_scale
-
-
+    # Define the new helper function
+    new_helper = '''
 def apply_s4p_filter(x, fs, config_ch, target_il_key, nyquist):
     s4p_path = config_ch.get('s4p_file', '')
     if not os.path.exists(s4p_path):
@@ -141,7 +43,16 @@ def apply_s4p_filter(x, fs, config_ch, target_il_key, nyquist):
     X_filtered = X * H_channel
     return np.fft.irfft(X_filtered, n=N)
 
-def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
+def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):'''
+
+    # Split the original content
+    parts = content.split('def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):')
+    
+    if len(parts) != 2:
+        print("Could not find apply_channel function")
+        return
+        
+    new_body = '''
     config_ch = config['channel']
     config_tx = config['tx']
     """ Apply sequential IMDD channel bandwidth limitations at high sps """
@@ -262,3 +173,10 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     x_adc_out = x_adc_in[::dec_factor]
     
     return x_analog, x_adc_in, x_adc_out
+'''
+
+    with open('channel_imdd.py', 'w') as f:
+        f.write(parts[0] + new_helper + new_body)
+
+if __name__ == '__main__':
+    update()
