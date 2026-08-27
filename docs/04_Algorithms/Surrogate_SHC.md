@@ -1,3 +1,6 @@
+> [!WARNING]
+> **历史归档 (Archived)**：这是早期的代理辅助微调算法尝试。其思想已被吸收到最新的 [DDPS.md](DDPS.md) 的 Model B 线搜索安全约束中。
+
 # Surrogate-Assisted Safe Hill Climbing (代理模型辅助安全爬山)
 
 [返回算法总览](README.md)

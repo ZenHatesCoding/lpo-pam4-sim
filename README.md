@@ -54,13 +54,12 @@ DEFAULT_MODE = '112G'
 ### 在线安全寻优 (Safe Online Optimization) 原型验证
 在“所测即所发生”的硬性限制下，我们实现并对比了多种解决掉锁危机的架构与单体能力：
 
-👉 **[两阶段在线优化工作流 (Two-Stage Online Optimization)](docs/04_Algorithms/Two_Stage_Optimization.md)**  **(最终推荐架构)**
-> *通过拆分“离线模型探索”与“在线代理约束跟线”，结合 **BO_Safe $\rightarrow$ Surrogate**。在 Stage 2 中彻底切断真实的 MLSE_BER 反馈，仅依靠提取发端眼图的 10 维统计特征，并代入纯白盒高斯过程回归 (GPR) + UCB 护栏生成的物理下落梯度进行寻优。在实测中实现了微调阶段**真正的零物理坠崖 (Zero Jitter) 且成功下钻至 1e-5 的物理底座**。这是目前兼顾探索与安全的终极绝杀手段。*
+👉 **[DDPS 数据驱动物理代理优化器 (Data-Driven Physical Surrogate)](docs/04_Algorithms/DDPS.md)**  **(最终推荐架构)**
+> *这是应对在线调参“试错成本高、易掉锁”痛点的终极解决方案。DDPS 将优化拆分为完全离线的两阶段：Stage 1 在安全区附近采样，训练出纯白盒多项式回归的 Model A (物理特征 -> BER) 与 Model B (系数 -> BER)；Stage 2 彻底切断真实物理反馈，在 Model A 上利用有限差分求导进行带约束的投影梯度下降。在 28dB (1e-5) 深水区及极限色散环境的实测中，实现了跨环境的“零物理试错”瞬间收敛，完美兼顾了探索深度与绝对安全。*
 
-- **TuRBO-Safe (Trust Region Safe-BO)**: 结合了 $3\sigma$ 置信度上界防御与自适应信任域，单体防御力极强，作为 Stage 1 能够平稳快速拿到底噪。
-- **Safe Quadratic Coordinate Descent (Safe QCD)**: 纯数学架构的二阶优化器。通过微探针精确求解悬崖边界，防坠崖能力极强，但在复杂地形下容易陷入局部极小。
-- **Surrogate_SHC (代理辅助爬山)**: 通过 Directional Tabu Filter 提前否决危险方向，作为 Stage 2 时防守坚如磐石。
-- **DDPS (数据驱动物理代理优化器)**: 完全离线路线。Stage 1 产出「不错起点 + 双 Ridge 代理」，Stage 2 在 Model A（发端物理 FIR）上做带 Model B 安全约束的梯度下降、不回传真实 BER，通过优化发端指标等效优化收端 MLSE BER。详见 [DDPS.md](docs/04_Algorithms/DDPS.md)。
+- **TuRBO-Safe (Trust Region Safe-BO)**: 结合了 $3\sigma$ 置信度上界防御与自适应信任域，单体防御力强。
+- **Safe Quadratic Coordinate Descent (Safe QCD)**: 纯数学推导的二阶优化器，通过抛物线方程探测悬崖边界。
+- **历史算法 (Archived)**: 包含早期的 `Surrogate_SHC` (代理辅助爬山) 与第一代 `Two-Stage Online Optimization` (在线两阶段，采用 BO->Surrogate_SHC)。现已整合并进化为目前的纯离线 DDPS 架构。
 
 👉 **[04. 寻优算法全景图 (Optimization Algorithms Panorama)](docs/04_Algorithms/README.md)**  
 > *全面梳理项目中现存的白盒化算法，并详细对比各类算法的物理约束特性与源码路径。*

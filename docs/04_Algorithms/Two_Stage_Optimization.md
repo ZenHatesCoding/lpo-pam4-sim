@@ -1,3 +1,6 @@
+> [!WARNING]
+> **历史归档 (Archived)**：这是第一代采用 BO + 高斯过程回归 (GPR) 的在线两阶段尝试。因为在线 GPR 推理速度较慢且依赖真实反馈，该架构现已**全面进化为纯离线的数学代理 DDPS 架构**，请直接参考最新的 [DDPS.md](DDPS.md)。
+
 # 两阶段在线优化工作流 (Two-Stage Online Optimization)
 
 [返回算法目录](README.md)
