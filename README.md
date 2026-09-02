@@ -54,24 +54,18 @@ DEFAULT_MODE = '112G'
 👉 **[05. 微观物理信道模型升级记录](docs/05_Physical_Channel_Upgrade.md)**  
 > *记录从抽象的高斯噪声模型升级至 SJTU 级微观光电物理模型（MZM 非线性、光纤色散与DGD、热/散粒噪声）的完整过程及抗噪排坑经验。*
 
-## 三、 核心寻优算法 (Core Algorithms)
-项目当前搭载了多种白盒化重构的寻优算法，用以对比各类元启发式搜索在物理约束下的表现：
-- **GA (Genetic Algorithm)**: 经典连续遗传算法，全局寻优能力极强，但在线试错代价极大。
-- **SA (Simulated Annealing)**: 带激进退温机制的模拟退火算法，容易陷入次优谷底。
-- **SHC (Safe Hill Climbing)**: 针对 LPO 链路优化的安全爬山算法，微小步进，对链路冲击极小，但存在盲搜坠崖风险。
+## 三、 核心在线寻优算法 (DDPS)
+项目已经彻底抛弃了高代价的传统盲搜算法（如遗传算法、模拟退火等），全面转向完全自研的**数据驱动物理代理寻优框架 (DDPS)**。
 
-### 在线安全寻优 (Safe Online Optimization) 原型验证
-在“所测即所发生”的硬性限制下，我们实现并对比了多种解决掉锁危机的架构与单体能力：
+👉 **[DDPS 数据驱动物理代理优化器 (Data-Driven Physical Surrogate)](docs/04_Algorithms/DDPS.md)**  **(核心主推架构)**
+> *这是应对在线调参“试错成本高、易掉锁”痛点的终极解决方案。DDPS 将优化拆分为两阶段：*
+> * **Stage 1 (离线/近线)**：在安全区附近采样（包含对光纤 CD 色散和插损抗性的等效 FIR 映射），训练出纯白盒的 Model A (Tx等效FIR -> log10 BER，负责指引下探方向) 与 Model B (完整软硬件配置 -> log10 BER，包含 GPR 不确定度，负责守住安全红线)。
+> * **Stage 2 (在线)**：彻底切断真实物理反馈，在 Model A 的曲面上利用手写有限差分进行**带预条件自适应步长的投影梯度下降**，并由 Model B 进行安全线搜索回溯约束。
+> 
+> *在最近的纯物理噪音+MLSE深度验证中，DDPS 在应对诸如 `12dB 极限插损` 或 `Combined_Stress (高插损+色散+DGD混合灾变)` 时，均能在零断链风险下平滑收敛，精准权衡 FIR 补偿与 CTLE 高频噪声防爆之间的物理悖论。*
 
-👉 **[DDPS 数据驱动物理代理优化器 (Data-Driven Physical Surrogate)](docs/04_Algorithms/DDPS.md)**  **(最终推荐架构)**
-> *这是应对在线调参“试错成本高、易掉锁”痛点的终极解决方案。DDPS 将优化拆分为完全离线的两阶段：Stage 1 在安全区附近采样，训练出纯白盒多项式回归的 Model A (物理特征 -> BER) 与 Model B (系数 -> BER)；Stage 2 彻底切断真实物理反馈，在 Model A 上利用有限差分求导进行带约束的投影梯度下降。在 28dB (1e-5) 深水区及极限色散环境的实测中，实现了跨环境的“零物理试错”瞬间收敛，完美兼顾了探索深度与绝对安全。*
-
-- **TuRBO-Safe (Trust Region Safe-BO)**: 结合了 $3\sigma$ 置信度上界防御与自适应信任域，单体防御力强。
-- **Safe Quadratic Coordinate Descent (Safe QCD)**: 纯数学推导的二阶优化器，通过抛物线方程探测悬崖边界。
-- **历史算法 (Archived)**: 包含早期的 `Surrogate_SHC` (代理辅助爬山) 与第一代 `Two-Stage Online Optimization` (在线两阶段，采用 BO->Surrogate_SHC)。现已整合并进化为目前的纯离线 DDPS 架构。
-
-👉 **[04. 寻优算法全景图 (Optimization Algorithms Panorama)](docs/04_Algorithms/README.md)**  
-> *全面梳理项目中现存的白盒化算法，并详细对比各类算法的物理约束特性与源码路径。*
+> [!NOTE]
+> 早期测试用的古典算法（BO, GA, SA, SHC 等）及其相关对比测试脚本，现已统一清理并封存于 `archive/` 目录下，仅供历史参考。
 
 ---
 
@@ -83,25 +77,27 @@ python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
 ```
-*(注：本项目已彻底移除所有第三方黑盒优化库，所有算法（如 BO, GA, SA 等）均已实现 100% 纯 Numpy/Scipy 白盒化，确保每一行梯度与探索逻辑均可追溯。)*
 
-### 2. 执行主仿真
-只需运行 `main.py`，系统将自动生成最新的 `config.xlsx` 并输出当前的 BER 结果：
+### 2. 执行单点主仿真
+只需运行 `main.py`，系统将自动生成最新的 `config.xlsx` 并输出当前的硬件评估与 BER 结果：
 ```bash
 python main.py
 ```
 
-### 3. 发端权重智能寻优 (Tx FFE Auto-Optimization)
-如果要在当前 Mode 下寻找最优的 Tx FFE 权重，只需运行：
+### 3. 全链路代理数据集生成与模型训练
+若要生成适应当前硬件拓扑特征的代理模型集（自动加载开启 Burg AR 与 Viterbi MLSE 后置滤波），请依次执行：
 ```bash
-python optimize_tx_ffe.py
+# 生成 LHS 随机微扰空间数据集 (默认输出至 dataset_mlse)
+python dataset_generator.py --out_dir dataset_mlse
+
+# 白盒矩阵求逆训练 Model A & B (默认输出至 models_mlse)
+python train_surrogates.py --dataset dataset_mlse/ddps_dataset_<timestamp>.csv --out_dir models_mlse
 ```
-> [!NOTE]
-> 优化器支持在 `config.xlsx` (由 `create_config.py` 生成) 的 `tx` 表格中通过 `optimizer_type` 无缝切换以下四种完全自研的白盒算法：
-> 1. **`BO` (贝叶斯优化)**：适用于从零开始的全局探索与局部收敛混合寻优。
-> 2. **`GA` (连续型遗传算法)**：基于种群的锦标赛交叉与多点高斯变异，用于大范围连续演化。
-> 3. **`SA` (受限模拟退火)**：局部抖动探索，增加硬性退化拒绝阈值，防止优化跑飞。
-> 4. **`SHC` (安全微步爬山)**：**针对在线实时调参专门设计**。严格锁定极微小步长，跳过危险的全局随机探索，确保硬件评估过程中的中间参数也始终稳定在极低误码率，彻底杜绝调参导致掉线的风险。
+
+### 4. DDPS 极致应力泛化测试
+使用训好的代理双模型，直接在线引导不同极端信道参数下的寻优：
+```bash
+python test_generalization.py
+```
 > [!TIP]
-> **想看中间眼图？**
-> 打开 `create_config.py`，在 `system` 栏将 `plot_intermediate_eyes` 改为 `True`，系统将自动吐出经过高平滑度上采样的各个物理节点眼图照片（如 ADC 采样端、Tx 出射端等）。
+> 运行结束后，请移步至 `result/mlse_comparison/ddps/` 目录查看 `generalization_summary_physical.md` 报表与各个物理用例的收敛下降曲线。你将见证在零物理试错下，Model A 与 Model B 是如何默契配合跨越险崖的！

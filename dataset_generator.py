@@ -17,9 +17,9 @@ import create_config
 import concurrent.futures
 
 FFE_BOUND = 0.3
-CTLE_GDC_MIN = 0.0
+CTLE_GDC_MIN = -5.0
 CTLE_GDC_MAX = 5.0
-CTLE_GDC2_MIN = 0.0
+CTLE_GDC2_MIN = -5.0
 CTLE_GDC2_MAX = 5.0
 PEAK_SUM_LIMIT = 0.8
 

@@ -33,9 +33,9 @@ from train_surrogates import train_from_df, WhiteBoxRidge, WhiteBoxGPR
 # ============================================================
 
 FFE_BOUND = 0.3
-CTLE_GDC_MIN = 0.0
+CTLE_GDC_MIN = -5.0
 CTLE_GDC_MAX = 5.0
-CTLE_GDC2_MIN = 0.0
+CTLE_GDC2_MIN = -5.0
 CTLE_GDC2_MAX = 5.0
 PEAK_SUM_LIMIT = 0.8          # sum(|pre_post|) <= 0.8 -> 主抽头 >= 0.2
 SAFETY_MARGIN = 0.3           # Model B 安全裕度：允许相对种子点恶化 0.3 个 log10（≈2× BER）
@@ -204,9 +204,13 @@ def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_ref, 
 
         # 2. 回溯线搜索：Model B 保证安全（相对种子点的红线），步长随 step 衰减以收敛
         alpha = lr * (0.92 ** step)
+        # 预条件缩放：FFE 权值范围 0.3，CTLE 范围 5.0。如果不缩放，CTLE 移动量只有 0.001
+        alpha_vec = np.ones_like(x) * alpha
+        alpha_vec[-2:] = alpha * 20.0  # 对最后两个参数(gDC, gDC2)加大步长
+
         x_new = None
         for _ in range(20):
-            x_cand = np.clip(x - alpha * direction, tr_bounds[:, 0], tr_bounds[:, 1])
+            x_cand = np.clip(x - alpha_vec * direction, tr_bounds[:, 0], tr_bounds[:, 1])
             taps_c, gdc_c, gdc2_c = _x_to_taps_ctle(x_cand, ffe_pre)
             if _predict_b(model_b, taps_c, gdc_c, gdc2_c) <= safety_limit:
                 x_new = x_cand
