@@ -17,36 +17,44 @@ import create_config
 import concurrent.futures
 
 FFE_BOUND = 0.3
-CTLE_MIN = -20.0
-CTLE_MAX = 0.0
+CTLE_GDC_MIN = 0.0
+CTLE_GDC_MAX = 5.0
+CTLE_GDC2_MIN = 0.0
+CTLE_GDC2_MAX = 5.0
 PEAK_SUM_LIMIT = 0.8
 
 def _construct_9tap(pre_post, ffe_pre):
-    abs_sum = np.sum(np.abs(pre_post))
-    if abs_sum > PEAK_SUM_LIMIT:
-        pre_post = pre_post * (PEAK_SUM_LIMIT / abs_sum)
+    """
+    pre_post: length 8 array. [pre_pre..., post_post...]
+    """
     taps = np.zeros(9)
-    taps[:ffe_pre] = pre_post[:ffe_pre]
-    taps[ffe_pre + 1:] = pre_post[ffe_pre:]
-    taps[ffe_pre] = 1.0 - np.sum(np.abs(pre_post))
+    main_idx = ffe_pre
+    taps[:main_idx] = pre_post[:main_idx]
+    taps[main_idx+1:] = pre_post[main_idx:]
+    taps[main_idx] = 1.0
     return taps
 
-def process_sample(args):
-    i, sp, config_base, ffe_pre = args
+def _worker_task_wrapper(args):
+    return _worker_task(*args)
+
+def _worker_task(i, sp, config_dict):
     import copy
-    config = copy.deepcopy(config_base)
+    config = copy.deepcopy(config_dict)
+    
+    ffe_pre = int(config['tx'].get('ffe_pre', 4))
     
     pre_post = (sp[:8] * 2 - 1.0) * FFE_BOUND
     taps = _construct_9tap(pre_post, ffe_pre)
-    ctle_dc = CTLE_MIN + sp[8] * (CTLE_MAX - CTLE_MIN)
-    config['tx']['ctle_g_dc_db'] = ctle_dc
+    ctle_gdc = CTLE_GDC_MIN + sp[8] * (CTLE_GDC_MAX - CTLE_GDC_MIN)
+    ctle_gdc2 = CTLE_GDC2_MIN + sp[9] * (CTLE_GDC2_MAX - CTLE_GDC2_MIN)
+    config['tx']['ctle_g_dc_db'] = ctle_gdc
+    config['tx']['ctle_g_dc2_db'] = ctle_gdc2
 
     try:
         _, mlse_ber = run_sim(config, custom_tx_taps=taps, plot_eyes=False, output_dir=None)
-    except Exception as e:
-        mlse_ber = 1.0
-
-    mlse_ber_val = max(mlse_ber, 1e-8)
+        mlse_ber_val = float(np.clip(mlse_ber, 1e-8, 1.0))
+    except Exception:
+        mlse_ber_val = 1.0
 
     try:
         tx_fir = extract_tx_s21(config, custom_tx_taps=taps, num_taps=7)
@@ -55,18 +63,21 @@ def process_sample(args):
 
     record = {
         'sample_id': i,
-        'ctle_dc': ctle_dc,
+        'ctle_dc': ctle_gdc,
+        'ctle_dc2': ctle_gdc2,
         'mlse_ber': mlse_ber_val,
         'log10_ber': np.log10(mlse_ber_val)
     }
+    
     for j in range(9):
-        record[f'ffe_tap_{j}'] = taps[j]
+        record[f'ffe_tap_{j}'] = float(taps[j])
     for j in range(7):
-        record[f'tx_fir_{j}'] = tx_fir[j]
-
+        record[f'tx_fir_{j}'] = float(tx_fir[j])
+        
     return record
 
 def generate_dataset(num_samples=2000, output_dir="dataset", seed=42):
+    print(f"Generating LPO dataset: {num_samples} points, D=10 (FFE+GDC+GDC2) ...")
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
@@ -78,7 +89,7 @@ def generate_dataset(num_samples=2000, output_dir="dataset", seed=42):
 
     ffe_pre = int(config['tx'].get('ffe_pre', 4))
 
-    D = 9
+    D = 10
     sampler = qmc.LatinHypercube(d=D, seed=seed)
     sample_points = sampler.random(n=num_samples)
 
@@ -89,11 +100,11 @@ def generate_dataset(num_samples=2000, output_dir="dataset", seed=42):
     import multiprocessing
     max_workers = max(1, multiprocessing.cpu_count() - 2)
     
-    args_list = [(i, sample_points[i], config, ffe_pre) for i in range(num_samples)]
+    args_list = [(i, sample_points[i], config) for i in range(num_samples)]
     
     # Use ProcessPoolExecutor
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
-        for i, result in enumerate(executor.map(process_sample, args_list)):
+        for i, result in enumerate(executor.map(_worker_task_wrapper, args_list)):
             dataset.append(result)
             if (i + 1) % 50 == 0:
                 print(f"Completed {i + 1}/{num_samples}")

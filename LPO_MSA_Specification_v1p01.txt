@@ -1,0 +1,1256 @@
+   
+ 
+100G-DR-LPO 
+Revision 1.0 
+ 
+Specification for  
+100 Gb/s per Lane Linear Pluggable Optics  
+Single-Mode Optical Fiber Transmission  
+Abstract 
+The 100G-DR-LPO specification by the LPO (Linear Pluggable Optics) MSA defines 100 Gb/s/lane 
+53.125 GBd PAM4 optical interfaces, optical links using standard single -mode fiber with up to 
+500 m reach, and host -module electrical interfaces for hosts with DSP based SerDes and 
+RS(544,514) FEC. It builds on IEEE 802.3 and OIF CEI-112G-LINEAR-PAM4 specifications. It enables 
+Ethernet-like links with 1, 2, 4, or 8 lanes  for data centers, using low power, high port density, 
+low cost, and low latency pluggable transceiver modules in form factors such as QSFP, QSFP-DD, 
+and OSFP. 
+ 
+Editors 
+Karl Muth 
+Broadcom 
+Oliver Huang 
+Hisense 
+ 
+Mark Kimber 
+Semtech 
+Kumaran Krishnasamy 
+Broadcom 
+  
+Ryan Latchman  
+MACOM  
+  
+ 
+ 
+ 
+ 
+THIS VERSION OF THE LPO MSA SPECIFICATION IS PROVIDED “AS IS” AND WITHOUT ANY WARRANTY OF ANY KIND, INCLUDING, 
+WITHOUT LIMITATION, ANY EXPRESS OR IMPLIED WARRANTY OF NON- INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR 
+A PARTICULAR PURPOSE, OR ANY WARRANTY OTHERWISE ARISING OUT OF ANY PROPOSAL, SPECIFICATION OR SAMPLE. THE 
+AUTHORS DISCLAIM ALL LIABILITY, INCLUDING LIABILITY FOR INFRINGEMENT OF ANY PROPRIETARY RIGHTS, RELATING TO THE 
+USE OF INFORMATION IN THIS SPECIFICATION. NO LICENSE, EXPRESS OR IMPLIED, BY ESTOPPEL OR OTHERWISE, TO ANY 
+INTELLECTUAL PROPERTY RIGHTS IS GRANTED HEREIN.  
+  
+LPO MSA Confidential Draft revision 1.0 Page 2 
+Revision History 
+ 
+Revision Description Date revised 
+1.0 Initial revision 2025-03-19 
+ 
+ 
+ 
+ 
+ 
+LPO MSA Member Companies 
+ 
+1-VIA Inpho 
+Accelink InSiGa 
+Adtran Intel 
+AMD Jabil 
+AOI Juniper Networks 
+Arista Keysight 
+Broadcom Lumentum 
+ByteDance LUXIC 
+CIG Luxshare 
+Cisco Systems MACOM 
+Coherent MultiLane 
+Color Chip NewPhotonics 
+Dell Nubis Communications 
+Dust Photonics NVIDIA 
+Eoptolink Omniva 
+EXFO O-Net 
+Fast Photonics Ruijie 
+Formerica OptoElectronics Semtech 
+H3C Source Photonics 
+HG Genuine TE Connectivity 
+Hisense Texas Instruments 
+Huawei VIAVI 
+Hyper Photonix TeraSignal 
+InfiniLink Semi Wilder Technologies 
+Infraeo  
+ 
+ 
+ 
+  
+  
+LPO MSA Confidential Draft revision 1.0 Page 3 
+Contents 
+1 Introduction ___________________________________________________________________ 7 
+2 Summary of 100G-DR-LPO Optical Specifications ______________________________________ 7 
+3 Reference Documents ___________________________________________________________ 8 
+4 Functional Description ___________________________________________________________ 8 
+5 System Overview _______________________________________________________________ 8 
+5.1 Link Block Diagram ____________________________________________________ 8 
+5.2 Linear Optical System Description ________________________________________ 9 
+5.2.1 Detailed Functional Block Diagram of Linear Optical System ________________ 9 
+5.2.2 High Speed Electrical Characteristics __________________________________ 9 
+5.2.3 Relationship between electrical and optical specifications _________________ 9 
+5.3 Hardware Signaling ____________________________________________________ 9 
+5.4 Module Management Interface __________________________________________ 9 
+5.5 Module Mechanical Dimensions _________________________________________ 9 
+5.6 Host FEC Requirements _______________________________________________ 10 
+5.7 Auto-Negotiation ____________________________________________________ 10 
+5.8 Host Data Path Electrical Insertion Loss ___________________________________ 10 
+5.9 Host Data Path Calibration Information ___________________________________ 10 
+5.10 Host Nonlinear Compensation Function (NLC) ______________________________ 10 
+5.11 Host Startup Protocol Function (optional) _________________________________ 10 
+6 Optical Module Functional Specifications ___________________________________________ 12 
+6.1 Module Transmit Function _____________________________________________ 12 
+6.2 Module Receive Function ______________________________________________ 12 
+6.3 Module Global Signal Detect Function ____________________________________ 12 
+6.4 Module Lane-by-Lane Signal Detect Function ______________________________ 12 
+6.5 Module Global Transmit Disable Function _________________________________ 13 
+6.6 Module Lane-by-Lane Transmit Disable Function ___________________________ 13 
+6.7 Module Transmit Fault Function ________________________________________ 13 
+6.8 Module Receive Fault Function _________________________________________ 13 
+6.9 Module Equalization Function __________________________________________ 13 
+7 Electrical Specifications _________________________________________________________ 14 
+7.1 Requirements _______________________________________________________ 14 
+7.2 Electrical Channel ____________________________________________________ 14 
+  
+LPO MSA Confidential Draft revision 1.0 Page 4 
+7.2.1 LPO MSA Pluggable Module Channel Reference Model __________________ 14 
+7.3 Host-to-Module Electrical Specifications at TP1a (host output) ________________ 15 
+7.3.1 Host-to-Module Electrical Specifications at TP1a (host output) ____________ 15 
+7.3.2 Host Output Test Method at TP1a ___________________________________ 16 
+7.3.3 Recommended CTLE gDC and gDC2 Settings ___________________________ 17 
+7.4 Host-to-Module Electrical Specifications at TP1 (module input) ________________ 17 
+7.4.1 Module Input Test Method and Signal Calibration at TP1a ________________ 17 
+7.5 Module-to-Host Electrical Specifications at TP4 (module output) _______________ 18 
+7.5.1 Module Optical Input Test Method and Signal Calibration at TP3 ___________ 19 
+7.6 Module-to-Host Electrical Specifications at TP4a (stressed host input) __________ 19 
+7.6.1 Host Input Test Method and Signal Calibration at TP4 (stressed host input) __ 20 
+8 Optical Specifications ___________________________________________________________ 21 
+8.1 Transmit Optical Specifications at TP2 ____________________________________ 22 
+8.2 Receive Optical Specifications at TP3 _____________________________________ 24 
+8.3 Illustrative Optical Link Power Budgets ___________________________________ 25 
+9 Definition of Optical and Electrical Parameters and Measurement Methods _______________ 26 
+9.1 Test Patterns for Electrical and Optical Parameters __________________________ 26 
+9.2 Wavelength _________________________________________________________ 27 
+9.3 Average Optical Transmit Power ________________________________________ 27 
+9.4 Optical Modulation Amplitude (OMAouter) _________________________________ 27 
+9.5 Transmitter (and Dispersion) Eye Closure for PAM4 (TECQ, TDECQ) _____________ 27 
+9.6 Equalizer Noise Enhancement Coefficient (Ceq) ____________________________ 27 
+9.7 Stressed Eye Closure for PAM4 (SECQ) ____________________________________ 27 
+9.8 Extinction Ratio ______________________________________________________ 27 
+9.9 Relative Intensity Noise (RINxOMA) ______________________________________ 28 
+9.10 Module Stressed Receiver Sensitivity _____________________________________ 28 
+9.10.1 Stressed Optical Signal Parameters at TP3 _____________________________ 28 
+9.11 Module Receiver Sensitivity (RxS) _______________________________________ 29 
+9.12 Electrical Eye Closure PAM4 (EECQ) ______________________________________ 29 
+9.13 Electrical Equalizer Noise Enhancement Coefficient (Ceeq) ___________________ 29 
+10 Additional Measurement Procedures (Informative) ___________________________________ 30 
+10.1 Eye Height Ratio and Eye Height Symmetry (EHR, EHS) _______________________ 30 
+10.2 Host-to-Host Link Test ________________________________________________ 31 
+  
+LPO MSA Confidential Draft revision 1.0 Page 5 
+10.2.1 Error Statistics Test with PRBS31Q ___________________________________ 31 
+10.2.2 Error Statistics Test with FEC Encoded Signals __________________________ 31 
+11 Safety, Installation, Environment, and Labeling ______________________________________ 33 
+11.1 General Safety _______________________________________________________ 33 
+11.2 Laser Safety _________________________________________________________ 33 
+11.3 Installation _________________________________________________________ 33 
+11.4 Environment ________________________________________________________ 33 
+11.5 Electromagnetic Emission ______________________________________________ 33 
+11.6 Temperature, Humidity, and Handling ____________________________________ 33 
+11.7 Module Labeling Requirements _________________________________________ 33 
+12 Fiber Optic Cabling Model _______________________________________________________ 34 
+12.1 Characteristics of the Fiber Optic Cabling (Channel) _________________________ 34 
+12.2 Connector Discrete Reflectance Requirements _____________________________ 34 
+12.3 Medium Dependent Interface (MDI) Requirements _________________________ 34 
+13 Link Budget Configuration (Informative) ____________________________________________ 35 
+13.1 Connector Reflection _________________________________________________ 35 
+13.2 Connector Loss ______________________________________________________ 35 
+13.3 Link Budget Example __________________________________________________ 35 
+14 Optimizing Host for TP1a ________________________________________________________ 36 
+15 Test Point Illustration ___________________________________________________________ 37 
+16 Glossary _____________________________________________________________________ 38 
+ 
+  
+  
+LPO MSA Confidential Draft revision 1.0 Page 6 
+Figures 
+Figure 1: Link Block Diagram of a Linear Optical Interconnect ...................................................... 8 
+Figure 2: System Block Diagram .................................................................................................... 9 
+Figure 3: Channel Reference Model ............................................................................................ 14 
+Figure 4: Measurement Setup for TP1a ...................................................................................... 15 
+Figure 5: Module Input Stressor Calibration ............................................................................... 18 
+Figure 6: Measurement Setup for TP4 ........................................................................................ 19 
+Figure 7: Stressor Calibration for TP3 .......................................................................................... 19 
+Figure 8: Measurement Setup for Stressed Host Input ............................................................... 20 
+Figure 9: Host Input Stressor Calibration .................................................................................... 21 
+Figure 10: Measurement Setup for TP2 ...................................................................................... 23 
+Figure 11: Illustration of Receiver Sensitivity Mask ..................................................................... 24 
+Figure 12: Eye Height Ratio and Eye Height Symmetry Measurement ........................................ 30 
+Figure 13: Host-to-Host Link Test Block Diagram ........................................................................ 32 
+Figure 14: Optimization Setup for TP1a ...................................................................................... 36 
+Figure 15: Procedure to Optimize Host FFE Settings ................................................................... 36 
+Figure 16: Test Points .................................................................................................................. 37 
+ 
+Tables 
+Table 1: Summary of 100G-DR-LPO Optical Specifications ............................................................ 7 
+Table 2: Signal Detect Conditions ................................................................................................ 12 
+Table 3: TP1a (host output) ......................................................................................................... 15 
+Table 4: Host Output 9-tap Reference FFE Characteristics .......................................................... 16 
+Table 5: Recommended gDC and gDC2 Settings versus Insertion Loss (IL) .................................. 17 
+Table 6: TP1 (module input) ........................................................................................................ 17 
+Table 7: Electrical Stressor Parameters Measured at TP1a ......................................................... 18 
+Table 8: Module-to-Host Electrical Specifications at TP4 ............................................................ 18 
+Table 9: Host Receiver Performance with PRBS31Q ................................................................... 19 
+Table 10: Electrical Stressor Parameters Measured at TP4 ......................................................... 20 
+Table 11: Sinusoidal Jitter ........................................................................................................... 20 
+Table 12: Operating Ranges and Interface IDs ............................................................................ 21 
+Table 13: Optical Transmit Specifications ................................................................................... 22 
+Table 14: Optical Receive Specifications ..................................................................................... 24 
+Table 15: Illustrative Optical Link Power Budget ......................................................................... 25 
+Table 16: Maximum Optical Channel Insertion Loss versus Number of Discrete Reflectances ... 25 
+Table 17: Test Patterns ............................................................................................................... 26 
+Table 18: Parameter to Test Pattern Mapping ............................................................................ 26 
+Table 19: Host-to-Host Link Test Conditions ............................................................................... 31 
+Table 20: Link Performance with PRBS31Q ................................................................................. 31 
+Table 21: Optical Fiber and Cable Characteristics ....................................................................... 34 
+Table 22: Channel Loss Examples ................................................................................................ 35 
+  
+  
+LPO MSA Confidential Draft revision 1.0 Page 7 
+1 Introduction 
+AI clusters in hyperscale data centers are seeking high-speed interconnects, with low power 
+consumption, high port density, low cost, and low latency. Volumes are large enough to 
+demand transceiver solutions that address these specific needs. 
+ 
+The goal of this document is to provide an open specification for 100 Gb/s/lane 53.125 GBd 
+PAM4 single-mode fiber links and transceiver interfaces. The 100G-DR-LPO specification 
+provided in this document is optimized for data-center specific needs and broadly maintains 
+interoperability with standard 100G per lane DSP based LR SerDes. This document provides 
+specifications for single-lane and multi-lane operation: n00G-DRn-LPO, where n is the number 
+of lanes forming a link: 1, 2, 4 or 8. Both the SMF optical signal and the host-module electrical 
+interface are specified. It is organized as follows. Sections 1, 2, and 4, and 5 provide an 
+overview. Sections 3, 15, and 16 provide reference material. Sections 6 to 13 provide detailed 
+technical specifications. Section 14 describes a host setup method. 
+ 
+The 100G-DR-LPO specification is designed specifically to address data center product 
+requirements of: 
+• Low power consumption 
+• Low cost 
+• Low latency 
+• Compact transceiver form factor: the 100G-DR-LPO specification is transceiver form-
+factor agnostic, with QSFP, QSFP-DD, and OSFP as the example form factors 
+• Compatibility with SMF connectors and cable infrastructure for present and future data 
+centers, as well as telecom client-side interfaces 
+• Operates with industry standard RS(544,514) forward error correction (FEC) 
+• Enables a variety of opto-electronic implementation approaches and technologies 
+• Reach up to 500 m based on practical cabling design such as structured cabling or point-
+to-point cabling 
+ 
+We acknowledge the work done by the IEEE 802.3 and the OIF CEI-112G-LINEAR-PAM4 
+committees in their efforts in developing underlying standards. 
+2 Summary of 100G-DR-LPO Optical Specifications 
+Table 1: Summary of 100G-DR-LPO Optical Specifications 
+Parameter Value Units 
+Fiber type Single mode  
+Nominal wavelength 1310 nm 
+Required operating range 0.5 to 500 m 
+Signaling rate, each lane 53.125 GBd 
+Modulation format PAM4  
+  
+LPO MSA Confidential Draft revision 1.0 Page 8 
+3 Reference Documents 
+The following industry standards documents are used to complete this specification: 
+• IEEE Std 802.3-2022, Standard for Ethernet 
+• IEEE Std 802.3ck-2022, Standard for Ethernet for 100 Gb/s electrical signaling 
+• IEEE Std 802.3df-2024, Standard for Ethernet for 800 Gb/s 
+• IEEE Std P802.3dj, Draft Standard for Ethernet Amendment for 1.6 Tb/s 
+• OIF CEI-112G-LINEAR-PAM4: Common Electrical I/O (CEI) 
+• OIF Implementation Agreement: 
+o Common Management Interface Specification, CMIS 
+o CMIS Versatile Control Set, CMIS-VCS 
+• QSFP2 Cage, Connector, & Module Specification (SFF-TA-1027) 
+• QSFP-DD/QSFP-DD800/QSFP-DD1600 Hardware Specification  
+• OSFP Octal Small Form Factor Pluggable Module 
+• ITU-T G.652, Characteristics of a single-mode optical fibre and cable 
+• ANSI/TIA 568.3-E - Optical Fiber Cabling and Components Standard  
+4 Functional Description 
+The LPO optical module performs transmit and receive functions that convey analog signals 
+between the host and the medium. Its electrical interfaces are based on OIF CEI-112G-LINEAR-
+PAM4 host to module linear interface, while the optical interfaces are similar but not identical 
+to 400GBASE-DR4. The host performs transmit and receive functions including forward error 
+correction, retiming, and digital to analog and analog to digital conversion. The host 
+specifications are based on OIF CEI-112G-LINEAR-PAM4. 
+5 System Overview 
+5.1 Link Block Diagram 
+Figure 1 shows a block diagram of the linear system. There are normative test points to ensure 
+interoperability between host, module and optical fiber. 
+ 
+Figure 1: Link Block Diagram of a Linear Optical Interconnect 
+
+  
+LPO MSA Confidential Draft revision 1.0 Page 9 
+5.2 Linear Optical System Description 
+5.2.1 Detailed Functional Block Diagram of Linear Optical System 
+ 
+ 
+Figure 2: System Block Diagram 
+5.2.2 High Speed Electrical Characteristics 
+The data path is linear in transmit and receive directions. The electrical specifications are based 
+on OIF CEI-112G-LINEAR-PAM4 and are adapted for an increased electrical channel loss. The 
+deviations of the specification to OIF CEI-112G-LINEAR-PAM4 can be found in section 7. 
+5.2.3 Relationship between electrical and optical specifications 
+TP1 and TP4 test points are defined in OIF CEI-112G-LINEAR-PAM4 with exceptions which are 
+defined in this document. The TP2 and TP3 test points are defined in this specification. Figure 
+16 illustrates the use of the test points. 
+The relevant optical specifications at TP2 (section 8.1) shall be met with any electrical input that 
+is compliant with this specification at TP1a (section 7.3). If an optical module transmitter is 
+tested individually at TP2, the stressors defined in section 7.4.1 need to be applied. The module 
+output electrical specifications at TP4 shall be met with any optical input signal that is 
+compliant to this optical specification for stressed input sensitivity (section 9.10) and input 
+sensitivity (section 9.11) at TP3. The host error performance shall be met with the stressed host 
+input signal defined in 7.6. 
+TP0d and TP5d are test points directly at the host or module die transmitter and receiver and 
+are used to describe die to die electrical insertion loss including device packages. 
+5.3 Hardware Signaling 
+Hardware control and status signals are specified in the respective module form factor MSAs. 
+5.4 Module Management Interface 
+The contents of the various ID registers shall comply with the requirements of the module MSA 
+and the respective standards such as CMIS with the extensions for LPO. 
+5.5 Module Mechanical Dimensions 
+Mechanical dimensions are defined in module form factor MSA specifications.  
+
+  
+LPO MSA Confidential Draft revision 1.0 Page 10 
+5.6 Host FEC Requirements 
+The LPO system relies on the host implementation of RS(544,514) FEC encode and decode 
+functions as defined in IEEE Std 802.3. 
+• For single-lane operation, the host shall use the interleaved FEC defined in IEEE Std 
+802.3ck-2022 Clause 161 (RS-FEC-Int). Support of Clause 91 RS-FEC is optional. 
+Negotiation of the RS FEC type may be done by using Clause 73 Auto-Negotiation or by 
+other means. 
+• For 2-lane or 4-lane operation, the host system shall use the 2-way interleaved FEC 
+defined in IEEE Std 802.3-2022 Clause 119. 
+• For 8-lane operation, the host shall use the 4-way interleaved FEC defined in IEEE Std 
+802.3df-2024 Clause 172. 
+5.7 Auto-Negotiation 
+The use of Auto-Negotiation as defined in IEEE Std 802.3 Clause 73 as modified by IEEE Std 
+802.3ck-2022 and IEEE Std 802.3df-2024 for matching the port type and negotiating the use of 
+Clause 161 or Clause 91 FEC for the single lane case is optional. Auto-negotiation is not to be 
+enabled by default and the user needs to configure both host sides to use it. The technology 
+ability field bits A16, A17, A18, and A19 are used to advertise 1-lane (100G), 2-lane (200G), 4-
+lane (400G), and 8-lane (800G), respectively. 
+5.8 Host Data Path Electrical Insertion Loss 
+In order to ensure that the LPO modules can select the desired equalization gain at a certain 
+host port, the host system writes the test point insertion loss (TP0d to TP1a) at 26.56 GHz (see 
+Figure 1 and Figure 4) in dB of each port to the LPO module in that port, utilizing the protocol 
+defined in CMIS Versatile Control Set (CMIS-VCS) section 5.18. The module may use this 
+information to set its equalization accordingly, see section 6.9. 
+5.9 Host Data Path Calibration Information 
+To ensure that the LPO modules can select the desired equalization gain at a certain host port, 
+the host writes CTLE high frequency gain values gDC and gDC2 in dB of each port to the LPO 
+module injected in this port, utilizing the protocol defined in CMIS Versatile Control Set (CMIS-
+VCS) section 5.11. The gDC and gDC2 values are the ones that would be used in the reference 
+receiver in Figure 4 when passing the host output test at TP1a (section 7.3). It is recommended 
+that the module uses this information to set its equalization accordingly; see section 6.9 and 
+7.3.3. 
+5.10 Host Nonlinear Compensation Function (NLC) 
+The host may provide a nonlinear compensation function to linearize the optical transmit eye. 
+The module may request transmitter nonlinear compensation utilizing the protocol defined in 
+CMIS Versatile Control Set (CMIS-VCS) section 5.19. 
+5.11 Host Startup Protocol Function (optional) 
+Hosts may optionally use a startup protocol, such as the one defined in IEEE Std 802.3ck-2022 
+(Clause 162.8.11, formally known as PMD control function, also known as "link training"). Usage 
+  
+LPO MSA Confidential Draft revision 1.0 Page 11 
+of such a startup protocol is permitted if both sides of the link support it and are configured to 
+use it. 
+Note: Link training for electrical channels, such as the one defined in 802.3ck-2022, will not 
+work with LPO mainly because of AGC circuits in the driver and TIA. 
+ 
+If a startup protocol is used, the initial (default) electrical signal characteristics need to comply 
+with the specifications in sections 7 and 8. The operation of the startup protocol can cause the 
+electrical signal characteristics to change from those of the initial setting. 
+ 
+The details of configuring both sides to use a startup protocol and the method of optimizing the 
+transmitter signal by the receiver are beyond the scope of this specification. 
+  
+  
+LPO MSA Confidential Draft revision 1.0 Page 12 
+6 Optical Module Functional Specifications 
+6.1 Module Transmit Function 
+The module transmit function shall convert the n-lane1 electrical signals into the same number 
+of optical signals. The optical signal streams shall then be delivered to the MDI according to the 
+transmit optical specifications in this document. 
+6.2 Module Receive Function 
+The module receive function shall convert the n optical signals received from the optical media 
+into the same number of electrical signals according to the receive optical specifications in this 
+document. 
+6.3 Module Global Signal Detect Function 
+The module shall have a global signal detect function, which is an indicator of the presence of 
+optical signals on all lanes, according to Table 2. 
+The module global signal detect function is not required to verify whether a compliant optical 
+input signal is being received. No response time requirements on the generation of the signal 
+detect state are imposed. 
+ 
+NOTE - Implementations need to provide adequate margin between the input optical power 
+level at which the signal detect state is set to good, and the inherent noise level of the module 
+including the effects of crosstalk, power supply noise, etc. 
+ 
+Table 2: Signal Detect Conditions 
+Receive conditions  Signal Detect State 
+For any lane: Average optical power at TP3 ≤ –15 dBm  FAIL 
+For all lanes: 
+Optical power at TP3 ≥ receiver sensitivity (max) in OMA AND 
+compliant optical input signal 
+Good 
+All other conditions Unspecified 
+ 
+Various implementations of the signal detect function are permitted, including 
+implementations that generate the signal detect state in response to the amplitude of the 
+modulation of the optical signal and implementations that respond to the average optical 
+power of the modulated optical signal. 
+6.4 Module Lane-by-Lane Signal Detect Function 
+Similarly, the module lane-by-lane signal detect function indicates the presence of an optical 
+signal on a lane. 
+ 
+1 n and "all" and "any" refer to the group of lanes forming a link, which may be a subset of the lanes in a module. 
+  
+LPO MSA Confidential Draft revision 1.0 Page 13 
+6.5 Module Global Transmit Disable Function 
+1. This optional function turns off all the optical transmitters so that each transmitter meets the 
+requirements of the average launch power of the OFF transmitter. 
+2. If a TX_fault is detected, then the module may turn off the optical transmitter in each lane. 
+The definition of TX_fault is beyond the scope of this specification. 
+6.6 Module Lane-by-Lane Transmit Disable Function 
+1. This optional function turns off the optical transmitter associated with that lane so that the 
+transmitter meets the requirements of the average launch power of the OFF transmitter. 
+2. If a TX_fault is detected, then the module may turn off the optical transmitter in each lane. 
+The definition of TX_fault is beyond the scope of this specification. 
+6.7 Module Transmit Fault Function 
+If the module has detected a local fault on any transmit lane, it shall set TX_fault to logical one. 
+The definition of a local fault on any transmit lane is beyond the scope of this specification. 
+6.8 Module Receive Fault Function 
+If the module has detected a local fault on any receive lane, it shall set RX_fault to logical one. 
+The definition of a local fault on any receive lane is beyond the scope of this specification. 
+6.9 Module Equalization Function 
+The module needs to provide an equalization function in its transmit path to enable the co-
+equalization of the host channel from TP0d to TP1a, see Figure 2. The equalization capabilities 
+should match the CTLE characteristics in OIF CEI-112G-LINEAR-PAM4 and in 7.3.3.  
+  
+LPO MSA Confidential Draft revision 1.0 Page 14 
+7 Electrical Specifications 
+The electrical specifications refer to OIF CEI-112G-LINEAR-PAM4 with the following exceptions. 
+7.1 Requirements 
+• Operate at baud rates (fbd) within the range of 53.125 ±100 ppm Gsym/s using PAM4 
+encoding. 
+• Capable of achieving an end-to-end raw Bit Error Ratio (BER) of 2.0 × 10-4 or better. 
+RS(544,514) FEC is assumed to be used to achieve a corrected BER of 10-13 or better for 
+a maximum frame loss ratio (FLR) of 6.2 × 10-11, provided that the error statistics are 
+sufficiently random. 
+• Host output ERL at TP1a, module input ERL at TP1, module output ERL at TP4, and host 
+input ERL at TP4a are measured according to IEEE 802.3ck Annex 120G with Nbx=0. 
+• ERL shall be better than 10 dB at all interfaces. Note: The test fixture used for this test 
+needs to have a significantly better ERL than 10 dB. 
+7.2 Electrical Channel 
+The 100G-DR-LPO specification extends the maximum electrical channel loss of OIF CEI-112G-
+LINEAR-PAM4 by 3 dB from 13 dB to 16 dB (measured at fbd/2 = 26.56 GHz, fbd = 53.125 GHz). 
+7.2.1 LPO MSA Pluggable Module Channel Reference Model 
+The insertion loss between the host ASIC die and the module's die is expected to be no higher 
+than 20 dB. The insertion loss of the host ASIC package, host PCB, and of the module PCB 
+including AC coupling capacitor are recommended to be within the ranges indicated in Figure 3. 
+ 
+ 
+Figure 3: Channel Reference Model 
+  
+
+  
+LPO MSA Confidential Draft revision 1.0 Page 15 
+7.3 Host-to-Module Electrical Specifications at TP1a (host output) 
+Figure 4 shows the measurement setup for TP1a measurements. For measurements at TP1a 
+host side nonlinear compensation (NLC) shall not be used. 
+The host output is assumed to meet the J3u03 (uncorrelated jitter) specification, as defined in 
+IEEE Std 802.3ck 162.9.4.7, of 115 mUI or less. This measurement should be done on a host port 
+with an insertion loss within the recommended host loss for 400GBASE-CR4 (see IEEE Std 
+802.3ck Annex 162A). 
+ 
+ 
+Figure 4: Measurement Setup for TP1a 
+ 
+7.3.1 Host-to-Module Electrical Specifications at TP1a (host output) 
+Host-to-module electrical specifications at TP1a are defined in Table 29-1 in OIF CEI-112G-
+LINEAR-PAM4 with the exceptions shown in Table 3. Note: A Qt of 3.463 representing an SER of 
+4.0 × 10-4 is used for calibrating EECQ at TP1a. 
+ 
+Table 3: TP1a (host output) 
+Parameter Condition Min. Max. Unit 
+VMA Host loss > 13 dB 175 350 mV Host loss ≤ 13 dB 200 350 
+EECQ(1,2) Host loss > 13 dB  3.5 dB Host loss ≤ 13 dB  3.0 
+Ceeq3 Host loss > 13 dB -0.5 0.75 dB Host loss ≤ 13 dB 0.5 
+1 σG is added AFTER the FFE. 
+2 The module may optionally request NLC from the host to improve 
+TECQ/TDECQ at TP2 and system performance. 
+3 Ceeq is determined by the FFE only. The CTLE is not included in the Ceeq 
+calculation. 
+  
+
+  
+LPO MSA Confidential Draft revision 1.0 Page 16 
+7.3.2 Host Output Test Method at TP1a 
+The signal at TP1a may appear as a closed eye. A reference receiver with a Continuous Time 
+Linear Equalizer (CTLE), identical to the CTLE used in OIF CEI-112G-LINEAR-PAM4, and a 9-tap 
+FFE, is used to equalize the host output signal and open the eye for EECQ measurements. The 
+FFE tap limits are given in Table 4. The recommended values for gDC and gDC2 are shown in 
+Table 5. The impact of crosstalk should be considered in addition to single lane testing. 
+Table 4: Host Output 9-tap Reference FFE Characteristics 
+Parameter Min. Max. 
+Pre-cursor Not allowed Not allowed 
+Tap 1 (main) (1) 0.95  
+Tap 2-4 (post) (1) -0.08 0.08 
+Tap 5 to 9 (post) (1) -0.05 0.05 
+1 Sum of the equalizer tap coefficients is equal to 1.  
+  
+LPO MSA Confidential Draft revision 1.0 Page 17 
+7.3.3 Recommended CTLE gDC and gDC2 Settings 
+Table 5 extends Table 29-8 in OIF CEI-112G-LINEAR-PAM4 with three additional rows. 
+ 
+Table 5: Recommended gDC and gDC2 Settings versus Insertion Loss (IL) 
+“Die to die IL”(1,2) Ch IL(3,4) gDC5 gDC25 Units 
+5.5 1.5 0 0.5 dB 
+6 2 0 0.5 dB 
+7 3 0 0.5 dB 
+8 4 0 1 dB 
+9 5 0.5 1 dB 
+10 6 1 1.5 dB 
+11 7 2 1.5 dB 
+12 8 2.5 1.5 dB 
+13 9 3.5 1.5 dB 
+14 10 4 2 dB 
+15 11 4.5 2 dB 
+16 12 5 2 dB 
+17 13 6 2 dB 
+18 14 6 2 dB 
+19 15 6 2 dB 
+20 16 6 2 dB 
+1 Measured from host ASIC die bump to TP1a (TP0d to TP1a), which is approximately 
+the die to die (d2d) insertion loss. 
+2 For Ch IL < 1.5 dB gDC = gDC2 = 0 dB is recommended. 
+3 Channel IL measured from host ASIC package ball to TP1a. 
+4 Table 5 assumes 4 dB host package loss. Consideration should be given for actual 
+channel loss not to exceed 20 dB die to die (d2d). 
+5 Alternative gDC and gDC2 settings can be used if TP1a and TP2 specifications are 
+met. The CTLE transfer function has unity gain at low frequencies. 
+ 
+7.4 Host-to-Module Electrical Specifications at TP1 (module input) 
+The module input shall comply to OIF CEI-112G-LINEAR-PAM4 Table 29-2 Host-to Module 
+Electrical Specifications (Module Input) with the exception shown in Table 6. 
+ 
+Table 6: TP1 (module input) 
+Parameter Max. Unit 
+VMA 350 mV 
+ 
+7.4.1 Module Input Test Method and Signal Calibration at TP1a 
+There are three stressed input signals for the module representing different host losses 
+according to the specification given in Table 7. The measurement setup for the signal 
+calibration is shown in Figure 5.  
+  
+LPO MSA Confidential Draft revision 1.0 Page 18 
+Table 7: Electrical Stressor Parameters Measured at TP1a 
+Host 
+loss1 VMA EECQ 
+Max. 
+Ceeq 
+min / max 
+Over- / 
+Undershoot 
+max. 
+Random jitter2 
+max. 
+Sinusoidal 
+jitter gDC gDC2 
+[dB] [mV] [dB] [dB] [%] [mUI RMS] [mUI pk-pk] [dB] [dB] 
+5 350 33,4 ±0.53,4 254 10 50 0.5 1 
+13 200 33,4 ±0.53,4 254 10 50 6 2 
+16 175 3.5 − 0.5 / +0.75 254 10 50 6 2 
+1 The host loss is the electrical insertion loss from the host die to the module connector, see Figure 3. 
+2 The random jitter in this specification is assumed to have a Gaussian probability distribution. 
+3 EECQ on a short port is likely to be less than 3 dB and |Ceeq| is likely to be less than 0.5dB. 
+4 The overshoot and undershoot may be lower than the maximum specification. They should be reasonably close 
+to the maximum but not exceed the maximum. 
+ 
+Notes 
+• The host loss needs to be a physical transmission line loss. 
+• Calibrate the port using the TP1a calibration method. 
+• Add random jitter to the source up to 10 mUI RMS to achieve J3u03 of 115 mUI. 
+• J3u03 should be close to the maximum specified limit in IEEE Std 802.3ck of 115 mUI 
+• Sinusoidal jitter frequency should not be lower than 40 MHz. 
+• SSPRQ pattern should be used. 
+ 
+ 
+Figure 5: Module Input Stressor Calibration 
+7.5 Module-to-Host Electrical Specifications at TP4 (module output) 
+The module output shall comply to OIF CEI-112G-LINEAR-PAM4 Table 29-4 Module-to-Host 
+Electrical Specifications (Module Output), over the entire module receive specification range 
+given in Table 14 with the exception shown in Table 8. Figure 6 shows the measurement setup. 
+ 
+Table 8: Module-to-Host Electrical Specifications at TP4 
+Parameter Min. Max. Unit 
+EECQ - 7 dB 
+Note: A suitable algorithm for the FFE / DFE co-adaptation needs to be applied. Besides an exhaustive search, 
+optimization methods such as minimum mean squared error (MMSE) may be used to determine equalizer 
+tap weights to reduce test time and are expected to report equal or higher values of EECQ. These alternative 
+methods should not be used for receiver sensitivity and stressed receiver sensitivity calibration. While a DFE 
+tap weight close to 0 might occur, it could also indicate a failed co-adaptation of the FFE/DFE of the 
+reference equalizer. 
+
+  
+LPO MSA Confidential Draft revision 1.0 Page 19 
+ 
+Figure 6: Measurement Setup for TP4 
+ 
+7.5.1 Module Optical Input Test Method and Signal Calibration at TP3 
+The input signal to the module at TP3 is optical and defined in section 9.10. Figure 7 shows the 
+measurement setup. 
+ 
+Figure 7: Stressor Calibration for TP3 
+ 
+7.6 Module-to-Host Electrical Specifications at TP4a (stressed host input) 
+The host input shall comply to OIF CEI-112G-LINEAR-PAM4 Table 29-5 Module-to-Host Electrical 
+Specifications (Host Input), with this exception: 
+• Instead of the bit error ratio requirements of CEI-112G-LINEAR-PAM4, the frame loss 
+ratio shall be less than or equal to 6.2 × 10–11 for 64-octet frames with minimum 
+interpacket gap. 
+ 
+Alternatively, host testing with PRBS31Q can be performed, see section 10.2.1. The host shall 
+comply with the specification given in Table 9 when tested with PRBS31Q. 
+Table 9: Host Receiver Performance with PRBS31Q 
+Parameter Max 
+measured BER1 2.0 × 10-4 
+t-count2 15 
+1 Measured for 3 s. 
+2 Measured for 100 s. 
+  
+
+  
+LPO MSA Confidential Draft revision 1.0 Page 20 
+Figure 8 shows the measurement setup. 
+ 
+Figure 8: Measurement Setup for Stressed Host Input 
+7.6.1 Host Input Test Method and Signal Calibration at TP4 (stressed host input) 
+The stressed host input signal depends on the host loss and should meet the specification given 
+in Table 10. Figure 9 shows the measurement setup.  
+Note: A Qt of 3.463 representing an SER of 4.0 × 10-4 is used for calibrating EECQ at TP4. 
+Table 10: Electrical Stressor Parameters Measured at TP4 
+Host loss1 VMA EECQ Amplitude noise Over-/ 
+undershoot 
+Random 
+jitter 
+Sinusoidal 
+jitter 
+[dB] [mV] [dB] [mV RMS] [%] [mUI RMS] [UI pk-pk] 
+5 250 
+7 
+3 
+252 10 See Table 11 13 500 6 16 
+1 The host loss is the electrical insertion loss from the host die to the module connector, see Figure 3. 
+2 The overshoot and undershoot may be lower than the maximum specification. It should be reasonably close to 
+the maximum but not exceed the maximum. 
+ 
+Table 11: Sinusoidal Jitter 
+Frequency [MHz] Sinusoidal Jitter [UI pk-pk] 
+0.04 5 
+0.4 0.5 
+1.333 0.15 
+4 0.05 
+12 0.05 
+40 0.05 
+ 
+Notes 
+• Calibrate the stressed signal using the TP4 calibration method. 
+• Add 3 mV RMS or 6 mV RMS Gaussian noise depending on VMA. 
+• Add random jitter to the source up to 10 mUI RMS. 
+• Calibrate the stressed signal with PRBS13Q pattern (pattern 4) and then switch to 
+PRBS31Q (pattern 3) or scrambled idle (pattern 5) for the compliance measurement. 
+• The impact of crosstalk should be considered in addition to single lane testing. 
+
+  
+LPO MSA Confidential Draft revision 1.0 Page 21 
+ 
+Figure 9: Host Input Stressor Calibration 
+ 
+ 
+8 Optical Specifications 
+The required operating range is defined in Table 12. A compliant LPO module operates on 
+single-mode fibers according to the specifications of Table 21. An LPO module which exceeds 
+the operating range requirement while meeting all other optical specifications is considered 
+compliant (e.g., operating at 600 m meets the operating range requirement of 0.5 m to 500 m). 
+The signaling rate for a lane of an LPO module shall be as defined in Table 13. The optical 
+signals at the transmit and receive sides are specified in Table 13 and Table 14. Test points are 
+defined in Figure 1. 
+ 
+Table 12: Operating Ranges and Interface IDs 
+Media Interface ID Host Electrical Interface ID Host Loss Optical Operating Range 
+100G-DR1-LPO LEI-100G-PAM4-11 
+0 to 16 dB 0.5 m to 500 m 200G-DR2-LPO LEI-200G-PAM4-2 
+400G-DR4-LPO LEI-400G-PAM4-4 
+800G-DR8-LPO LEI-800G-PAM4-8 
+1 LEI: Linear Electrical Interface  
+
+  
+LPO MSA Confidential Draft revision 1.0 Page 22 
+8.1 Transmit Optical Specifications at TP2 
+The LPO transmitter shall meet the specifications defined in Table 13 for any electrical input 
+that complies with the specifications in Table 3, without re-optimizing host settings. The optical 
+transmit signal is defined at TP2, the output end of a single-mode fiber patch cord between 2 m 
+and 5 m in length. Figure 10 shows the measurement setup. 
+ 
+Table 13: Optical Transmit Specifications 
+Description Min. Max. Unit 
+Signaling rate, each lane (range) 53.125 GBd 
+- 50 ppm + 50 ppm 
+ 
+Modulation format PAM4  
+Lane wavelength range 1304.5 1317.5 nm 
+Operating link reach 0.5 500 m 
+Average launch power, each lane -2.9 4 dBm 
+Optical Modulation Amplitude (OMAouter), 
+each lane3 
+ 4.2 dBm 
+Launch power in OMA, each lane 
+for max(TECQ,TDECQ) < 1.4 dB1 -1.8  dBm 
+Launch power in OMA, each lane 
+for 1.4 dB ≤ max(TECQ,TDECQ) ≤ 3.4 dB 
+-3.2 + 
+max(TECQ, TDECQ)   
+Transmitter dispersion and eye closure 
+(TDECQ), each lane1 
+ 3.4 dB 
+Transmitter eye closure (TECQ), each lane1  3.4 dB 
+Ceq2 for extinction ratio 
+≤ 4.5 dB and OMA ≤ 3.7 dBm -0.5 2.5 dB 
+Ceq2 for extinction ratio 
+> 4.5 dB or OMA > 3.7 dBm 0 2.5 dB 
+TX overshoot/undershoot  25 % 
+Average launch power of transmitter 
+OFF, each lane 
+ -15 dBm 
+Extinction ratio3 2.5  dB 
+RINxOMA4  -138 dB/Hz 
+Optical return loss tolerance  17.2 dB 
+Transmitter reflectance  -26 dB 
+1 Even if the TDECQ < 1.4dB, the OMA (min) must exceed the min value. A mask for the launch power is 
+illustrated in Figure 11. 
+2 Ceq is a coefficient defined in IEEE Std 802.3-2022 Clause 121.8.5.3 which accounts for reference equalizer 
+noise enhancement. Negative Ceq is an indication of over-equalization and typically does not lead to optimum 
+link performance and might result in nonlinear distortion. 
+3 Minimum ER needs to increase for OMA > 1.4 dBm to 5 dB at 4.2 dBm OMA to keep average launch power at 4 
+dBm or below. High ER above 4.5 dB and OMA higher than 3.7 dBm typically do not lead to optimum link 
+performance and might result in nonlinear distortion. 
+4 RINxOMA with “x” referring to the value for optical return loss tolerance. 
+ 
+  
+LPO MSA Confidential Draft revision 1.0 Page 23 
+ 
+Figure 10: Measurement Setup for TP2  
+
+  
+LPO MSA Confidential Draft revision 1.0 Page 24 
+8.2 Receive Optical Specifications at TP3 
+The module receiver shall meet the specifications defined in Table 14 and section 7.5. The 
+optical receiver output is measured with an MCB and an oscilloscope. See CEI-112G-LINEAR-
+PAM4 Figure 29-7. See section 10.2 for a method of assessing a combination of host and 
+module. 
+ 
+Table 14: Optical Receive Specifications 
+Description Min. Max. Unit 
+Signaling rate, each lane (range) 53.125 GBd -100 ppm +100 ppm 
+Modulation format PAM4  
+Damage threshold1 5 
+ 
+dBm 
+Average receive power, each lane2 -5.9 4 dBm 
+Receive power, each lane (OMAouter) 
+ 
+4.2 dBm 
+Receiver reflectance 
+ 
+-26 dB 
+Receiver sensitivity (OMAouter) 
+for TECQ ≤ 1.4 dB, each lane3 
+ -5.1 dBm 
+Receiver sensitivity (OMAouter) 
+for 1.4 dB ≤ TECQ ≤ 3.4 dB, each lane3 
+ -6.5 + TECQ dBm 
+Stressed receiver sensitivity (OMAouter), each lane4  
+ 
+-3.1 dBm 
+Conditions of stressed receiver sensitivity test 
+ Stressed eye closure for PAM4 (SECQ), lane under test  3.4 dB 
+ OMAouter of each aggressor lane 4.2  dBm 
+1 The receiver shall be able to tolerate, without damage, continuous exposure to an optical input signal 
+having this average power level. 
+2 Average receive power, each lane (min) is informative and not the principal indicator of signal strength. A 
+received power below this value cannot be compliant; however, a value above this does not ensure 
+compliance. 
+3 A mask for the receiver sensitivity is illustrated in Figure 11. 
+4 Measured with conformance test signal at TP3. See section 9.10. 
+ 
+ 
+Figure 11: Illustration of Receiver Sensitivity Mask  
+
+  
+LPO MSA Confidential Draft revision 1.0 Page 25 
+8.3 Illustrative Optical Link Power Budgets 
+An illustrative power budget and penalties for optical channels is shown in Table 15. Table 16 
+shows maximum optical channel insertion loss versus the number of discrete reflectances. 
+ 
+Table 15: Illustrative Optical Link Power Budget 
+Parameter Value Unit 
+Operating distance max. 0.5 km 
+Fiber loss 0.25 dB 
+Connector and splice losses 2.75 dB 
+Total channel loss1 3.0 dB 
+MPI penalty1 0.3 dB 
+TDECQ (max.) 3.4 dB 
+Total Power Budget 6.7 dB 
+1 Total optical channel loss and MPI penalty as part of the link power budget. See Table 16 for max. 
+channel loss versus discrete reflectances. 
+ 
+Table 16: Maximum Optical Channel Insertion Loss versus Number of Discrete Reflectances 
+Maximum channel 
+insertion loss (dB) Number of discrete reflectances > -55 dB and ≤-45 dB 
+  0 1 2 3 4 5 6 
+Number of discredit reflectances 
+ > -45 dB and ≤ -35 dB 
+0 3 3 3 3 3 3 3 
+1 3 3 3 3 3 3 3 
+2 3 2.9 2.9 2.9 2.8 2.8 2.8 
+3 2.8 2.7 2.7 2.7 2.6 2.6 NA1 
+4 2.5 2.5 2.5 2.5 NA1 NA1 NA1 
+1 Total number of connectors too high for practical purposes. 
+  
+  
+LPO MSA Confidential Draft revision 1.0 Page 26 
+9 Definition of Optical and Electrical Parameters and Measurement Methods 
+All transmitter optical measurements shall be made through a short patch cable, between 2 m 
+and 5 m in length, unless otherwise specified. 
+9.1 Test Patterns for Electrical and Optical Parameters 
+While compliance is to be achieved in normal operation, specific test patterns are defined for 
+measurement consistency and to enable measurement of some parameters. Table 17 gives the 
+test patterns to be used in each measurement, unless otherwise specified. Any of the test 
+patterns given for a particular test in Table 18 may be used to perform that test. 
+ 
+Table 17: Test Patterns 
+Pattern  Pattern description  Defined in1  
+3 PRBS31Q 120.5.11.2.2  
+4 PRBS13Q 120.5.11.2.1  
+5 Scrambled idle 
+82.2.11 and 161 or 119.2.4.9 or 
+172.2.4.11. For 1-lane non 
+interleaved, 82.2.11 and 91 
+6 SSPRQ 120.5.11.2.3  
+1 Reference to IEEE Std 802.3-2022. 
+ 
+Table 18: Parameter to Test Pattern Mapping 
+Parameter Pattern  Reference 
+Wavelength  3, 4, 5, 6 9.2 
+Average optical transmit power  3, 5, 6 9.3 
+Optical modulation amplitude (OMAouter)  4 or 6  9.4 
+Transmitter and dispersion eye closure for PAM4 (TDECQ) at TP2/TP3 6  9.5 
+Transmitter eye closure for PAM4 (TECQ) at TP2 6  9.5 
+Equalizer noise enhancement coefficient (Ceq) 6 9.6 
+Extinction ratio  4 or 6 9.8 
+RINxOMA  4 or 6  9.9 
+Module stressed receiver sensitivity at TP4 6  9.10 
+Module stressed receiver conformance test signal calibration at TP3 6  9.10 
+Module receiver sensitivity at TP4 6  9.11 
+Outer eye height to inner eye height ratio and outer eye height symmetry 
+(EHR, EHS) 4 or 6 10.1 
+EECQ1 at TP1a (host output, Host Output Test Method at TP1a) 4 9.12, 7.3 
+Ceeq2 at TP1a (host output, Host Output Test Method at TP1a) 4 9.13, 7.3 
+Module Input Test Method at TP1a 6 9.12, 7.4.1 
+EECQ1 at TP4 (module output) 6  9.12, 7.5 
+Module-to-Host Electrical Specifications at TP4a 3 or 5 9.12, 7.6 
+EECQ1 at TP4 (Host Input Test Method) 4 9.12, 7.6.1 
+End-to-end link test 3 or 5 10.2 
+1 Electrical eye closure for PAM4 (EECQ) 
+2 Equalizer noise enhancement coefficient electrical (Ceeq) 
+  
+LPO MSA Confidential Draft revision 1.0 Page 27 
+9.2 Wavelength 
+The wavelength of each optical lane shall be within the ranges given in Table 13 if measured per 
+IEC 61280–1–3. The lane under test is modulated using one of the test patterns defined in Table 
+18. 
+9.3 Average Optical Transmit Power 
+The average optical power of each lane shall be within the limits given in Table 13 if measured 
+using the methods given in IEC 61280–1–1. 
+9.4 Optical Modulation Amplitude (OMAouter) 
+The OMAouter of each lane shall be within the limits given in Table 13. The OMAouter is measured 
+using a test pattern specified for OMAouter in Table 13 as the difference between the average 
+optical launch power level P3, measured over the central 2 UI of a run of 7 threes, and the 
+average optical launch power level P0, measured over the central 2 UI of a run of 6 zeros, as 
+shown in IEEE Std 802.3-2022 Figure 124–3. 
+9.5 Transmitter (and Dispersion) Eye Closure for PAM4 (TECQ, TDECQ) 
+The TECQ and TDECQ of each lane shall be within the limits given in Table 13 if measured using 
+the methods specified in IEEE Std 802.3-2022 clauses 121.8.5.1, 121.8.5.2, and 121.8.5.3, 
+140.7.5, and 140.7.6 with the following exceptions: 
+• The reference equalizer for 100G per lane - LPO is a 9-tap, T-spaced, feed-forward 
+equalizer (FFE), where T is the symbol period. Tap 1, 2 or 3 has the largest coefficient 
+magnitude of 0.8 minimum. 
+• The SER for the TDECQ measurement shall be 4.0 × 10-4. 
+TECQ is defined by methods specified for TDECQ in this section, except that the test fiber is not 
+used. 
+9.6 Equalizer Noise Enhancement Coefficient (Ceq) 
+Ceq shall be as defined by the measurement methodology of IEEE Std 802.3-2022 121.8.5.3 
+with the reference FFE defined in this specification (see 9.5). 
+9.7 Stressed Eye Closure for PAM4 (SECQ) 
+Measured with conformance test signal at TP3 with an SECQ of 3.4 dB. SECQ is equivalent to 
+TECQ as defined in 9.5. 
+9.8 Extinction Ratio 
+The extinction ratio of each lane shall be within the limits given in Table 13 if measured using a 
+test pattern specified in Table 18. 
+ 
+The extinction ratio of a PAM4 optical signal is defined as the ratio of the average optical launch 
+power level P
+3, measured over the central 2 UI of a run of 7 threes, and the average optical 
+launch power level P0, measured over the central 2 UI of a run of 6 zeros, as shown in IEEE Std 
+802.3-2022, Figure 140–7. 
+  
+LPO MSA Confidential Draft revision 1.0 Page 28 
+9.9 Relative Intensity Noise (RINxOMA) 
+RIN shall be as defined by the measurement methodology of IEEE Std P802.3dj, Draft Standard 
+for Ethernet Amendment for 1.6 Tb/s, Clause 180.9.11 with the following exceptions: 
+• The optical return loss is 17.2 dB. 
+• The combination of the O/E converter and the oscilloscope has a 3 dB bandwidth of 
+approximately 26.56 GHz with a fourth-order Bessel-Thomson response. 
+9.10 Module Stressed Receiver Sensitivity 
+Stressed receiver sensitivity shall be within the limits given in Table 14 if measured using the 
+method defined in IEEE Std 802.3-2022, Clause 140.7.13 with the following exceptions: 
+• The reference equalizer for TP4 is a CTLE according to 7.3.2 followed by a 22-tap T-
+spaced feed-forward equalizer (FFE) and a decision feedback equalizer (DFE) with one 
+tap. 
+• Instead of bit error ratio the receiver shall meet the specification in section 7.5. 
+9.10.1 Stressed Optical Signal Parameters at TP3 
+The calibration of the stress signal at TP3 follows IEEE 802.3 Clause 124.8.10 with the 
+following additions: 
+• The reference equalizer for the stress signal calibration is a 9-tap T-spaced feed-forward 
+equalizer (FFE) according to section 9.5. 
+9.10.1.1 For Minimum OMA at Maximum TECQ 
+• OMA = -3.1 dBm 
+• Extinction ratio (ER) = 2.5 dB 
+• In addition to the 50 mUI sinusoidal Jitter, add up to 10 mUI RMS of random jitter to the 
+pattern generator so that J3u03 measured before the E/O is close to 115 mUI 
+• Reduce transmitter bandwidth such that with the Gaussian noise generator and 
+sinusoidal interferer turned off, the TECQ is close to 3 dB 
+• Add Gaussian noise such that with the sinusoidal interferer turned off, the TECQ is close 
+to 3.3 dB 
+• Add sinusoidal interferer so that with both Gaussian noise generator and sinusoidal 
+interferer turned on the TECQ reaches the target value of 3.4 dB 
+9.10.1.2 For Maximum OMA at Maximum TECQ 
+• OMA = 4.2 dBm 
+• Extinction ratio (ER) = 5 dB 
+• In addition to the 50 mUI sinusoidal Jitter, add up to 10 mUI RMS of random jitter to the 
+pattern generator so that J3u03 measured before the E/O is close to 115 mUI 
+• Reduce transmitter bandwidth such that with the sinusoidal interferer turned off, the 
+TECQ is close to 3.2 dB 
+• Add sinusoidal interferer so that the SECQ reaches the target value of 3.4 dB 
+  
+LPO MSA Confidential Draft revision 1.0 Page 29 
+9.11 Module Receiver Sensitivity (RxS) 
+Receiver sensitivity is defined for a signal with a value of TECQ up to 3.4 dB and shall meet the 
+specification in Table 8. The receiver shall meet the specification in Table 8 with a piecewise 
+linear function Equation 1, which is illustrated in Figure 11 with the reference equalizer from 
+section 9.10. 
+ 
+RxS = max (-5.1, TECQ-6.5) dBm, Equation 1 
+ 
+RxS: Receiver sensitivity 
+TECQ: TECQ of the signal used to measure the receiver sensitivity. 
+9.12 Electrical Eye Closure PAM4 (EECQ) 
+EECQ shall be as defined by the measurement methodology of OIF CEI-112G-LINEAR-PAM4 
+section 29.3.12 with the reference equalizer defined in section 7.3.2 for TP1a and the reference 
+equalizer defined in section 9.10 for TP4. 
+9.13 Electrical Equalizer Noise Enhancement Coefficient (Ceeq) 
+Ceeq shall be as defined by the measurement methodology of OIF CEI-112G-LINEAR-PAM4 
+section 29.3.13 with the reference equalizer defined in Table 4 and 7.3.2. Ceeq is determined 
+by the FFE only. The CTLE is not included in the Ceeq calculation.  
+  
+LPO MSA Confidential Draft revision 1.0 Page 30 
+10 Additional Measurement Procedures (Informative) 
+Section 10 describes additional measurement procedures for LPO testing. 
+10.1 Eye Height Ratio and Eye Height Symmetry (EHR, EHS) 
+This measurement can be used to adjust nonlinear compensation (NLC) of the optical transmit 
+eye at TP2 to avoid outer eye compression and improve overall bit error ratio; see also section 
+5.10. The calculation of EHR and EHS is shown in Equations 2 to 4. The equalized eye from TECQ 
+is used to find the 4 levels. The left and right histograms are combined, the samples are sorted 
+into four groups and the groups are averaged; see section 9.5. Figure 12 illustrates the 
+measurement. 
+ 
+ 
+ 
+Figure 12: Eye Height Ratio and Eye Height Symmetry Measurement 
+ 
+𝐸𝐸𝐸𝐸𝐸𝐸𝑈𝑈 =
+𝐸𝐸𝐸𝐸𝑈𝑈
+𝐸𝐸𝐸𝐸𝐶𝐶
+∙ 100%, Equation 2 
+ 
+ 
+𝐸𝐸𝐸𝐸𝐸𝐸𝐿𝐿 =
+𝐸𝐸𝐸𝐸𝐿𝐿
+𝐸𝐸𝐸𝐸𝐶𝐶
+∙ 100%, Equation 3 
+ 
+ 
+𝐸𝐸𝐸𝐸𝐸𝐸 =
+𝐸𝐸𝐸𝐸𝑈𝑈
+𝐸𝐸𝐸𝐸𝐿𝐿
+∙ 100%, Equation 4  
+
+  
+LPO MSA Confidential Draft revision 1.0 Page 31 
+10.2 Host-to-Host Link Test 
+To verify full link operation, an end-to-end or host-to-host link test as defined below may be 
+performed. This test can be a module test with a known good host or a host test with a known 
+good module. The test can be performed with a single host or two separate hosts. The module 
+is inserted into the host(s), and both are set up as required. It is recommended that the host 
+and module settings are not optimized based on link test results. The optical side of the module 
+is looped back from the transmitter to a receiver in the same port or in a different port. 
+Combinations of different ports are recommended to improve test coverage. Figure 13 shows a 
+block diagram of this test with a single host. The test is performed with either PRBS31Q (see 
+Table 17) or any FEC encoded signal. The system performance specifications in Table 20 should 
+be achieved with an optical attenuation of 0 dB and 3 dB and electrical host PCB channel losses 
+shown in Table 19. 
+ 
+Table 19: Host-to-Host Link Test Conditions 
+Test Parameter(1) Min. Max. Unit 
+Electrical host PCB channel loss2 1 12 dB 
+1 Other test conditions like temperature, air pressure, humidity, supply voltages, etc. chosen as appropriate. 
+2 Host PCB channel insertion loss at 26.56 GHz. Does not include host ASIC package insertion loss, module 
+connector, and module insertion loss. Total die to die electrical channel loss at 26.56 GHz needs to be below 
+20 dB die to die (d2d) as shown in Figure 13. 
+10.2.1 Error Statistics Test with PRBS31Q 
+Error statistics measured with PRBS31Q pattern do not apply forward error correction. This 
+measurement provides an error statistics assessment by counting symbol errors within blocks 
+of 5440 bits within the test pattern, which resembles the FEC symbol size of 10 bits and the FEC 
+codeword size of 544 FEC symbols. The maximum number of symbol errors per FEC codeword 
+within this framework is abbreviated to as t-count, see IEEE Std P802.3dj, Draft Standard for 
+Ethernet Amendment for 1.6 Tb/s, Annex 174A.6. Not all host systems may provide this feature. 
+ 
+If an error statistics test with a PRBS31Q is performed, the measured BER and the t-count 
+should typically not exceed the limits in Table 20, which would result in virtually error free 
+performance after FEC and is significantly better than the required FLR maximum limit of 
+6.2 × 10
+-11. 
+10.2.2 Error Statistics Test with FEC Encoded Signals 
+If a test with actual Ethernet signals (e.g. scrambled idle pattern) is performed, the pre-FEC BER 
+and the FEC bin count should typically not exceed the limits in Table 20, which would result in 
+virtually error free performance after FEC and is significantly better than the required FLR 
+maximum limit of 6.2 × 10-11. 
+Table 20: Link Performance with PRBS31Q 
+Parameter Typ. 
+measured BER1 / pre FEC BER1 10-6 
+t-count2 / FEC bin count 7 
+1 Measured for 3s. 
+2 Measured for 100s. 
+  
+LPO MSA Confidential Draft revision 1.0 Page 32 
+ 
+Figure 13: Host-to-Host Link Test Block Diagram 
+Note: The host on the transmit side can be replaced by a stress generator creating the stressed signal at 
+TP1 and measure BER / error statistics in this configuration instead.  
+
+  
+LPO MSA Confidential Draft revision 1.0 Page 33 
+11 Safety, Installation, Environment, and Labeling 
+11.1 General Safety 
+All equipment subject to this specification shall conform to IEC 60950-1. 
+11.2 Laser Safety 
+LPO optical transceivers shall conform to Class 1 laser requirements as defined in IEC 60825–1 
+and IEC 60825–2, under any condition of operation. This includes single fault conditions 
+whether coupled into a fiber or out of an open bore. Conformance to additional laser safety 
+standards may be required for operation within specific geographic regions. 
+ 
+Laser safety standards and regulations require that the manufacturer of a laser product provide 
+information about the product’s laser, safety features, labeling, use, maintenance, and service. 
+This documentation explicitly defines requirements and usage restrictions on the host 
+necessary to meet these safety certifications. 
+11.3 Installation 
+It is recommended that proper installation practices, as defined by applicable local codes and 
+regulation, be followed in every instance in which such practices are applicable. 
+11.4 Environment 
+Normative specifications in this document shall be met by a system integrating an LPO module 
+over the life of the product while the product operates within the manufacturer’s range of 
+environmental, power, and other specifications. 
+ 
+It is recommended that manufacturers indicate in the literature associated with the module the 
+operating environmental conditions to facilitate selection, installation, and maintenance. It is 
+further recommended that manufacturers indicate, in the literature associated with the 
+components of the optical link, the distance and operating environmental conditions over 
+which the requirements of this specification will be met. 
+11.5 Electromagnetic Emission 
+A system integrating an LPO module shall comply with applicable local and national codes for 
+the limitation of electromagnetic interference. 
+11.6 Temperature, Humidity, and Handling 
+The optical link is expected to operate over a reasonable range of environmental conditions 
+related to temperature, humidity, and physical handling (such as shock and vibration). Specific 
+requirements and values for these parameters are beyond the scope of this standard. 
+11.7 Module Labeling Requirements 
+It is recommended that each module (and supporting documentation) be labeled in a manner 
+visible to the user, with at least the applicable safety warnings and the widest SMF media 
+interface ID ability of the module (e.g. 100G-DR1-LPO, 200G-DR2-LPO, etc.). Labeling 
+requirements for Class 1 lasers are given in the laser safety standards referenced in 11.2
+.  
+  
+LPO MSA Confidential Draft revision 1.0 Page 34 
+12 Fiber Optic Cabling Model 
+12.1 Characteristics of the Fiber Optic Cabling (Channel) 
+The fiber optic cable requirements are satisfied by cables containing IEC 60793–2–50 type B1.1 
+(dispersion un-shifted single-mode), type B1.3 (low water peak single-mode), or type B6_A 
+(bend insensitive) fibers and the requirements in Table 21 where they differ. 
+ 
+Table 21: Optical Fiber and Cable Characteristics 
+Description  Value Unit 
+Nominal fiber specification wavelength  1310 nm 
+Cabled optical fiber attenuation (max)  0.51 dB/km 
+Zero dispersion wavelength (λ0)  1300 ≤ λ0 ≤ 1324 nm 
+Negative dispersion2 -0.93 ps/nm 
+Positive dispersion2 0.8 ps/nm 
+DGD_max3 2.24 ps 
+1 The 0.5 dB/km attenuation is provided for Outside Plant cable as defined in ANSI/TIA 568.3-E. Section 13.3 
+below exhibits connector loss for links with various numbers of LC and MPO connectors. 
+2 Over the wavelength range 1304.5 nm to 1317.5 nm. 
+3 Differential Group Delay (DGD) is the time difference at reception between the fractions of a pulse that were 
+transmitted in the two principal states of polarization of an optical signal. DGD_max is the maximum differential 
+group delay that the system must tolerate. 
+12.2 Connector Discrete Reflectance Requirements 
+Optical connectors might reduce the optical loss budget based on their reflectance and number 
+within an optical link. Table 16 is showing the maximum optical channel loss versus the number 
+of discrete reflectances. 
+12.3 Medium Dependent Interface (MDI) Requirements 
+The module is coupled to the fiber optic cabling at the MDI. The MDI is the interface between 
+the module and the “fiber optic cabling”. Examples of an MDI include the following: 
+a) Connectorized fiber pigtail  
+b) Module receptacle  
+When the MDI is a connector plug and receptacle connection, it shall meet the interface 
+performance specifications of IEC 61753–1–1 and IEC 61753–021–2.  
+  
+LPO MSA Confidential Draft revision 1.0 Page 35 
+13 Link Budget Configuration (Informative) 
+13.1 Connector Reflection 
+LPO cable plants may include connector reflectances according to Table 16. An MPI penalty of 
+0.3 dB is part of the optical link budget. 
+13.2 Connector Loss 
+The maximum link distance is based on an allocation of 3 dB total connection and splice loss. 
+For the connectors, a statistical estimation approach can be taken based on the Rayleigh 
+probability distribution of the connector loss. By using a multiplier of 2.5 on the standard 
+deviation, 98.4% of the population is covered. 
+13.3 Link Budget Example 
+In Table 22 examples are given including all channel loss parameters for a loss budget of 3 dB. 
+Tradeoffs between the number of connectors, the connector reflectance, and fiber reach can 
+be made. In the table it is assumed that the LC connectors have an average loss of 0.2 dB with a 
+sigma of 0.15 dB and the MPO connectors have an average loss of 0.35 dB and a sigma of 
+0.25 dB. The fiber attenuation is assumed to be 0.47 dB/km. 
+ 
+Table 22: Channel Loss Examples 
+LC connectors MPO connectors All connectors 0.5 km fiber Total1 
+No. Total loss [dB] No. Total loss [dB] Total loss [dB] [dB] [dB] 
+0 0.00 1 0.98 0.98 0.235 1.21 
+0 0.00 2 1.58 1.58 0.235 1.82 
+0 0.00 3 2.13 2.13 0.235 2.37 
+0 0.00 4 2.65 2.65 0.235 2.89 
+1 0.58 1 0.98 1.28 0.235 1.51 
+1 0.58 2 1.58 1.86 0.235 2.10 
+1 0.58 3 2.13 2.40 0.235 2.63 
+1 0.58 4 2.65 2.91 0.235 3.142 
+2 0.93 1 0.98 1.57 0.235 1.80 
+2 0.93 2 1.58 2.13 0.235 2.37 
+2 0.93 3 2.13 2.66 0.235 2.89 
+2 0.93 4 2.65 3.16 0.235 3.392 
+3 1.25 1 0.98 1.85 0.235 2.09 
+3 1.25 2 1.58 2.40 0.235 2.63 
+3 1.25 3 2.13 2.91 0.235 3.152 
+3 1.25 4 2.65 3.41 0.235 3.642 
+4 1.55 1 0.98 2.13 0.235 2.36 
+4 1.55 2 1.58 2.66 0.235 2.89 
+4 1.55 3 2.13 3.17 0.235 3.402 
+4 1.55 4 2.65 3.66 0.235 3.892 
+1 Does not include MPI penalty due to reflectance, see Table 16. 
+2 Channel losses exceeding 3 dB are beyond the scope of this specification and are shown for illustration purposes. 
+  
+LPO MSA Confidential Draft revision 1.0 Page 36 
+14 Optimizing Host for TP1a 
+Figure 14 shows the setup for the host TX FFE optimization. Besides the host system a suitable 
+HCB, cables, and scope are needed. The cables from the HCB to the scope should be de-
+embedded. Figure 15 shows the procedure to optimize the host settings. Before starting 
+measurements, the host TX pattern should be set to PRBS13Q and the CTLE settings should be 
+chosen according to 7.3.3 depending on the electrical channel loss of the measured host port. 
+The host TX FFE is set to have a main cursor only and does not provide any equalization in the 
+first measurement, i.e. all other tap weights are set to zero. The host FFE equalizer should have 
+at least 3 pre-cursor, and 2 post-cursor taps. The FFE equalizer in the scope needs to match the 
+FFE equalizer in the host regarding the number of pre- and post-cursor taps within the 
+limitations of the host FFE settings. 
+ 
+After this measurement is finished, the tap weights of the FFE in the scope can be extracted and 
+mapped back to the host TX FFE to match the tap weights of the scope FFE. 
+ 
+Then the measurement is repeated and the EECQ, Ceeq, and VMA measurements can be 
+measured by the 9-tap reference equalizer. The optimization goal is to force Ceeq to zero. 
+ 
+ 
+Figure 14: Optimization Setup for TP1a 
+ 
+ 
+Figure 15: Procedure to Optimize Host FFE Settings 
+
+  
+LPO MSA Confidential Draft revision 1.0 Page 37 
+15 Test Point Illustration 
+Figure 16 illustrates the test points of measurements and calibration procedures. 
+ 
+Figure 16: Test Points  
+
+  
+LPO MSA Confidential Draft revision 1.0 Page 38 
+16 Glossary 
+ 
+BER Bit Error Ratio 
+Ceeq Electrical Noise Amplification Factor for PAM4 
+Ceq Noise Amplification Factor for PAM4 
+CTLE Continuous Time Linear Equalizer 
+DFE Decision-Feedback Equalizer 
+EECQ Electrical Eye Closure for PAM4 
+ERL Effective Return Loss 
+fbd Baud Rate 
+FEC Forward Error Correction 
+FFE Feed-Forward Equalizer 
+FLR Frame Loss Ratio 
+gDC CTLE High Frequency Gain 
+gDC2 CTLE Low Frequency Gain 
+HCB Host Compliance Board 
+LPO Linear Pluggable Optics 
+MCB Module Compliance Board 
+MDI Medium Dependent Interface 
+MPI Multi Path Interference 
+MSA Multi Source Agreement 
+Nbx Equalizer Length Associated with Reflection Signal 
+NLC Nonlinear Compensation 
+OMA Optical Modulation Amplitude 
+PMD Physical Media Dependent 
+PRBSQ Pseudo-Random Bit Sequence for PAM4 
+RS Reed-Solomon Error Correction Codes 
+RxS Receiver Sensitivity 
+σG Standard Deviation 
+SECQ Stressed Eye Closure for PAM4 
+SER Symbol Error Ratio 
+SMF Single Mode Fiber 
+SSPRQ Short Stress Pattern Random for PAM4 
+TECQ Transmitter Eye Closure for PAM4 
+TDECQ Transmitter and Dispersion Eye Closure for PAM4 
+UI Unit Interval 
+VMA Voltage Modulation Amplitude 
+ 

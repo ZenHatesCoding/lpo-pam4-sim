@@ -33,19 +33,22 @@ from train_surrogates import train_from_df, WhiteBoxRidge, WhiteBoxGPR
 # ============================================================
 
 FFE_BOUND = 0.3
-CTLE_MIN = -20.0
-CTLE_MAX = 0.0
+CTLE_GDC_MIN = 0.0
+CTLE_GDC_MAX = 5.0
+CTLE_GDC2_MIN = 0.0
+CTLE_GDC2_MAX = 5.0
 PEAK_SUM_LIMIT = 0.8          # sum(|pre_post|) <= 0.8 -> 主抽头 >= 0.2
 SAFETY_MARGIN = 0.3           # Model B 安全裕度：允许相对种子点恶化 0.3 个 log10（≈2× BER）
 TRUST_FFE = 0.10              # Stage 2 信任域半径（FFE，相对起点）：防代理外推越界
-TRUST_CTLE = 6.0              # Stage 2 信任域半径（CTLE）
+TRUST_CTLE = 3.0              # Stage 2 信任域半径（CTLE）
 GD_LR = 0.02                  # Stage 2 归一化梯度下降初始步长（随 step 以 0.92 衰减）
 
 # 已知“不错的起点”（种子）：来自两阶段实验的初始次优点
 SEED_TAPS = np.array([0.0, 0.0, -0.034, -0.2987, 0.6091, 0.0, 0.0582, 0.0, 0.0])
-SEED_CTLE = 0.0
+SEED_GDC = 0.0
+SEED_GDC2 = 0.0
 FFE_SPREAD = 0.05             # Stage 1 邻域采样幅值
-CTLE_SPREAD = 3.0
+CTLE_SPREAD = 1.0
 
 
 def construct_9tap(pre_post, ffe_pre):
@@ -60,29 +63,32 @@ def construct_9tap(pre_post, ffe_pre):
 
 
 def _x_to_taps_ctle(x, ffe_pre):
-    return construct_9tap(x[:8], ffe_pre), x[8]
+    return construct_9tap(x[:8], ffe_pre), x[8], x[9]
 
-
-def _taps_to_x(taps, ctle, ffe_pre):
+def _taps_to_x(taps, gdc, gdc2, ffe_pre):
     pre_post = np.zeros(8)
     pre_post[:ffe_pre] = taps[:ffe_pre]
     pre_post[ffe_pre:] = taps[ffe_pre + 1:]
-    return np.concatenate([pre_post, [ctle]])
+    return np.concatenate([pre_post, [gdc, gdc2]])
 
 
 def _bounds():
-    return np.array([(-FFE_BOUND, FFE_BOUND)] * 8 + [(CTLE_MIN, CTLE_MAX)])
+    b = [(-FFE_BOUND, FFE_BOUND)] * 8
+    b.append((CTLE_GDC_MIN, CTLE_GDC_MAX))
+    b.append((CTLE_GDC2_MIN, CTLE_GDC2_MAX))
+    return np.array(b)
 
 
-def _physical_eval(config, taps, ctle):
-    config['tx']['ctle_g_dc_db'] = ctle
+def _physical_eval(config, taps, gdc, gdc2):
+    config['tx']['ctle_g_dc_db'] = gdc
+    config['tx']['ctle_g_dc2_db'] = gdc2
     _, mlse_ber = run_sim(config, custom_tx_taps=taps, plot_eyes=False, output_dir=None)
     mlse_ber = max(mlse_ber, 1e-8)
     return np.log10(mlse_ber), mlse_ber
 
 
-def _make_row(sample_id, taps, ctle, logber, mlse_ber, tx_fir):
-    row = {'sample_id': sample_id, 'ctle_dc': ctle, 'mlse_ber': mlse_ber,
+def _make_row(sample_id, taps, gdc, gdc2, logber, mlse_ber, tx_fir):
+    row = {'sample_id': sample_id, 'ctle_dc': gdc, 'ctle_dc2': gdc2, 'mlse_ber': mlse_ber,
            'log10_ber': logber}
     for j in range(9):
         row[f'ffe_tap_{j}'] = taps[j]
@@ -91,9 +97,10 @@ def _make_row(sample_id, taps, ctle, logber, mlse_ber, tx_fir):
     return row
 
 
-def _predict_a(model_a, config, taps, ctle, ucb_kappa=0.0):
+def _predict_a(model_a, config, taps, gdc, gdc2, ucb_kappa=0.0):
     """Model A 预测：Ridge 返回均值；带 predict_with_std 的模型（GPR）可返回 mu + kappa*sigma。"""
-    config['tx']['ctle_g_dc_db'] = ctle
+    config['tx']['ctle_g_dc_db'] = gdc
+    config['tx']['ctle_g_dc2_db'] = gdc2
     tx_fir = extract_tx_s21(config, custom_tx_taps=taps, num_taps=7)
     if hasattr(model_a, 'predict_with_std'):
         mu, sigma = model_a.predict_with_std([tx_fir])
@@ -101,8 +108,8 @@ def _predict_a(model_a, config, taps, ctle, ucb_kappa=0.0):
     return float(model_a.predict([tx_fir])[0])
 
 
-def _predict_b(model_b, taps, ctle):
-    full_cfg = list(taps) + [ctle]
+def _predict_b(model_b, taps, gdc, gdc2):
+    full_cfg = list(taps) + [gdc, gdc2]
     return float(model_b.predict([full_cfg])[0])
 
 
@@ -123,11 +130,12 @@ def _stage1_collect(config, n_samples, ffe_pre, seed=42):
     print(f"[Stage 1] neighborhood sampling ({n_samples} samples around x0)...")
     for i in range(n_samples):
         pre_post = seed_pre_post + (sp[i, :8] * 2 - 1.0) * FFE_SPREAD
-        ctle = float(np.clip(SEED_CTLE + (sp[i, 8] * 2 - 1.0) * CTLE_SPREAD, CTLE_MIN, CTLE_MAX))
+        gdc = float(np.clip(SEED_GDC + (sp[i, 8] * 2 - 1.0) * CTLE_SPREAD, CTLE_GDC_MIN, CTLE_GDC_MAX))
+        gdc2 = float(np.clip(SEED_GDC2 + (sp[i, 9] * 2 - 1.0) * CTLE_SPREAD, CTLE_GDC2_MIN, CTLE_GDC2_MAX))
         taps = construct_9tap(pre_post, ffe_pre)
-        logber, mlse_ber = _physical_eval(config, taps, ctle)
+        logber, mlse_ber = _physical_eval(config, taps, gdc, gdc2)
         tx_fir = extract_tx_s21(config, custom_tx_taps=taps, num_taps=7)
-        rows.append(_make_row(i, taps, ctle, logber, mlse_ber, tx_fir))
+        rows.append(_make_row(i, taps, gdc, gdc2, logber, mlse_ber, tx_fir))
         if (i + 1) % 100 == 0:
             print(f"  sampled {i + 1}/{n_samples}")
     return pd.DataFrame(rows)
@@ -174,7 +182,7 @@ def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_ref, 
 
     # 信任域边界（相对 x0 收紧，并裁剪到全局边界）
     gbounds = _bounds()
-    radius = np.array([TRUST_FFE] * 8 + [TRUST_CTLE])
+    radius = np.array([TRUST_FFE] * 8 + [TRUST_CTLE, TRUST_CTLE])
     x0 = np.array(x0, dtype=float)
     tr_bounds = np.stack([
         np.maximum(gbounds[:, 0], x0 - radius),
@@ -199,8 +207,8 @@ def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_ref, 
         x_new = None
         for _ in range(20):
             x_cand = np.clip(x - alpha * direction, tr_bounds[:, 0], tr_bounds[:, 1])
-            taps_c, ctle_c = _x_to_taps_ctle(x_cand, ffe_pre)
-            if _predict_b(model_b, taps_c, ctle_c) <= safety_limit:
+            taps_c, gdc_c, gdc2_c = _x_to_taps_ctle(x_cand, ffe_pre)
+            if _predict_b(model_b, taps_c, gdc_c, gdc2_c) <= safety_limit:
                 x_new = x_cand
                 break
             alpha *= 0.5
@@ -208,16 +216,16 @@ def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_ref, 
             break  # 信任域内找不到安全方向，停止
 
         # 3. 代理预测 + 真实 BER（仅记录验证）
-        taps, ctle = _x_to_taps_ctle(x_new, ffe_pre)
-        pred_a = _predict_a(model_a, config, taps, ctle)
-        pred_b = _predict_b(model_b, taps, ctle)
-        real_logber, real_mlse = _physical_eval(config, taps, ctle)
+        taps, gdc, gdc2 = _x_to_taps_ctle(x_new, ffe_pre)
+        pred_a = _predict_a(model_a, config, taps, gdc, gdc2)
+        pred_b = _predict_b(model_b, taps, gdc, gdc2)
+        real_logber, real_mlse = _physical_eval(config, taps, gdc, gdc2)
 
         trace.append({
             'step': step,
             'x': x_new,
             'taps': taps,
-            'ctle': ctle,
+            'gdc': gdc, 'gdc2': gdc2,
             'pred_a': pred_a,
             'pred_b': pred_b,
             'safe': pred_b <= safety_limit,
@@ -284,18 +292,19 @@ def run_ddps(dataset_csv=None, model_dir="models", n_stage1_samples=600, n_stage
     stage1_best_idx = df['log10_ber'].idxmin()
     stage1_best_logber = float(df.loc[stage1_best_idx, 'log10_ber'])
     stage1_best_taps = df.loc[stage1_best_idx, [f'ffe_tap_{i}' for i in range(9)]].values.astype(float)
-    stage1_best_ctle = float(df.loc[stage1_best_idx, 'ctle_dc'])
+    stage1_best_gdc = float(df.loc[stage1_best_idx, 'ctle_dc'])
+    stage1_best_gdc2 = float(df.loc[stage1_best_idx, 'ctle_dc2'])
 
     # 起点 x0 = 种子（“不错的起点”）
-    x0 = _taps_to_x(SEED_TAPS.copy(), SEED_CTLE, ffe_pre)
-    seed_logber, seed_mlse = _physical_eval(config, SEED_TAPS.copy(), SEED_CTLE)
+    x0 = _taps_to_x(SEED_TAPS.copy(), SEED_GDC, SEED_GDC2, ffe_pre)
+    seed_logber, seed_mlse = _physical_eval(config, SEED_TAPS.copy(), SEED_GDC, SEED_GDC2)
 
     print(f"[Stage 1] done. start x0 real MLSE = {seed_mlse:.2e} | "
           f"Stage-1 sampled best = {10.0 ** stage1_best_logber:.2e}")
 
     # ---------- Stage 2：约束下降（不回传真实 BER）----------
     # 安全参考 = Model B 对种子点（已知安全）的预测；红线 = 参考 + 裕度（相对、校准无关）
-    safety_ref = _predict_b(model_b, SEED_TAPS.copy(), SEED_CTLE)
+    safety_ref = _predict_b(model_b, SEED_TAPS.copy(), SEED_GDC, SEED_GDC2)
     rng = np.random.RandomState(0)
     trace = _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_stage2_steps,
                             safety_ref, GD_LR, rng)
@@ -303,7 +312,8 @@ def run_ddps(dataset_csv=None, model_dir="models", n_stage1_samples=600, n_stage
     real_mlses = np.array([t['real_mlse'] for t in trace])
     best_i = int(np.argmin(real_mlses))
     best_taps = trace[best_i]['taps']
-    best_ctle = trace[best_i]['ctle']
+    best_gdc = trace[best_i]['gdc']
+    best_gdc2 = trace[best_i]['gdc2']
     stage2_best_mlse = real_mlses[best_i]
     max_mlse = float(np.max(real_mlses))
 
@@ -322,7 +332,7 @@ def run_ddps(dataset_csv=None, model_dir="models", n_stage1_samples=600, n_stage
         idxs = sorted(set([0, best_i] + list(np.linspace(0, len(trace) - 1, cross_snr_probes).astype(int))))
         for i in idxs:
             t = trace[i]
-            _, mlse_28 = _physical_eval(dc, t['taps'], t['ctle'])
+            _, mlse_28 = _physical_eval(dc, t['taps'], t['gdc'], t['gdc2'])
             cross_snr.append({'step': i, 'real_mlse_26dB': t['real_mlse'], 'real_mlse_28dB': mlse_28})
 
     # ---------- 深水校验 ----------
@@ -330,11 +340,11 @@ def run_ddps(dataset_csv=None, model_dir="models", n_stage1_samples=600, n_stage
     if deep_validate:
         dc = _deep_config(config)
         _, seed_deep = _physical_eval(dc, SEED_TAPS.copy(), SEED_CTLE)
-        _, ddps_deep = _physical_eval(dc, best_taps, best_ctle)
+        _, ddps_deep = _physical_eval(dc, best_taps, best_gdc, best_gdc2)
         shc_taps = np.array([0.0, 0.0, -0.0195, -0.2987, 0.6636, 0.0, 0.0182, 0.0, 0.0])
-        _, shc_deep_9d = _physical_eval(dc, shc_taps, 0.0)
+        _, shc_deep_9d = _physical_eval(dc, shc_taps, 0.0, 0.0)
         dc['tx']['ctle_fp2_ratio'] = 0.9
-        _, shc_deep_12d = _physical_eval(dc, shc_taps, 0.0)
+        _, shc_deep_12d = _physical_eval(dc, shc_taps, 0.0, 0.0)
         deep_summary = (f"start x0  @DEEP_1E5: {seed_deep:.2e}\n"
                         f"DDPS best @DEEP_1E5 (9D): {ddps_deep:.2e}\n"
                         f"SHC ref   @DEEP_1E5 (9D): {shc_deep_9d:.2e}\n"
@@ -346,10 +356,10 @@ def run_ddps(dataset_csv=None, model_dir="models", n_stage1_samples=600, n_stage
     os.makedirs(result_dir, exist_ok=True)
 
     _write_sim_log(result_dir, config, df, n_stage1_samples, n_stage2_steps, trace,
-                   stage1_best_logber, seed_logber, stage2_best_mlse, best_taps, best_ctle,
+                   stage1_best_logber, seed_logber, stage2_best_mlse, best_taps, best_gdc, best_gdc2,
                    max_mlse, spearman, cross_snr, deep_summary)
     _write_summary_md(result_dir, config, trace, stage1_best_logber, seed_logber,
-                      stage2_best_mlse, best_taps, best_ctle, max_mlse, spearman,
+                      stage2_best_mlse, best_taps, best_gdc, best_gdc2, max_mlse, spearman,
                       cross_snr, deep_summary)
     _plot_convergence(result_dir, trace, seed_logber, stage1_best_logber)
 
@@ -363,7 +373,7 @@ def run_ddps(dataset_csv=None, model_dir="models", n_stage1_samples=600, n_stage
     print(f"Results saved to {result_dir}")
 
     return {
-        'best_taps': best_taps, 'best_ctle': best_ctle,
+        'best_taps': best_taps, 'best_gdc': best_gdc, 'best_gdc2': best_gdc2,
         'stage1_best_mlse': 10.0 ** stage1_best_logber,
         'stage2_best_mlse': stage2_best_mlse,
         'max_mlse': max_mlse, 'spearman': spearman,
@@ -372,7 +382,7 @@ def run_ddps(dataset_csv=None, model_dir="models", n_stage1_samples=600, n_stage
 
 
 def _write_sim_log(result_dir, config, df, n_s1, n_s2, trace, s1_best, seed_lb,
-                   s2_best, best_taps, best_ctle, max_mlse, spearman, cross_snr, deep_summary):
+                   s2_best, best_taps, best_gdc, best_gdc2, max_mlse, spearman, cross_snr, deep_summary):
     with open(os.path.join(result_dir, "sim_log.txt"), "w", encoding='utf-8') as f:
         f.write("--- DDPS Data-Driven Physical Surrogate Optimization ---\n")
         f.write(f"Stage 1 samples: {n_s1} (total after merge: {len(df)})\n")
@@ -386,7 +396,7 @@ def _write_sim_log(result_dir, config, df, n_s1, n_s2, trace, s1_best, seed_lb,
         f.write(f"Stage-2 max MLSE (safety): {max_mlse:.2e}\n")
         f.write(f"Spearman(ModelA, real logBER): {spearman:.3f}\n")
         f.write(f"Best Taps: {np.round(best_taps, 4).tolist()}\n")
-        f.write(f"Best CTLE DC: {best_ctle:.3f} dB\n")
+        f.write(f"Best CTLE DC: {best_gdc:.3f} dB, gDC2: {best_gdc2:.3f} dB\n")
         if deep_summary:
             f.write(f"\n{deep_summary}\n")
         f.write("\n--- Stage 2 trace (step | ModelA | ModelB | safe | real MLSE) ---\n")
@@ -401,7 +411,7 @@ def _write_sim_log(result_dir, config, df, n_s1, n_s2, trace, s1_best, seed_lb,
 
 
 def _write_summary_md(result_dir, config, trace, s1_best, seed_lb, s2_best,
-                      best_taps, best_ctle, max_mlse, spearman, cross_snr, deep_summary):
+                      best_taps, best_gdc, best_gdc2, max_mlse, spearman, cross_snr, deep_summary):
     with open(os.path.join(result_dir, "ddps_summary.md"), "w", encoding='utf-8') as f:
         f.write("# DDPS 数据驱动物理代理优化器 — 结果报告\n\n")
         f.write("## 架构\n")
@@ -416,7 +426,7 @@ def _write_summary_md(result_dir, config, trace, s1_best, seed_lb, s2_best,
         f.write(f"- Stage 2 最大 MLSE（安全上限）：`{max_mlse:.2e}`\n")
         f.write(f"- 等效性 Spearman(ModelA, real logBER)：`{spearman:.3f}`\n")
         f.write(f"- 最优 Taps：`{np.round(best_taps, 4).tolist()}`\n")
-        f.write(f"- 最优 CTLE DC：`{best_ctle:.3f} dB`\n\n")
+        f.write(f"- 最优 CTLE DC：`{best_gdc:.3f} dB, gDC2: {best_gdc2:.3f} dB`\n\n")
         if cross_snr:
             f.write("## 跨 SNR 迁移（26.5 dB 模型引导 28 dB 下降）\n")
             f.write("| step | 26.5dB MLSE | 28dB MLSE |\n| --- | --- | --- |\n")

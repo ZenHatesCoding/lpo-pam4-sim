@@ -48,6 +48,9 @@ DEFAULT_MODE = '112G'
 👉 **[03. 调试排坑与经验沉淀 (Troubleshooting History)](docs/03_Troubleshooting_History.md)**  
 > *查阅过去在 DFE 误差传播、发送端相位失真以及 FFE 抽头对齐上走过的弯路，避免重蹈覆辙。*
 
+👉 **[04. DDPS 数据驱动物理代理寻优框架](docs/04_DDPS_Optimization_Framework.md)**  
+> *详解本平台原创的 Zero-Shot 双层代理寻优架构：基于 10D (FFE+双级CTLE) 物理探针的有限差分梯度下降与线搜索安全约束。*
+
 ## 三、 核心寻优算法 (Core Algorithms)
 项目当前搭载了多种白盒化重构的寻优算法，用以对比各类元启发式搜索在物理约束下的表现：
 - **GA (Genetic Algorithm)**: 经典连续遗传算法，全局寻优能力极强，但在线试错代价极大。

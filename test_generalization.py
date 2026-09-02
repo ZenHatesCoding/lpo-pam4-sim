@@ -1,6 +1,7 @@
 import os
 import argparse
 import pickle
+from train_surrogates import WhiteBoxRidge, WhiteBoxGPR
 import numpy as np
 import pandas as pd
 import create_config, utils_config
@@ -39,12 +40,16 @@ def write_markdown_report(results, out_dir, snr_db):
         f.write("本报告验证了复用 26.5dB 下离线训好的 Model A & B，在不同色散 (CD)、偏振模色散 (DGD) 和偏振态 (SOP) 组合下的 Stage 2 泛化寻优能力。\n\n")
         
         f.write("## 1. 测试用例与结果\n\n")
-        f.write("| 测试场景 | CD (ps/nm) | DGD (ps) | SOP (deg) | 最终 MLSE | 收敛步数 | 收敛曲线 |\n")
-        f.write("| --- | --- | --- | --- | --- | --- | --- |\n")
+        f.write("| 测试场景 | IL (dB) | CD (ps/nm) | DGD (ps) | 最优 MLSE | 最优 Taps (Tx FFE) | gDC, gDC2 (dB) | 收敛步数 | 收敛曲线 |\n")
+        f.write("| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
         
         for res in results:
             img_md = f"![{res['case']}]({res['plot_file']})" if res.get('plot_file') else "N/A"
-            f.write(f"| {res['case']} | {res['cd']} | {res['dgd']} | {res['sop']} | `{res['final_mlse']:.2e}` | {res['steps']} | {img_md} |\n")
+            taps_str = str(np.round(res.get('best_taps', []), 3).tolist())
+            gdc_val = res.get('best_gdc', np.nan)
+            gdc2_val = res.get('best_gdc2', np.nan)
+            ctle_str = f"{gdc_val:.2f}, {gdc2_val:.2f}"
+            f.write(f"| {res['case']} | {res['il']} | {res['cd']} | {res['dgd']} | `{res['final_mlse']:.2e}` | `{taps_str}` | `{ctle_str}` | {res['steps']} | {img_md} |\n")
         
         f.write("\n## 2. 结论分析\n")
         f.write("1. **色散泛化**：调整到合理色散值（15 ps/nm）后，模型依旧完美收敛，且最终 BER 逼近物理极限。\n")
@@ -53,30 +58,32 @@ def write_markdown_report(results, out_dir, snr_db):
 def run_generalization_test(snr_db):
     create_config.generate_config()
     
-    if not os.path.exists("models/model_a_s21.pkl") or not os.path.exists("models/model_b_config.pkl"):
-        print("Models not found, run run_ddps() first.")
+    if not os.path.exists("models_lpo/model_a_s21.pkl") or not os.path.exists("models_lpo/model_b_config.pkl"):
+        print("Models not found, run train_surrogates.py first.")
         return
         
-    with open("models/model_a_s21.pkl", "rb") as f:
+    with open("models_lpo/model_a_s21.pkl", "rb") as f:
         model_a = pickle.load(f)
-    with open("models/model_b_config.pkl", "rb") as f:
+    with open("models_lpo/model_b_config.pkl", "rb") as f:
         model_b = pickle.load(f)
         
-    print(f"Models loaded successfully. Now testing Stage 2 on comprehensive optical conditions @ SNR {snr_db}dB...")
+    print(f"Models loaded successfully. Now testing Stage 2 on comprehensive LPO conditions @ SNR {snr_db}dB...")
     
     test_cases = [
-        {"name": "Baseline", "cd": 0.0, "dgd": 0.0, "sop": 45.0},
-        {"name": "CD_Only_15", "cd": 15.0, "dgd": 0.0, "sop": 45.0},
+        {"name": "Base_IL7", "il": 7.0, "cd": 0.0, "dgd": 0.0},
+        {"name": "IL_Sweep_10dB", "il": 10.0, "cd": 0.0, "dgd": 0.0},
+        {"name": "IL_Sweep_12dB", "il": 12.0, "cd": 0.0, "dgd": 0.0},
         
-        # DGD with no CD (scan SOP)
-        {"name": "DGD5_CD0_SOP_0", "cd": 0.0, "dgd": 5.0, "sop": 0.0},
-        {"name": "DGD5_CD0_SOP_45", "cd": 0.0, "dgd": 5.0, "sop": 45.0},
-        {"name": "DGD5_CD0_SOP_90", "cd": 0.0, "dgd": 5.0, "sop": 90.0},
+        # Dispersion variations
+        {"name": "CD_Sweep_1ps", "il": 7.0, "cd": 1.0, "dgd": 0.0},
+        {"name": "CD_Sweep_3ps", "il": 7.0, "cd": 3.0, "dgd": 0.0},
         
-        # DGD with CD (scan SOP)
-        {"name": "DGD5_CD15_SOP_0", "cd": 15.0, "dgd": 5.0, "sop": 0.0},
-        {"name": "DGD5_CD15_SOP_45", "cd": 15.0, "dgd": 5.0, "sop": 45.0},
-        {"name": "DGD5_CD15_SOP_90", "cd": 15.0, "dgd": 5.0, "sop": 90.0},
+        # DGD variations
+        {"name": "DGD_Sweep_2ps", "il": 7.0, "cd": 0.0, "dgd": 2.0},
+        {"name": "DGD_Sweep_6ps", "il": 7.0, "cd": 0.0, "dgd": 6.0},
+        
+        # Combined Stress
+        {"name": "Combined_Stress", "il": 10.0, "cd": 2.5, "dgd": 4.0},
     ]
     
     results = []
@@ -90,43 +97,51 @@ def run_generalization_test(snr_db):
         cfg['system']['enable_spectrum_plot'] = False
         
         cfg['channel']['snr_db'] = snr_db
+        cfg['channel']['tx_pcb_loss_nyquist_db'] = case['il']
+        cfg['channel']['rx_pcb_loss_nyquist_db'] = case['il']
         cfg['channel']['cd_ps_nm'] = case['cd']
         cfg['channel']['dgd_ps'] = case['dgd']
-        cfg['channel']['pol_angle_deg'] = case['sop']
         
         if snr_db >= 28.0:
             cfg['system']['num_symbols'] = 1048576
             cfg['tx']['pattern_length'] = 524288
             
         ffe_pre = int(cfg['tx'].get('ffe_pre', 4))
-        x0 = D._taps_to_x(D.SEED_TAPS.copy(), D.SEED_CTLE, ffe_pre)
+        x0 = D._taps_to_x(D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, ffe_pre)
         
-        safety_ref = D._predict_b(model_b, D.SEED_TAPS.copy(), D.SEED_CTLE)
+        safety_ref = D._predict_b(model_b, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2)
         rng = np.random.RandomState(42)
         
-        seed_logber, _ = D._physical_eval(cfg, D.SEED_TAPS.copy(), D.SEED_CTLE)
+        seed_logber, _ = D._physical_eval(cfg, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2)
         
         try:
             trace = D._stage2_descent(cfg, model_a, model_b, x0, ffe_pre, 25, safety_ref, D.GD_LR, rng)
             real_mlses = np.array([t['real_mlse'] for t in trace])
-            best_mlse = np.min(real_mlses)
+            best_idx = np.argmin(real_mlses)
+            best_mlse = real_mlses[best_idx]
+            best_taps = trace[best_idx]['taps']
+            best_gdc = trace[best_idx]['gdc']
+            best_gdc2 = trace[best_idx]['gdc2']
             
             plot_file = plot_generalization_convergence(out_dir, trace, seed_logber, case['name'], snr_db)
             
             results.append({
-                "case": case['name'],
-                "cd": case['cd'],
-                "dgd": case['dgd'],
-                "sop": case['sop'],
-                "final_mlse": best_mlse,
-                "steps": len(trace),
-                "plot_file": plot_file
+                'case': case['name'],
+                'il': case['il'],
+                'cd': case['cd'],
+                'dgd': case['dgd'],
+                'final_mlse': best_mlse,
+                'best_taps': best_taps,
+                'best_gdc': best_gdc,
+                'best_gdc2': best_gdc2,
+                'steps': len(trace),
+                'plot_file': plot_file
             })
-            print(f"Case {case['name']} completed. Best MLSE = {best_mlse:.2e}")
+            print(f"Case {case['name']} completed. Best MLSE = {best_mlse:.2e} | Taps = {np.round(best_taps, 3).tolist()} | gDC={best_gdc:.2f}, gDC2={best_gdc2:.2f}")
         except Exception as e:
             print(f"Case {case['name']} failed: {e}")
             results.append({
-                "case": case['name'], "cd": case['cd'], "dgd": case['dgd'], "sop": case['sop'],
+                "case": case['name'], "il": case['il'], "cd": case['cd'], "dgd": case['dgd'],
                 "final_mlse": np.nan, "steps": 0, "plot_file": None
             })
             

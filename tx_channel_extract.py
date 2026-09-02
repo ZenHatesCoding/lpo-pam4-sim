@@ -77,14 +77,16 @@ def extract_tx_s21(config, custom_tx_taps=None, num_taps=7):
     x_analog = dac_zoh(tx_out, sps_dac, sps_channel)
     fs_analog = baud_rate * sps_channel
     
-    # 4. Tx CTLE (Analog Equalization)
+    # 4. CTLE (if enabled)
     if tx_config.get('use_ctle', False):
         f_b = baud_rate
         f_z = f_b / tx_config.get('ctle_fz_ratio', 2.5)
         f_p1 = f_b / tx_config.get('ctle_fp1_ratio', 2.5)
         f_p2 = f_b / tx_config.get('ctle_fp2_ratio', 1.0)
-        g_dc_db = tx_config.get('ctle_g_dc_db', -10.0)
-        x_analog = apply_ctle(x_analog, fs_analog, f_z, f_p1, f_p2, g_dc_db)
+        f_lf = f_b / tx_config.get('ctle_flf_ratio', 40.0)
+        g_dc_db = tx_config.get('ctle_g_dc_db', 0.0)
+        g_dc2_db = tx_config.get('ctle_g_dc2_db', 0.0)
+        x_analog = apply_ctle(x_analog, fs_analog, f_z, f_p1, f_p2, g_dc_db, g_dc2_db, f_lf)
         
     # 5. Host PCB Trace
     config_ch = config['channel']

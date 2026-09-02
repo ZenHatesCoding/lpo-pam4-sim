@@ -11,7 +11,7 @@
 ### 1.1 发送端 (Tx DSP & Analog Front-End)
 由于 LPO (Linear Pluggable Optics) 模块内部不包含 DSP，所有的发送端均衡均由 Host ASIC 完成。
 - **纯线性 FFE**：使用 FIR 结构的 Tx FFE 预加重，对抗信道高频衰减。
-- **Tx CTLE (模拟域)**：为了模拟 Host 端 SerDes 芯片的连续时间预加重能力，系统在通过 DAC (Zero-Order Hold) 后，紧接着在**模拟域信道的最前端（即 Tx 端）**部署了 IEEE COM 标准的 CTLE 均衡器，防止由于位置靠后而带来的接收端 TIA 噪声放大。
+- **Tx CTLE (模拟域)**：为了模拟 Host 端 SerDes 芯片的连续时间预加重能力，系统在通过 DAC (Zero-Order Hold) 后，紧接着在**模拟域信道的最前端（即 Tx 端）**部署了严格符合 IEEE 802.3ck 和 LPO MSA v1.01 标准的双级 CTLE。该均衡器拥有 `gDC` (高频 peaking) 和 `gDC2` (低频增益) 两个独立维度的调控阀门，与 FFE 联合构成 10 维寻优空间。
 
 ### 1.2 信道模型 (Channel)
 - **多采样率仿真**：DSP 核心以 2 Sps 运行，信道（包括 MZM、光纤色散、探测器、TIA）中信号上采至 8 Sps。

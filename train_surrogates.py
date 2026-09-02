@@ -14,7 +14,7 @@ import pickle
 # ============================================================
 
 FIR_COLS = [f'tx_fir_{i}' for i in range(7)]
-CONFIG_COLS = [f'ffe_tap_{i}' for i in range(9)] + ['ctle_dc']
+CONFIG_COLS = [f'ffe_tap_{i}' for i in range(9)] + ['ctle_dc', 'ctle_dc2']
 
 
 # ---------- 白盒多项式特征（degree 2） ----------

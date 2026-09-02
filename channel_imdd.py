@@ -25,26 +25,30 @@ def lowpass_filter(x, bw, fs, order=4):
     y = signal.lfilter(b, a, x)
     return y
 
-def apply_ctle(x, fs, f_z, f_p1, f_p2, g_dc_db):
+def apply_ctle(x, fs, f_z, f_p1, f_p2, g_dc_db, g_dc2_db, f_lf):
     """
-    Apply IEEE COM standard 2-pole 1-zero CTLE in the frequency domain.
-    H(f) = (10^(G_DC/20) + j*f/f_z) / (1 + j*f/f_p1) / (1 + j*f/f_p2)
+    Apply IEEE 802.3ck / LPO MSA dual-gain CTLE in the frequency domain.
     """
     N = len(x)
     X = np.fft.rfft(x)
     f = np.fft.rfftfreq(N, d=1.0/fs)
     
     g_dc = 10**(g_dc_db / 20)
+    g_dc2 = 10**(g_dc2_db / 20)
     
     # Avoid 0 division in formula by adding a small epsilon to f, or just handle f=0
-    # Actually f_z, f_p1, f_p2 are strictly > 0 so no division by zero.
-    num = g_dc + 1j * f / f_z
-    den = (1 + 1j * f / f_z) * (1 + 1j * f / f_p1) * (1 + 1j * f / f_p2)
+    # Actually f_z, f_p1, f_p2, f_lf are strictly > 0 so no division by zero.
+    num1 = g_dc + 1j * f / f_z
+    den1 = (1 + 1j * f / f_z) * (1 + 1j * f / f_p1) * (1 + 1j * f / f_p2)
     
-    H_ctle = num / den
+    num2 = g_dc2 + 1j * f / f_lf
+    den2 = 1 + 1j * f / f_lf
+    
+    H_ctle = (num1 / den1) * (num2 / den2)
     
     X_filtered = X * H_ctle
     return np.fft.irfft(X_filtered, n=N)
+
 def apply_cd_dgd(x, fs, cd_ps_nm, dgd_ps, pol_angle_deg=45.0):
     """
     Apply Chromatic Dispersion (CD) and Differential Group Delay (DGD) impairments.
@@ -52,29 +56,29 @@ def apply_cd_dgd(x, fs, cd_ps_nm, dgd_ps, pol_angle_deg=45.0):
     """
     if cd_ps_nm == 0 and dgd_ps == 0:
         return x
-    
+        
     N = len(x)
     X = np.fft.rfft(x)
     f = np.fft.rfftfreq(N, d=1.0/fs)
     
-    # 1. CD (Chromatic Dispersion) Filter
-    H_CD = 1.0
-    if cd_ps_nm != 0:
-        lambda_nm = 1310.0
-        c_nm_ps = 299792.458
-        f_thz = f * 1e-12
-        phase_cd = np.pi * (lambda_nm**2) * cd_ps_nm / c_nm_ps * (f_thz**2)
-        H_CD = np.cos(phase_cd)
-        
-    # 2. DGD (Polarization Mode Dispersion) Filter
-    H_DGD = 1.0
-    if dgd_ps != 0:
-        # Power splitting based on polarization angle
-        gamma = np.cos(np.radians(pol_angle_deg))**2
-        delta_tau = dgd_ps * 1e-12
-        H_DGD = gamma + (1 - gamma) * np.exp(-1j * 2 * np.pi * f * delta_tau)
-        
-    X_filtered = X * H_CD * H_DGD
+    # CD Transfer Function (approximation)
+    # H_CD(f) = exp(-j * pi * D * lambda^2 / c * f^2)
+    D = cd_ps_nm * 1e-12
+    lmbda = 1550e-9
+    c = 3e8
+    phase_cd = -np.pi * D * (lmbda**2) / c * (f**2)
+    H_cd = np.exp(1j * phase_cd)
+    
+    # DGD Transfer Function
+    # For IM/DD, power splits and recombines. 
+    # H_DGD(f) = cos(theta)^2 + sin(theta)^2 * exp(-j * 2 * pi * f * DGD)
+    theta = np.radians(pol_angle_deg)
+    tau = dgd_ps * 1e-12
+    H_dgd = np.cos(theta)**2 + np.sin(theta)**2 * np.exp(-1j * 2 * np.pi * f * tau)
+    
+    H_total = H_cd * H_dgd
+    X_filtered = X * H_total
+    
     return np.fft.irfft(X_filtered, n=N)
 
 def dac_zoh(x, sps_in, sps_out):
@@ -171,8 +175,10 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
         f_z = f_b / config_tx.get('ctle_fz_ratio', 2.5)
         f_p1 = f_b / config_tx.get('ctle_fp1_ratio', 2.5)
         f_p2 = f_b / config_tx.get('ctle_fp2_ratio', 1.0)
-        g_dc_db = config_tx.get('ctle_g_dc_db', -10.0)
-        x = apply_ctle(x, fs_analog, f_z, f_p1, f_p2, g_dc_db)
+        f_lf = f_b / config_tx.get('ctle_flf_ratio', 40.0)
+        g_dc_db = config_tx.get('ctle_g_dc_db', 0.0)
+        g_dc2_db = config_tx.get('ctle_g_dc2_db', 0.0)
+        x = apply_ctle(x, fs_analog, f_z, f_p1, f_p2, g_dc_db, g_dc2_db, f_lf)
     # ----------------------------------------------------------
     
     # --- ISI BYPASS (DEBUG MODE) ---
