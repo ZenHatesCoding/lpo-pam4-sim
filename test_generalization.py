@@ -62,9 +62,9 @@ def run_generalization_test(snr_db):
         print("Models not found, run train_surrogates.py first.")
         return
         
-    with open("models_lpo/model_a_s21.pkl", "rb") as f:
+    with open("models_mlse/model_a_s21.pkl", "rb") as f:
         model_a = pickle.load(f)
-    with open("models_lpo/model_b_config.pkl", "rb") as f:
+    with open("models_mlse/model_b_config.pkl", "rb") as f:
         model_b = pickle.load(f)
         
     print(f"Models loaded successfully. Now testing Stage 2 on comprehensive LPO conditions (Physical Noise)...")
@@ -87,8 +87,9 @@ def run_generalization_test(snr_db):
     ]
     
     results = []
-    out_dir = os.path.join("result", "latest_comparison", "ddps")
-    os.makedirs(out_dir, exist_ok=True)
+    out_dir = f"result/mlse_comparison/ddps"
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir, exist_ok=True)
     
     for case in test_cases:
         print(f"\n--- Running DDPS Stage 2: {case['name']} (Physical Noise) ---")

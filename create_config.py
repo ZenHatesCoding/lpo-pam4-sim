@@ -113,9 +113,9 @@ def generate_config(mode=DEFAULT_MODE):
             'ffe_mu': 1e-4,
             'lms_mu': 1e-4,
             'train_len': 10000,
-            'dfe_taps': 1 if LPO_MODE else 0,
+            'dfe_taps': 0,
             # Standard reference equalizer does not use MLSE
-            'mlse_memory': 0 if LPO_MODE else 1,
+            'mlse_memory': 1,
         }
     }
     
