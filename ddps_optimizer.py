@@ -258,7 +258,6 @@ def _find_latest_dataset():
 
 def _deep_config(config):
     dc = {k: v.copy() if isinstance(v, dict) else v for k, v in config.items()}
-    dc['channel']['snr_db'] = 28.0
     dc['system']['num_symbols'] = 1048576
     dc['tx']['pattern_length'] = 524288
     dc['system']['enable_eye_plot'] = False
@@ -388,7 +387,7 @@ def _write_sim_log(result_dir, config, df, n_s1, n_s2, trace, s1_best, seed_lb,
         f.write(f"Stage 1 samples: {n_s1} (total after merge: {len(df)})\n")
         f.write(f"Stage 2 steps: {n_s2} (constrained descent, NO real-BER feedback)\n")
         f.write(f"Safety rule (Model B): <= seed_pred + {SAFETY_MARGIN} log10 (relative)\n")
-        f.write(f"Warm-up fidelity: SNR {config['channel']['snr_db']} dB, "
+        f.write(f"Warm-up fidelity: Physical Noise Only, "
                 f"num_symbols {config['system']['num_symbols']}\n\n")
         f.write(f"Start x0 log10(MLSE BER): {seed_lb:.4f} ({10.0 ** seed_lb:.2e})\n")
         f.write(f"Stage-1 sampled best log10(BER): {s1_best:.4f} ({10.0 ** s1_best:.2e})\n")

@@ -68,18 +68,27 @@ def generate_config(mode=DEFAULT_MODE):
         },
         'channel': {
             'sps_channel': 8,
-            'snr_db': 26.5,  # Fallback for old mode
             
             # --- Electrical Channel Insertion Loss ---
             'tx_pcb_loss_nyquist_db': 7.0 if LPO_MODE else 15.0,
             'rx_pcb_loss_nyquist_db': 7.0 if LPO_MODE else 15.0,
             
-            # --- Distributed Noise Parameters (LPO Spec) ---
-            'use_distributed_noise': LPO_MODE,
-            'host_tx_noise_rms': 0.003 if LPO_MODE else 0.0,
-            'module_tx_noise_rms': 0.003 if LPO_MODE else 0.0,
-            'module_rx_noise_rms': 0.003 if LPO_MODE else 0.0,
-            'host_rx_noise_rms': 0.003 if LPO_MODE else 0.0,
+            # --- Physical Device Parameters (SJTU Model) ---
+            'driver_vpp': 0.617,          # Volts (Optimal swing for linear MZM region)
+            'laser_rin_db_hz': -150.0,    # dB/Hz
+            'mzm_v_pi': 3.0,              # Volts
+            'mzm_v_bias': 2.25,           # Volts
+            'mzm_er_db': 25.0,            # dB
+            'pin_responsivity': 0.6,      # A/W
+            'pin_dark_current_na': 10.0,  # nA
+            'temperature_k': 298.15,      # Kelvin
+            'rl_ohm': 50.0,               # Ohms
+            'tia_gain_ohm': 720.0,        # Ohms
+            'tia_noise_pa_rthz': 16.0,    # pA/sqrt(Hz)
+            
+            # --- Added legacy host noise for frontend ---
+            'host_rx_noise_rms': 0.001,   # 1mV RMS for Tx/Rx generic noise
+            'host_tx_noise_rms': 0.001,   # 1mV RMS for Tx/Rx generic noise
             
             'use_s4p': True,
             's4p_file': s4p_file,
@@ -110,12 +119,13 @@ def generate_config(mode=DEFAULT_MODE):
         }
     }
     
-    # Define stress cases for typical IEEE standards (DR/FR1/LR1) limits
+    # Define physical stress cases
     stress_cases = [
-        {'case_id': 'case_baseline', 'cd_ps_nm': 0.0, 'dgd_ps': 0.0, 'pol_angle_deg': 0.0, 'snr_db': 26.5},
-        {'case_id': 'case_dr_500m_limit', 'cd_ps_nm': 2.0, 'dgd_ps': 2.24, 'pol_angle_deg': 45.0, 'snr_db': 26.5},
-        {'case_id': 'case_fr1_2km_limit', 'cd_ps_nm': 6.0, 'dgd_ps': 3.3, 'pol_angle_deg': 45.0, 'snr_db': 26.5},
-        {'case_id': 'case_lr1_10km_limit', 'cd_ps_nm': 28.0, 'dgd_ps': 5.0, 'pol_angle_deg': 45.0, 'snr_db': 26.5},
+        {'case_id': 'case_baseline', 'cd_ps_nm': 0.0, 'dgd_ps': 0.0, 'pol_angle_deg': 0.0, 'laser_rin_db_hz': -150.0, 'mzm_er_db': 25.0, 'tia_noise_pa_rthz': 16.0, 'tx_pcb_loss_nyquist_db': 7.0, 'rx_pcb_loss_nyquist_db': 7.0},
+        {'case_id': 'case_cd_dgd_stress', 'cd_ps_nm': 28.0, 'dgd_ps': 5.0, 'pol_angle_deg': 45.0, 'laser_rin_db_hz': -150.0, 'mzm_er_db': 25.0, 'tia_noise_pa_rthz': 16.0, 'tx_pcb_loss_nyquist_db': 7.0, 'rx_pcb_loss_nyquist_db': 7.0},
+        {'case_id': 'case_high_loss', 'cd_ps_nm': 0.0, 'dgd_ps': 0.0, 'pol_angle_deg': 0.0, 'laser_rin_db_hz': -150.0, 'mzm_er_db': 25.0, 'tia_noise_pa_rthz': 16.0, 'tx_pcb_loss_nyquist_db': 12.0, 'rx_pcb_loss_nyquist_db': 12.0},
+        {'case_id': 'case_high_noise', 'cd_ps_nm': 0.0, 'dgd_ps': 0.0, 'pol_angle_deg': 0.0, 'laser_rin_db_hz': -140.0, 'mzm_er_db': 15.0, 'tia_noise_pa_rthz': 25.0, 'tx_pcb_loss_nyquist_db': 7.0, 'rx_pcb_loss_nyquist_db': 7.0},
+        {'case_id': 'case_combined_stress', 'cd_ps_nm': 15.0, 'dgd_ps': 3.0, 'pol_angle_deg': 45.0, 'laser_rin_db_hz': -142.0, 'mzm_er_db': 18.0, 'tia_noise_pa_rthz': 20.0, 'tx_pcb_loss_nyquist_db': 10.0, 'rx_pcb_loss_nyquist_db': 10.0},
     ]
     
     if target_il is not None and not LPO_MODE:

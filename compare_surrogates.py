@@ -34,7 +34,6 @@ class StandardizingGPR:
 
 def _deep_validate(config, taps, ctle):
     dc = {k: v.copy() if isinstance(v, dict) else v for k, v in config.items()}
-    dc['channel']['snr_db'] = 28.0
     dc['system']['num_symbols'] = 1048576
     dc['tx']['pattern_length'] = 524288
     dc['system']['enable_eye_plot'] = False

@@ -21,9 +21,7 @@ def main():
     base_config = load_config('config.xlsx')
     
     # 1e-5 level simulation (1M symbols)
-    base_config['channel']['snr_db'] = 28.0
     print(f"Num Symbols: {base_config['system']['num_symbols']}")
-    print(f"SNR (dB): {base_config['channel']['snr_db']}")
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     result_dir = os.path.join("result", f"{timestamp}_comparison")
@@ -184,7 +182,7 @@ def main():
     for alg in algorithms:
         plt.semilogy(all_histories[alg], label=alg, marker='o', markersize=4)
     plt.axhline(y=initial_mlse_ber, color='r', linestyle='--', label='Initial Sub-optimal')
-    plt.title(f"MLSE BER Convergence (SNR={base_config['channel']['snr_db']} dB)")
+    plt.title("MLSE BER Convergence (Physical Channel)")
     plt.xlabel("Evaluation Step")
     plt.ylabel("MLSE BER")
     plt.grid(True, which="both", ls="--")
@@ -197,7 +195,7 @@ def main():
     with open(os.path.join(result_dir, 'comparison_summary.md'), 'w') as f:
         f.write(f"# Optimization Algorithm Comparison (Mode: {opt_mode})\n\n")
         f.write(f"- **Symbols**: {base_config['system']['num_symbols']}\n")
-        f.write(f"- **SNR**: {base_config['channel']['snr_db']} dB\n")
+        f.write(f"- **Noise**: Distributed Physical Modeling\n")
         f.write(f"- **Initial Sub-optimal Point**: FFE BER = `{initial_ffe_ber:.2e}`, MLSE BER = `{initial_mlse_ber:.2e}`\n\n")
         f.write(f"![MLSE BER Convergence](file:///{os.path.abspath(plot_path).replace(os.sep, '/')})\n\n")
         f.write("| Algorithm | Best MLSE BER | Best FFE BER | Max FFE BER (Safety) | Max MLSE BER (Safety) | Optimal CTLE |\n")

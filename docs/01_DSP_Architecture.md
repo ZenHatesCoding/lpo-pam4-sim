@@ -1,97 +1,89 @@
-# 01. DSP 架构与参数说明
+# 01. DSP 架构与物理参数详解
 
 [🔙 返回主页](../README.md)
 
-本项目是一个纯白盒实现的 112G/224G PAM4 LPO (Linear Pluggable Optics) 通信链路仿真平台。它主要由三个模块构成：发送端 (Tx DSP)、信道模型 (Channel) 和接收端 (Rx DSP)。所有参数均通过根目录下的 `config.xlsx` 进行管理和下发（也可在运行时动态覆盖）。
+本项目是一个纯白盒实现的 112G/224G/448G PAM4 LPO (Linear Pluggable Optics) 通信链路仿真平台。它主要由三个模块构成：发送端 (Tx DSP)、物理光电信道 (Channel) 和接收端 (Rx DSP)。所有参数均通过根目录下的 `config.xlsx` 进行管理和下发。
 
 ---
 
 ## 1. 核心架构说明
 
-### 1.1 发送端 (Tx DSP & Analog Front-End)
-由于 LPO (Linear Pluggable Optics) 模块内部不包含 DSP，所有的发送端均衡均由 Host ASIC 完成。
-- **纯线性 FFE**：使用 FIR 结构的 Tx FFE 预加重，对抗信道高频衰减。
-- **Tx CTLE (模拟域)**：为了模拟 Host 端 SerDes 芯片的连续时间预加重能力，系统在通过 DAC (Zero-Order Hold) 后，紧接着在**模拟域信道的最前端（即 Tx 端）**部署了严格符合 IEEE 802.3ck 和 LPO MSA v1.01 标准的双级 CTLE。该均衡器拥有 `gDC` (高频 peaking) 和 `gDC2` (低频增益) 两个独立维度的调控阀门，与 FFE 联合构成 10 维寻优空间。
+### 1.1 发送端 (Tx DSP)
+由于 LPO 模块内部不包含重型 DSP，所有的发送端均衡均由 Host ASIC 完成。
+- **纯线性 FFE**：使用 9-tap T-spaced 的 Tx FFE 进行预加重，对抗信道高频衰减。在我们的优化架构中，Tx FFE 的抽头系数是我们核心优化的对象。
 
-### 1.2 信道模型 (Channel)
-- **多采样率仿真**：DSP 核心以 2 Sps 运行，信道（包括 MZM、光纤色散、探测器、TIA）中信号上采至 8 Sps。
-- **物理信道特性**：包含了 Host PCB Trace 频响滤波、光模块内部 MZM/PD 的电光转换带宽限制，以及长距 Fiber 引入的插损。
+### 1.2 微观物理光电信道 (Physical Channel)
+- **多采样率仿真**：DSP 核心以 2 Sps (Symbol per second) 运行，信道（包括 MZM、光纤色散、探测器、TIA）中信号上采至 8 Sps，进行极其精细的模拟域仿真。
+- **动态插损匹配**：对给定的 IEEE/OIF S4P 模型进行自动频域缩放 (Frequency Scaling)，精准匹配用户配置的奈奎斯特频率插损 (如 10dB, 12dB)。
+- **SJTU 级微观器件建模**：
+  - **MZM (马赫-曾德尔调制器)**：严格构建了包含消光比（ER=25dB）和 $V_{bias}$ 的双臂干涉指数复数模型。Tx 驱动摆幅控制在 $0.617V$ 确保工作在线性区。
+  - **分布物理噪声**：彻底抛弃全局信噪比 (SNR_dB)，全链路噪声由微观公式驱动：
+    - **RIN 噪声**：激光器内部发出的光强波动 ($-150$ dB/Hz)。
+    - **Thermal / Shot 噪声**：PIN 的平方律散粒噪声与 TIA 等效输入热噪声 ($16$ pA/$\sqrt{Hz}$)。
+  - **光纤频散解耦**：色散 (CD) 严格作用于复数光场，而偏振态分裂带来的差分群延迟 (DGD) 直接作用于检波后的实数光功率。
 
-### 1.3 接收端 (Rx DSP)
-- **数字 FFE (T/2 Spaced)**：Host ASIC 接收端使用分数间隔 (Fractional-Spaced) FFE 均衡器。通过内置的 LMS (最小均方差) 算法进行自适应抽头寻优。
-- **完全解耦的 DFE**：由于误差传播在极高误码率下会导致系统雪崩，且与 MLSE 相关记忆提取产生冲突，系统默认关闭 DFE (`dfe_taps = 0`)。
-- **常态开启的高阶 MLSE**：内置了基于 Viterbi 算法的 MLSE。系统默认开启（`mlse_memory = 1`），使用 Burg 算法自回归拟合残余色噪，联合信道记忆来突破线性 FFE 的理论物理极限。
+### 1.3 接收端 (Rx DSP & 均衡)
+- **模拟均衡 (Rx Analog CTLE)**：双级连续时间线性均衡器（CTLE），带有 `gDC` 和 `gDC2` 两个独立可调参数，这是我们在 Tx 之外的额外优化自由度（构成 10 维寻优空间）。
+- **数字均衡 (Rx FFE/DFE)**：Host ASIC 接收端使用长达 22-tap 的 T-spaced FFE 和 1-tap DFE。通过内置的 LMS (最小均方差) 算法，针对接收到的受损信号进行盲搜抽头收敛。为了抵抗巨大的物理噪声，系统的 AGC (自动增益控制) 全部采用 RMS 均方根功率度量，以稳定 LMS 步长。
+- **无 MLSE 的纯切片判决 (Pure Slicer)**：为了模拟最严苛、延迟最低的 LPO 场景，**当前代码中的维特比 MLSE 内存被设为了 0 (`mlse_memory = 0`)**。这意味着系统在 Rx 均衡后直接退化为简单的无记忆 4 电平切片器 (Slicer)。测试报表中的 `MLSE BER` 即指代此切片器的真实硬判决误码率。
 
 ### 1.4 全链路数据流框图
 
 ```mermaid
 %%{init: {'themeVariables': { 'background': 'transparent'}}}%%
 graph LR
-    subgraph R1 ["1. Tx Host (Digital + Analog)"]
+    subgraph R1 ["1. Tx Host (Digital)"]
         direction TB
         A[Data Bits] --> B[PAM4 Mapper]
-        B --> C["Tx FFE"]
-        C --> D["DAC"]
-        D --> E["Tx CTLE"]
+        B --> C["9-tap Tx FFE"]
+        C --> D["DAC (0.617 Vpp)"]
     end
 
-    subgraph R2 ["2. Physical Channel & Optics"]
+    subgraph R2 ["2. Physical Electro-Optic Channel"]
         direction TB
-        F["Host PCB"] --> G["E-O MZM"]
-        G --> H["Optical Fiber"]
-        H --> I["O-E PD"]
-        I --> J["TIA Amplifier"]
-        N1(("AWGN")) --> K((+))
-        J --> K
+        F["Tx PCB (Scaled S-Param)"] --> G["E-O MZM (w/ RIN)"]
+        G --> H["Fiber (CD Complex FFT)"]
+        H --> I["Fiber (DGD Real FFT)"]
+        I --> J["O-E PIN (Square Law + Shot)"]
+        J --> K["TIA (Thermal Noise)"]
+        K --> L["Rx PCB (Scaled S-Param)"]
     end
 
     subgraph R3 ["3. Rx Host (Analog + Digital)"]
         direction TB
-        L["Anti-Alias"] --> M["ADC"]
-        M --> N["Rx FFE"]
-        N --> O["MLSE Decoder"]
-        O --> P[Data Bits]
+        M["Analog CTLE (gDC, gDC2)"] --> N["ADC"]
+        N --> O["22-tap Rx FFE + 1-tap DFE"]
+        O --> P["Hard Slicer (No MLSE)"]
+        P --> Q[Data Bits]
     end
     
-    E -.->|"出射"| F
-    K -.->|"采样"| L
+    D -.-> F
+    L -.-> M
 ```
-
-> [!TIP]
-> 上图仅展示了数据链路的流向。关于**整个系统的优化架构循环框图**（即不同优化器如何生成权重、与跑流仿真配合并根据 MLSE BER 决策下一步），请参阅：👉 [04. 优化算法架构与原理解析 (Optimization Algorithms)](04_Optimization_Algorithms.md#1-优化架构与系统配合框图)。
 
 ---
 
 ## 2. `config.xlsx` 关键参数字典
 
 ### [System] 全局配置
-- `target_case`: 设定目标应力用例。脚本会根据该标识符去 `stress_cases` 寻找并覆盖加载环境配置（如色散和 DGD）。
-- `baud_rate`: 112.5e9 (即 112.5 GBd，对应 224G PAM4)。
+- `target_case`: 设定目标应力用例。脚本会根据该标识符去 `stress_cases` 寻找并加载物理环境配置。
+- `baud_rate`: 波特率设定。`112G` (56GBd), `224G` (112.5GBd), `448G` (212.5GBd)。
 - `sps_dsp` / `sps_channel`: DSP 与模拟信道的采样率（通常为 2 和 8）。
-- `plot_intermediate_eyes`: `True`/`False`。控制是否绘制中间各个物理节点的 50Sps 高清平滑眼图，输出至 `result/`。
 
 ### [Stress Cases] 物理损伤应力配置
-- `stress_cases` 是一个独立的二维表，每一行代表一个特定的物理应力环境，包含以下关键字段：
-  - `case_id`: 用例标识符，供 `target_case` 选用。
-  - `cd_ps_nm`: 色散 (CD) 容限，利用 $\lambda=1310$ nm 零色散区附近的特性进行频域衰落建模。
-  - `dgd_ps`: 差分群时延 (DGD) 容限。
-  - `pol_angle_deg`: 偏振角度（默认 $45^\circ$ 为最恶劣能量平分情况，此时会产生深陷波）。
-  - `snr_db`: 加性白高斯噪声 (AWGN) 的信噪比设定，默认 `26.5 dB`。
+`stress_cases` 是一个独立的二维表，每一行代表一个特定的物理应力环境，不设任何“全局 SNR”，全部由真实物理器件参数驱动：
+- `tx_pcb_loss_nyquist_db` / `rx_pcb_loss_nyquist_db`: 在 Nyquist 频率下的目标信道电插损 (如 7.0dB 或 10.0dB)。
+- `cd_ps_nm`: 色散 (CD) 容限。
+- `dgd_ps`: 差分群时延 (DGD) 容限。
+- `laser_rin_db_hz`: 激光器相对强度噪声 (如 -150 dB/Hz)。
+- `mzm_er_db`: 调制器消光比 (如 25 dB)。
+- `tia_noise_pa_rthz`: TIA 等效输入热噪声 (如 16.0 pA/$\sqrt{Hz}$)。
 
-### [Tx] 发送端配置
-- `ffe_taps`: Tx FFE 总抽头数。
-- `ffe_pre`: Tx FFE 前向（Pre-cursor）抽头数，决定了中心主抽头的位置。
-- `custom_taps`: 手动指定的固定抽头数组。
-- `optimize_mode`: 优化器模式开关。
-  - `'FFE_ONLY'`：仅优化 8 个 Tx FFE 前后抽头与 1 个 CTLE DC Gain（9维空间）。
-  - `'JOINT'`：联合优化 8 个 Tx FFE 抽头与 CTLE 的 4 个完整物理参数（DC Gain, fz, fp1, fp2），即 **12维** 白盒全局寻优。
-
-### [Rx] 接收端配置
-- `ffe_taps` / `ffe_pre`: Rx FFE 的总抽头与前向抽头数配置。
-- `dfe_taps`: DFE 抽头数（设为 0 即为纯线性均衡）。
-- `train_len`: LMS 训练序列长度（目前前 2000 个符号用于训练，之后冻结抽头以防误码传播）。
-- `lms_mu`: 训练步长。
-- `mlse_memory`: 维特比算法的记忆深度。
+### [Tx / Rx] 均衡与算法配置
+- `ffe_taps` / `ffe_pre`: FFE 总抽头数与前向抽头数。Tx 固定为 9，Rx 固定为 22。
+- `dfe_taps`: 默认 1-tap。
+- `lms_mu`: Rx LMS 训练步长（如 1e-4）。
+- `mlse_memory`: 默认 0，系统全退化为纯线性/DFE均衡后的简单门限切片。
 
 ---
 

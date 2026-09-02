@@ -10,21 +10,21 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-def plot_generalization_convergence(result_dir, trace, seed_lb, case_name, snr_db):
+def plot_generalization_convergence(result_dir, trace, seed_lb, case_name):
     try:
         steps = [t['step'] for t in trace]
         real = [t['real_mlse'] for t in trace]
         pred_a = [10.0 ** t['pred_a'] for t in trace]
         plt.figure(figsize=(9, 5))
-        plt.semilogy(steps, real, marker='o', markersize=4, label=f'Real MLSE @ {snr_db}dB')
+        plt.semilogy(steps, real, marker='o', markersize=4, label=f'Real MLSE')
         plt.semilogy(steps, pred_a, marker='x', markersize=4, ls='--', label='Model A prediction')
         plt.axhline(10.0 ** seed_lb, color='red', ls=':', label='Start x0')
         plt.xlabel('Stage 2 step')
         plt.ylabel('MLSE BER')
-        plt.title(f'DDPS Generalization (SNR {snr_db}dB): {case_name}')
+        plt.title(f'DDPS Generalization (Physical Model): {case_name}')
         plt.grid(True, which='both', ls='--', alpha=0.6)
         plt.legend()
-        filename = f"ddps_gen_snr{snr_db}_{case_name.replace(' ', '_').replace('+', 'p').replace('=', '').replace('(', '').replace(')', '').replace(',', '')}.png"
+        filename = f"ddps_gen_physical_{case_name.replace(' ', '_').replace('+', 'p').replace('=', '').replace('(', '').replace(')', '').replace(',', '')}.png"
         plt.tight_layout()
         plt.savefig(os.path.join(result_dir, filename))
         plt.close()
@@ -33,11 +33,11 @@ def plot_generalization_convergence(result_dir, trace, seed_lb, case_name, snr_d
         print(f"(plot skipped: {e})")
         return None
 
-def write_markdown_report(results, out_dir, snr_db):
-    md_path = os.path.join(out_dir, f"generalization_summary_{snr_db}dB.md")
+def write_markdown_report(results, out_dir):
+    md_path = os.path.join(out_dir, f"generalization_summary_physical.md")
     with open(md_path, "w", encoding="utf-8") as f:
-        f.write(f"# DDPS Generalization Test Summary (SNR = {snr_db} dB)\n\n")
-        f.write("本报告验证了复用 26.5dB 下离线训好的 Model A & B，在不同色散 (CD)、偏振模色散 (DGD) 和偏振态 (SOP) 组合下的 Stage 2 泛化寻优能力。\n\n")
+        f.write(f"# DDPS Generalization Test Summary (Physical Noise Only)\n\n")
+        f.write("本报告验证了复用离线训好的 Model A & B，在不同色散 (CD)、偏振模色散 (DGD) 和偏振态 (SOP) 组合下的 Stage 2 泛化寻优能力。\n\n")
         
         f.write("## 1. 测试用例与结果\n\n")
         f.write("| 测试场景 | IL (dB) | CD (ps/nm) | DGD (ps) | 最优 MLSE | 最优 Taps (Tx FFE) | gDC, gDC2 (dB) | 收敛步数 | 收敛曲线 |\n")
@@ -67,14 +67,14 @@ def run_generalization_test(snr_db):
     with open("models_lpo/model_b_config.pkl", "rb") as f:
         model_b = pickle.load(f)
         
-    print(f"Models loaded successfully. Now testing Stage 2 on comprehensive LPO conditions @ SNR {snr_db}dB...")
+    print(f"Models loaded successfully. Now testing Stage 2 on comprehensive LPO conditions (Physical Noise)...")
     
     test_cases = [
         {"name": "Base_IL7", "il": 7.0, "cd": 0.0, "dgd": 0.0},
         {"name": "IL_Sweep_10dB", "il": 10.0, "cd": 0.0, "dgd": 0.0},
         {"name": "IL_Sweep_12dB", "il": 12.0, "cd": 0.0, "dgd": 0.0},
         
-        # Dispersion variations
+        # CD variations (1550nm)
         {"name": "CD_Sweep_1ps", "il": 7.0, "cd": 1.0, "dgd": 0.0},
         {"name": "CD_Sweep_3ps", "il": 7.0, "cd": 3.0, "dgd": 0.0},
         
@@ -91,12 +91,11 @@ def run_generalization_test(snr_db):
     os.makedirs(out_dir, exist_ok=True)
     
     for case in test_cases:
-        print(f"\n--- Running DDPS Stage 2: {case['name']} @ SNR {snr_db}dB ---")
+        print(f"\n--- Running DDPS Stage 2: {case['name']} (Physical Noise) ---")
         cfg = utils_config.load_config('config.xlsx')
         cfg['system']['enable_eye_plot'] = False
         cfg['system']['enable_spectrum_plot'] = False
-        
-        cfg['channel']['snr_db'] = snr_db
+        cfg['system']['enable_spectrum_plot'] = False
         cfg['channel']['tx_pcb_loss_nyquist_db'] = case['il']
         cfg['channel']['rx_pcb_loss_nyquist_db'] = case['il']
         cfg['channel']['cd_ps_nm'] = case['cd']
@@ -123,7 +122,7 @@ def run_generalization_test(snr_db):
             best_gdc = trace[best_idx]['gdc']
             best_gdc2 = trace[best_idx]['gdc2']
             
-            plot_file = plot_generalization_convergence(out_dir, trace, seed_logber, case['name'], snr_db)
+            plot_file = plot_generalization_convergence(out_dir, trace, seed_logber, case['name'])
             
             results.append({
                 'case': case['name'],
@@ -146,13 +145,10 @@ def run_generalization_test(snr_db):
             })
             
     df = pd.DataFrame(results)
-    df.to_csv(os.path.join(out_dir, f"generalization_summary_{snr_db}dB.csv"), index=False)
+    df.to_csv(os.path.join(out_dir, f"generalization_summary_physical.csv"), index=False)
     
-    write_markdown_report(results, out_dir, snr_db)
-    print(f"\n--- Summary generated at {out_dir}/generalization_summary_{snr_db}dB.md ---")
+    write_markdown_report(results, out_dir)
+    print(f"\n--- Summary generated at {out_dir}/generalization_summary_physical.md ---")
     
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--snr', type=float, default=26.5)
-    args = parser.parse_args()
-    run_generalization_test(args.snr)
+    run_generalization_test(0)

@@ -49,37 +49,29 @@ def apply_ctle(x, fs, f_z, f_p1, f_p2, g_dc_db, g_dc2_db, f_lf):
     X_filtered = X * H_ctle
     return np.fft.irfft(X_filtered, n=N)
 
-def apply_cd_dgd(x, fs, cd_ps_nm, dgd_ps, pol_angle_deg=45.0):
-    """
-    Apply Chromatic Dispersion (CD) and Differential Group Delay (DGD) impairments.
-    Modeled as frequency domain filters for an IM/DD system.
-    """
-    if cd_ps_nm == 0 and dgd_ps == 0:
-        return x
-        
-    N = len(x)
-    X = np.fft.rfft(x)
-    f = np.fft.rfftfreq(N, d=1.0/fs)
-    
-    # CD Transfer Function (approximation)
-    # H_CD(f) = exp(-j * pi * D * lambda^2 / c * f^2)
+def apply_cd(E, fs, cd_ps_nm):
+    if cd_ps_nm == 0:
+        return E
+    N = len(E)
+    E_f = np.fft.fft(E)
+    f = np.fft.fftfreq(N, d=1.0/fs)
     D = cd_ps_nm * 1e-12
     lmbda = 1550e-9
     c = 3e8
     phase_cd = -np.pi * D * (lmbda**2) / c * (f**2)
     H_cd = np.exp(1j * phase_cd)
-    
-    # DGD Transfer Function
-    # For IM/DD, power splits and recombines. 
-    # H_DGD(f) = cos(theta)^2 + sin(theta)^2 * exp(-j * 2 * pi * f * DGD)
+    return np.fft.ifft(E_f * H_cd)
+
+def apply_dgd(P, fs, dgd_ps, pol_angle_deg=45.0):
+    if dgd_ps == 0:
+        return P
+    N = len(P)
+    P_f = np.fft.rfft(P)
+    f = np.fft.rfftfreq(N, d=1.0/fs)
     theta = np.radians(pol_angle_deg)
     tau = dgd_ps * 1e-12
     H_dgd = np.cos(theta)**2 + np.sin(theta)**2 * np.exp(-1j * 2 * np.pi * f * tau)
-    
-    H_total = H_cd * H_dgd
-    X_filtered = X * H_total
-    
-    return np.fft.irfft(X_filtered, n=N)
+    return np.fft.irfft(P_f * H_dgd, n=N)
 
 def dac_zoh(x, sps_in, sps_out):
     """ DAC Zero-Order Hold upsampling """
@@ -208,36 +200,95 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     else:
         x = lowpass_filter(x, fc_pcb_tx, fs_analog, order=1)
         
+    # --- Physical Tx Driver ---
+    x = x - np.mean(x)
+    current_rms = np.std(x)
+    if current_rms > 1e-12:
+        target_vpp = config_ch.get('driver_vpp', 0.617)
+        target_rms = target_vpp * 0.3726
+        x = x * (target_rms / current_rms)
+        
+    # [Host Tx Noise]
+    x += rng.normal(0, config_ch.get('host_tx_noise_rms', 0.001), len(x))
+
     x_analog = x.copy()
     
-    # [Module Tx Noise]
-    if config_ch.get('use_distributed_noise', False):
-        x += rng.normal(0, config_ch.get('module_tx_noise_rms', 0.0), len(x))
-
-    # 3. E-O Conversion (MZM)
-    x = lowpass_filter(x, config_ch['mzm_bw'], fs_analog)
+    # --- E-O Conversion (Laser + MZM) ---
+    P_in_W = 10**(3.0/10) / 1000.0  # 3 dBm average laser power
+    rin_db_hz = config_ch.get('laser_rin_db_hz', -150)
+    rin_linear = 10**(rin_db_hz / 10)
+    bw_noise = fs_analog / 2
+    var_rin = rin_linear * bw_noise * (P_in_W**2)
     
-    # 3. Fiber Channel
+    P_laser = P_in_W + rng.normal(0, np.sqrt(var_rin), len(x))
+    P_laser = np.maximum(P_laser, 0.0)
+    E_in = np.sqrt(P_laser)
+    
+    v_pi = config_ch.get('mzm_v_pi', 3.0)
+    v_bias = config_ch.get('mzm_v_bias', 2.25)
+    er_db = config_ch.get('mzm_er_db', 25.0)
+    
+    e_r = 10**(er_db / 10)
+    gamma = (1 - 1/np.sqrt(e_r)) / 2
+    phase = np.pi * (x + v_bias) / v_pi
+    E_out = E_in * (gamma * np.exp(1j * phase) + (1 - gamma) * np.exp(-1j * phase))
+    
+    E_out = lowpass_filter(E_out, config_ch['mzm_bw'], fs_analog)
+    
+    # --- Fiber Channel ---
     loss_db = config_ch['fiber_length_km'] * config_ch['fiber_loss_db_km']
     loss_linear = 10**(-loss_db / 20.0)
-    x = x * loss_linear
+    E_out = E_out * np.sqrt(loss_linear)  # Field scales with sqrt of power loss
     
     cd_ps_nm = config_ch.get('cd_ps_nm', 0.0)
+    E_out = apply_cd(E_out, fs_analog, cd_ps_nm)
+    
+    # 7. Receiver - O-E Conversion (PIN + TIA)
+    # PIN Detection (Square Law)
+    P_rx = np.abs(E_out)**2
+    
+    # Apply DGD on detected power
     dgd_ps = config_ch.get('dgd_ps', 0.0)
     pol_angle_deg = config_ch.get('pol_angle_deg', 45.0)
-    if cd_ps_nm != 0 or dgd_ps != 0:
-        x = apply_cd_dgd(x, fs_analog, cd_ps_nm, dgd_ps, pol_angle_deg)
+    P_rx = apply_dgd(P_rx, fs_analog, dgd_ps, pol_angle_deg)
+    resp = config_ch.get('pin_responsivity', 0.6)
+    dark_current = config_ch.get('pin_dark_current_na', 10.0) * 1e-9
+    I_pd = resp * P_rx + dark_current
     
-    # 4. O-E Conversion (PD)
-    x = lowpass_filter(x, config_ch['pd_bw'], fs_analog)
+    q_charge = 1.602176634e-19
+    k_B = 1.380649e-23
+    temp_k = config_ch.get('temperature_k', 298.15)
+    rl_ohm = config_ch.get('rl_ohm', 50.0)
     
-    # 5. TIA
-    x = lowpass_filter(x, config_ch['tia_bw'], fs_analog)
+    var_shot = 2 * q_charge * np.abs(I_pd) * bw_noise
+    noise_shot = rng.normal(0, np.sqrt(var_shot))
     
-    # [Module Rx Noise]
-    if config_ch.get('use_distributed_noise', False):
-        x += rng.normal(0, config_ch.get('module_rx_noise_rms', 0.0), len(x))
-
+    var_thermal = 4 * k_B * temp_k / rl_ohm * bw_noise
+    noise_thermal = rng.normal(0, np.sqrt(var_thermal), len(I_pd))
+    
+    I_pd_noisy = I_pd + noise_shot + noise_thermal
+    I_pd_noisy = lowpass_filter(I_pd_noisy, config_ch['pd_bw'], fs_analog)
+    
+    # --- TIA ---
+    tia_gain = config_ch.get('tia_gain_ohm', 720.0)
+    V_tia = I_pd_noisy * tia_gain
+    
+    tia_noise_pa = config_ch.get('tia_noise_pa_rthz', 16.0) * 1e-12
+    var_tia = (tia_noise_pa**2) * bw_noise
+    noise_tia_v = rng.normal(0, np.sqrt(var_tia) * tia_gain, len(V_tia))
+    
+    V_tia = V_tia + noise_tia_v
+    V_tia = lowpass_filter(V_tia, config_ch['tia_bw'], fs_analog)
+    
+    # AGC / TIA output swing control
+    V_tia = V_tia - np.mean(V_tia)
+    # Target 500mV Vpp. For PAM4, V_rms = Vpp * 0.3726 = 0.5 * 0.3726 = 0.1863
+    current_rms_tia = np.std(V_tia)
+    if current_rms_tia > 1e-12:
+        V_tia = V_tia * (0.1863 / current_rms_tia)
+        
+    x = V_tia
+    
     # [Module Rx to Host Rx]
     if config_ch.get('use_s4p', False) and rf is not None:
         x_filtered = apply_s4p_filter(x, fs_analog, config_ch, 'rx_pcb_loss_nyquist_db', nyquist)
@@ -248,15 +299,8 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     else:
         x = lowpass_filter(x, fc_pcb_rx, fs_analog, order=1)
         
-    # [Host Rx Noise] / Fallback Noise
-    if config_ch.get('use_distributed_noise', False):
-        x += rng.normal(0, config_ch.get('host_rx_noise_rms', 0.0), len(x))
-    else:
-        signal_power = np.mean(x**2)
-        snr_linear = 10**(config_ch['snr_db'] / 10)
-        noise_power = signal_power / snr_linear
-        noise = rng.normal(0, np.sqrt(noise_power), len(x))
-        x = x + noise
+    # [Host Rx Noise]
+    x += rng.normal(0, config_ch.get('host_rx_noise_rms', 0.001), len(x))
         
     x_eq = x
     
@@ -266,5 +310,11 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     # 9. ADC Sampling
     dec_factor = sps_channel // sps_adc
     x_adc_out = x_adc_in[::dec_factor]
+    
+    # Ideal Digital AGC: Normalize ADC output to match PAM4 Tx RMS (sqrt(5))
+    x_adc_out = x_adc_out - np.mean(x_adc_out)
+    rms_adc = np.std(x_adc_out)
+    if rms_adc > 1e-12:
+        x_adc_out = x_adc_out * (np.sqrt(5.0) / rms_adc)
     
     return x_analog, x_adc_in, x_adc_out

@@ -51,6 +51,9 @@ DEFAULT_MODE = '112G'
 👉 **[04. DDPS 数据驱动物理代理寻优框架](docs/04_DDPS_Optimization_Framework.md)**  
 > *详解本平台原创的 Zero-Shot 双层代理寻优架构：基于 10D (FFE+双级CTLE) 物理探针的有限差分梯度下降与线搜索安全约束。*
 
+👉 **[05. 微观物理信道模型升级记录](docs/05_Physical_Channel_Upgrade.md)**  
+> *记录从抽象的高斯噪声模型升级至 SJTU 级微观光电物理模型（MZM 非线性、光纤色散与DGD、热/散粒噪声）的完整过程及抗噪排坑经验。*
+
 ## 三、 核心寻优算法 (Core Algorithms)
 项目当前搭载了多种白盒化重构的寻优算法，用以对比各类元启发式搜索在物理约束下的表现：
 - **GA (Genetic Algorithm)**: 经典连续遗传算法，全局寻优能力极强，但在线试错代价极大。
