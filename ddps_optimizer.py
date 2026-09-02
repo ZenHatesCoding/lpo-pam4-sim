@@ -152,7 +152,7 @@ def _stage1_train(df, model_dir):
 def _make_objective_a(config, model_a, ffe_pre, ucb_kappa=0.0):
     def objective(x):
         taps = construct_9tap(x[:8], ffe_pre)
-        return _predict_a(model_a, config, taps, x[8], ucb_kappa)
+        return _predict_a(model_a, config, taps, x[8], x[9], ucb_kappa)
     return objective
 
 
