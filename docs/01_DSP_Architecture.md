@@ -14,7 +14,7 @@
 
 ### 1.2 微观物理光电信道 (Physical Channel)
 - **多采样率仿真**：DSP 核心以 2 Sps (Symbol per second) 运行，信道（包括 MZM、光纤色散、探测器、TIA）中信号上采至 8 Sps，进行极其精细的模拟域仿真。
-- **动态插损匹配**：对给定的 IEEE/OIF S4P 模型进行自动频域缩放 (Frequency Scaling)，精准匹配用户配置的奈奎斯特频率插损 (如 10dB, 12dB)。
+- **动态插损匹配**：对给定的 IEEE/OIF S4P 模型进行自动频域缩放 (Frequency Scaling)，精准匹配用户配置的奈奎斯特频率插损 (默认 10dB，最差 20dB)。
 - **SJTU 级微观器件建模**：
   - **MZM (马赫-曾德尔调制器)**：严格构建了包含消光比（ER=25dB）和 $V_{bias}$ 的双臂干涉指数复数模型。Tx 驱动摆幅控制在 $0.617V$ 确保工作在线性区。
   - **分布物理噪声**：彻底抛弃全局信噪比 (SNR_dB)，全链路噪声由微观公式驱动：
@@ -41,11 +41,12 @@ graph LR
 
     subgraph R2 ["2. Physical Electro-Optic Channel"]
         direction TB
-        F["Tx PCB (Scaled S-Param)"] --> G["E-O MZM (w/ RIN)"]
+        F["Tx PCB (Scaled S-Param)"] --> G1["Driver (VGA + Gain x2 + BW)"]
+        G1 --> G["E-O MZM (w/ RIN + Phase Noise)"]
         G --> H["Fiber (CD Complex FFT)"]
         H --> I["Fiber (DGD Real FFT)"]
         I --> J["O-E PIN (Square Law + Shot)"]
-        J --> K["TIA (Thermal Noise)"]
+        J --> K["TIA (Thermal Noise + Gain 720)"]
         K --> L["Rx PCB (Scaled S-Param)"]
     end
 
@@ -72,7 +73,11 @@ graph LR
 
 ### [Stress Cases] 物理损伤应力配置
 `stress_cases` 是一个独立的二维表，每一行代表一个特定的物理应力环境，不设任何“全局 SNR”，全部由真实物理器件参数驱动：
-- `tx_pcb_loss_nyquist_db` / `rx_pcb_loss_nyquist_db`: 在 Nyquist 频率下的目标信道电插损 (如 7.0dB 或 10.0dB)。
+- `tx_pcb_loss_nyquist_db` / `rx_pcb_loss_nyquist_db`: 在 Nyquist 频率下的目标信道电插损，**默认 10.0 dB，最差 20.0 dB**（对齐 LPO MSA 7.2.1 die-to-die 上限）。
+- `driver_gain`: Driver **真实线性电压增益**（默认 2.0 ≈ 6 dB，与带限解耦）。
+- `driver_bw`: Driver 带限带宽（默认 40 GHz）。
+- `dac_enob` / `adc_enob`: DAC/ADC 量化位数 ENOB（默认 5.5，0 为理想）。
+- `laser_linewidth_hz`: 激光器相位噪声线宽（默认 10 MHz，维纳相位随机游走）。
 - `cd_ps_nm`: 色散 (CD) 容限。
 - `dgd_ps`: 差分群时延 (DGD) 容限。
 - `laser_rin_db_hz`: 激光器相对强度噪声 (如 -150 dB/Hz)。

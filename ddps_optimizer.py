@@ -342,7 +342,7 @@ def run_ddps(dataset_csv=None, model_dir="models", n_stage1_samples=600, n_stage
     deep_summary = ""
     if deep_validate:
         dc = _deep_config(config)
-        _, seed_deep = _physical_eval(dc, SEED_TAPS.copy(), SEED_CTLE)
+        _, seed_deep = _physical_eval(dc, SEED_TAPS.copy(), SEED_GDC, SEED_GDC2)
         _, ddps_deep = _physical_eval(dc, best_taps, best_gdc, best_gdc2)
         shc_taps = np.array([0.0, 0.0, -0.0195, -0.2987, 0.6636, 0.0, 0.0182, 0.0, 0.0])
         _, shc_deep_9d = _physical_eval(dc, shc_taps, 0.0, 0.0)

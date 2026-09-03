@@ -1,7 +1,7 @@
 import numpy as np
 import os
 from tx_dsp import tx_dsp_chain
-from channel_imdd import apply_ctle, dac_zoh, lowpass_filter, find_f_scale_for_target_il
+from channel_imdd import apply_ctle, dac_zoh, lowpass_filter, find_f_scale_for_target_il, apply_s4p_filter
 try:
     import skrf as rf
 except ImportError:
@@ -88,42 +88,16 @@ def extract_tx_s21(config, custom_tx_taps=None, num_taps=7):
         g_dc2_db = tx_config.get('ctle_g_dc2_db', 0.0)
         x_analog = apply_ctle(x_analog, fs_analog, f_z, f_p1, f_p2, g_dc_db, g_dc2_db, f_lf)
         
-    # 5. Host PCB Trace
+    # 5. Host PCB Trace (same IL scaling as apply_channel for consistency)
     config_ch = config['channel']
     nyquist = baud_rate / 2
-    loss_db = config_ch.get('pcb_loss_nyquist_db', 15.0)
+    loss_db = config_ch.get('tx_pcb_loss_nyquist_db', config_ch.get('pcb_loss_nyquist_db', 15.0))
     fc_pcb = nyquist / np.sqrt(10**(loss_db/10) - 1)
     
     if config_ch.get('use_s4p', False) and rf is not None:
-        s4p_path = config_ch.get('s4p_file', '')
-        if os.path.exists(s4p_path):
-            nw = _load_s4p_cached(s4p_path)
-            try:
-                # IEEE 802.3dj port mapping
-                S21 = nw.s[:, 1, 0]
-                S23 = nw.s[:, 1, 2]
-                S41 = nw.s[:, 3, 0]
-                S43 = nw.s[:, 3, 2]
-                sdd21 = 0.5 * (S21 - S23 - S41 + S43)
-            except Exception:
-                sdd21 = nw.s[:, 1, 0] if nw.s.shape[1] == 2 else nw.s[:, 0, 0]
-                
-            freqs = nw.f
-            N = len(x_analog)
-            X_analog = np.fft.rfft(x_analog)
-            f_sig = np.fft.rfftfreq(N, d=1.0/fs_analog)
-            
-            if 'target_il_nyquist_db' in config:
-                f_scale = find_f_scale_for_target_il(freqs, sdd21, -abs(config_ch['target_il_nyquist_db']), nyquist)
-            else:
-                f_scale = config_ch.get('s4p_f_scale', 1.0)
-                
-            f_sig_scaled = f_sig / f_scale
-            sdd21_mag = np.interp(f_sig_scaled, freqs, np.abs(sdd21), left=np.abs(sdd21)[0], right=0.0)
-            sdd21_phase = np.interp(f_sig_scaled, freqs, np.unwrap(np.angle(sdd21)), left=np.angle(sdd21)[0], right=0.0)
-            H_channel = sdd21_mag * np.exp(1j * sdd21_phase)
-            X_filtered = X_analog * H_channel
-            x = np.fft.irfft(X_filtered, n=N)
+        x_s4p = apply_s4p_filter(x_analog, fs_analog, config_ch, 'tx_pcb_loss_nyquist_db', nyquist)
+        if x_s4p is not None:
+            x = x_s4p
         else:
             x = lowpass_filter(x_analog, fc_pcb, fs_analog, order=1)
     else:

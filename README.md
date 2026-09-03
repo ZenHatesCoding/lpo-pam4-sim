@@ -37,7 +37,7 @@ DEFAULT_MODE = '112G'
 为保证项目整洁可读，本平台的文档已进行全面梳理，请通过以下入口深入了解：
 
 👉 **[LPO 信道升级与参数依据 (LPO Channel Upgrade Justification)](docs/LPO_Channel_Upgrade_Justification.md)**  
-> *LPO_MODE 下的 Tx 9-tap FFE、22-tap T-spaced Rx FFE+1-DFE 及 7dB 典型插损的完全对齐与自检报告。*
+> *LPO_MODE 下的 Tx 9-tap FFE、22-tap T-spaced Rx FFE+1-DFE 及 10dB 典型插损的完全对齐与自检报告。*
 
 👉 **[01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md)**  
 > *了解收发机模型、多采样率机制以及 `config.xlsx` 中几十个神秘参数的详细物理含义。*
@@ -62,7 +62,7 @@ DEFAULT_MODE = '112G'
 > * **Stage 1 (离线/近线)**：在安全区附近采样（包含对光纤 CD 色散和插损抗性的等效 FIR 映射），训练出纯白盒的 Model A (Tx等效FIR -> log10 BER，负责指引下探方向) 与 Model B (完整软硬件配置 -> log10 BER，包含 GPR 不确定度，负责守住安全红线)。
 > * **Stage 2 (在线)**：彻底切断真实物理反馈，在 Model A 的曲面上利用手写有限差分进行**带预条件自适应步长的投影梯度下降**，并由 Model B 进行安全线搜索回溯约束。
 > 
-> *在最近的纯物理噪音+MLSE深度验证中，DDPS 在应对诸如 `12dB 极限插损` 或 `Combined_Stress (高插损+色散+DGD混合灾变)` 时，均能在零断链风险下平滑收敛，精准权衡 FIR 补偿与 CTLE 高频噪声防爆之间的物理悖论。*
+> *在最近的纯物理噪音+MLSE深度验证中，DDPS 在应对诸如 `20dB 极限插损` 或 `Combined_Stress (高插损+色散+DGD混合灾变)` 时，均能在零断链风险下平滑收敛，精准权衡 FIR 补偿与 CTLE 高频噪声防爆之间的物理悖论。*
 
 > [!NOTE]
 > 早期测试用的古典算法（BO, GA, SA, SHC 等）及其相关对比测试脚本，现已统一清理并封存于 `archive/` 目录下，仅供历史参考。

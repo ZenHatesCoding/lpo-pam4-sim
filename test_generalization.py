@@ -36,8 +36,9 @@ def plot_generalization_convergence(result_dir, trace, seed_lb, case_name):
 def write_markdown_report(results, out_dir):
     md_path = os.path.join(out_dir, f"generalization_summary_physical.md")
     with open(md_path, "w", encoding="utf-8") as f:
-        f.write(f"# DDPS Generalization Test Summary (Physical Noise Only)\n\n")
-        f.write("本报告验证了复用离线训好的 Model A & B，在不同色散 (CD)、偏振模色散 (DGD) 和偏振态 (SOP) 组合下的 Stage 2 泛化寻优能力。\n\n")
+        f.write(f"# DDPS Generalization Test Summary (Full Physical Model)\n\n")
+        f.write("本报告验证了复用离线训好的 Model A & B，在不同色散 (CD)、偏振模色散 (DGD) 和偏振态 (SOP) 组合下的 Stage 2 泛化寻优能力。\n")
+        f.write("物理底座：Driver 显式增益+带限、DAC/ADC ENOB=5.5、激光相位噪声 (10 MHz)、默认插损 10 dB、最差 20 dB。\n\n")
         
         f.write("## 1. 测试用例与结果\n\n")
         f.write("| 测试场景 | IL (dB) | CD (ps/nm) | DGD (ps) | 最优 MLSE | 最优 Taps (Tx FFE) | gDC, gDC2 (dB) | 收敛步数 | 收敛曲线 |\n")
@@ -52,42 +53,47 @@ def write_markdown_report(results, out_dir):
             f.write(f"| {res['case']} | {res['il']} | {res['cd']} | {res['dgd']} | `{res['final_mlse']:.2e}` | `{taps_str}` | `{ctle_str}` | {res['steps']} | {img_md} |\n")
         
         f.write("\n## 2. 结论分析\n")
-        f.write("1. **色散泛化**：调整到合理色散值（15 ps/nm）后，模型依旧完美收敛，且最终 BER 逼近物理极限。\n")
-        f.write("2. **SOP 扫描对比**：SOP 的影响必须结合 DGD 才有意义。测试中全面扫描了 `CD=0` 和 `CD=15` 情况下 `SOP={0, 45, 90}` 的情况。结果显示，对于任何偏振旋转态，基于发端 FIR 预测的梯度方向均保持有效，DDPS 算法稳定收敛。\n")
+        f.write("1. **IL 单调性正确**：10 dB → 14 dB → 20 dB 时，最优 MLSE 依次为 `1.04e-3` → `2.85e-3` → `5.55e-2`，最差 20 dB 插损下 BER 明显恶化，符合物理预期。\n")
+        f.write("2. **CD/DGD 已生效**：CD 15/28 ps/nm 使最优 MLSE 从 `1.04e-3` 升至 `1.15e-3`/`1.16e-3`，DGD 5 ps (SOP=45°) 下为 `8.64e-4`，说明此前 CD 单位 bug 修复后色散应力已真实施加。\n")
+        f.write("3. **Stage 2 寻优发散（已知限制）**：在本轮更高噪声的物理底座下，Model A (发端 7-tap FIR -> BER) 的测试 R2 仅 0.174，其有限差分梯度方向不可靠，Stage 2 下降沿 Model A 梯度走偏，真实 BER 从种子点 `~1e-3` 一路发散到 `~9e-2`。表中记录的\"最优\"实为**种子点 (step 1)**，而非下降所得。该现象是代理模型在噪声主导区域失效的体现，需后续用更高保真的发端特征或 Model B 主导下降来修复，不在本轮物理对齐范围内。\n")
 
-def run_generalization_test(snr_db):
+def run_generalization_test(snr_db=0, model_dir="models_v2", out_dir="result_v2/mlse_comparison/ddps"):
     create_config.generate_config()
     
-    if not os.path.exists("models_lpo/model_a_s21.pkl") or not os.path.exists("models_lpo/model_b_config.pkl"):
-        print("Models not found, run train_surrogates.py first.")
+    model_a_path = os.path.join(model_dir, "model_a_s21.pkl")
+    model_b_path = os.path.join(model_dir, "model_b_config.pkl")
+    if not os.path.exists(model_a_path) or not os.path.exists(model_b_path):
+        print(f"Models not found in {model_dir}, run train_surrogates.py first.")
         return
         
-    with open("models_mlse/model_a_s21.pkl", "rb") as f:
+    with open(model_a_path, "rb") as f:
         model_a = pickle.load(f)
-    with open("models_mlse/model_b_config.pkl", "rb") as f:
+    with open(model_b_path, "rb") as f:
         model_b = pickle.load(f)
         
-    print(f"Models loaded successfully. Now testing Stage 2 on comprehensive LPO conditions (Physical Noise)...")
+    print(f"Models loaded from {model_dir}. Now testing Stage 2 on comprehensive LPO conditions (Physical Noise)...")
     
+    # Default IL = 10 dB; worst case = 20 dB die-to-die (LPO MSA 7.2.1).
+    # CD/DGD magnitudes match the stress_cases (meaningful, not negligible).
+    # DGD cases use pol_angle=45 deg so the DGD transfer actually applies.
     test_cases = [
-        {"name": "Base_IL7", "il": 7.0, "cd": 0.0, "dgd": 0.0},
-        {"name": "IL_Sweep_10dB", "il": 10.0, "cd": 0.0, "dgd": 0.0},
-        {"name": "IL_Sweep_12dB", "il": 12.0, "cd": 0.0, "dgd": 0.0},
+        {"name": "Base_IL10", "il": 10.0, "cd": 0.0, "dgd": 0.0},
+        {"name": "IL_Sweep_14dB", "il": 14.0, "cd": 0.0, "dgd": 0.0},
+        {"name": "IL_Worst_20dB", "il": 20.0, "cd": 0.0, "dgd": 0.0},
         
         # CD variations (1550nm)
-        {"name": "CD_Sweep_1ps", "il": 7.0, "cd": 1.0, "dgd": 0.0},
-        {"name": "CD_Sweep_3ps", "il": 7.0, "cd": 3.0, "dgd": 0.0},
+        {"name": "CD_Sweep_15ps", "il": 10.0, "cd": 15.0, "dgd": 0.0},
+        {"name": "CD_Sweep_28ps", "il": 10.0, "cd": 28.0, "dgd": 0.0},
         
-        # DGD variations
-        {"name": "DGD_Sweep_2ps", "il": 7.0, "cd": 0.0, "dgd": 2.0},
-        {"name": "DGD_Sweep_6ps", "il": 7.0, "cd": 0.0, "dgd": 6.0},
+        # DGD variations (pol_angle=45 deg so DGD is active)
+        {"name": "DGD_Sweep_2ps", "il": 10.0, "cd": 0.0, "dgd": 2.0, "pol_angle": 45.0},
+        {"name": "DGD_Sweep_5ps", "il": 10.0, "cd": 0.0, "dgd": 5.0, "pol_angle": 45.0},
         
-        # Combined Stress
-        {"name": "Combined_Stress", "il": 10.0, "cd": 2.5, "dgd": 4.0},
+        # Combined Stress (worst case)
+        {"name": "Combined_Stress", "il": 20.0, "cd": 15.0, "dgd": 5.0, "pol_angle": 45.0},
     ]
     
     results = []
-    out_dir = f"result/mlse_comparison/ddps"
     if not os.path.exists(out_dir):
         os.makedirs(out_dir, exist_ok=True)
     
@@ -101,6 +107,7 @@ def run_generalization_test(snr_db):
         cfg['channel']['rx_pcb_loss_nyquist_db'] = case['il']
         cfg['channel']['cd_ps_nm'] = case['cd']
         cfg['channel']['dgd_ps'] = case['dgd']
+        cfg['channel']['pol_angle_deg'] = case.get('pol_angle', 0.0)
         
         if snr_db >= 28.0:
             cfg['system']['num_symbols'] = 1048576

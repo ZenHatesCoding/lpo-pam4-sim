@@ -95,7 +95,7 @@ def generate_dataset(num_samples=2000, output_dir="dataset", seed=42):
 
     dataset = []
 
-    print(f"Starting DDPS dataset generation of {num_samples} samples (LPO typical: 7dB IL)")
+    print(f"Starting DDPS dataset generation of {num_samples} samples (LPO typical: 10dB IL)")
     
     import multiprocessing
     max_workers = max(1, multiprocessing.cpu_count() - 2)

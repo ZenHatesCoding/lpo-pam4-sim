@@ -55,7 +55,10 @@ def apply_cd(E, fs, cd_ps_nm):
     N = len(E)
     E_f = np.fft.fft(E)
     f = np.fft.fftfreq(N, d=1.0/fs)
-    D = cd_ps_nm * 1e-12
+    # CD phase: phi(f) = -pi * lambda^2 * D_total * 1e-3 * f^2 / c
+    # D_total = cd_ps_nm [ps/nm]. The 1e-3 converts ps/nm -> s/m (group delay per wavelength);
+    # a 1e-12 here (a previous units bug) made CD ~1e9 too small, effectively disabling it.
+    D = cd_ps_nm * 1e-3
     lmbda = 1550e-9
     c = 3e8
     phase_cd = -np.pi * D * (lmbda**2) / c * (f**2)
@@ -77,6 +80,20 @@ def dac_zoh(x, sps_in, sps_out):
     """ DAC Zero-Order Hold upsampling """
     factor = sps_out // sps_in
     return np.repeat(x, factor)
+
+def quantize(x, enob):
+    """ Mid-tread uniform quantizer (ENOB bits, full-scale = max|x|, no clipping).
+
+    Matches the SJTU `quantization.m` behavior: step = 2*max|x| / 2^ENOB,
+    nearest-level rounding, zero is a reconstruction level.
+    """
+    if enob <= 0:
+        return x
+    A = np.max(np.abs(x))
+    if A <= 1e-30:
+        return x
+    q = 2.0 * A / (2.0 ** enob)
+    return np.round(x / q) * q
 
 def find_f_scale_for_target_il(freqs, sdd21, target_il_db, nyquist):
     """ Find the frequency scaling factor to hit exactly target_il_db at nyquist """
@@ -125,7 +142,6 @@ def apply_s4p_filter(x, fs, config_ch, target_il_key, nyquist):
     
     if il_key_to_use in config_ch:
         f_scale = find_f_scale_for_target_il(freqs, sdd21, -abs(config_ch[il_key_to_use]), nyquist)
-        print(f"Dynamic S-parameter scaling to hit -{abs(config_ch[il_key_to_use])} dB IL for {target_il_key}. Computed f_scale = {f_scale:.3f}")
     else:
         f_scale = config_ch.get('s4p_f_scale', 1.0)
         
@@ -153,7 +169,9 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     
     rng = np.random.RandomState(123)
 
-    # 2. DAC Output (ZOH)
+    # 2. DAC Output: ENOB quantization -> ZOH
+    if config_ch.get('dac_enob', 0) > 0:
+        x_dac = quantize(x_dac, config_ch['dac_enob'])
     x = dac_zoh(x_dac, sps_dac, sps_channel)
     fs_analog = baud_rate * sps_channel
 
@@ -200,16 +218,26 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     else:
         x = lowpass_filter(x, fc_pcb_tx, fs_analog, order=1)
         
-    # --- Physical Tx Driver ---
+    # --- Physical Tx Driver: VGA -> real gain -> band-limit (decoupled) ---
+    # [Host Tx Noise] injected at module input BEFORE the driver gain (SJTU: 1 mV RMS right
+    # after the IL board). It is then amplified by the VGA + driver gain — a REAL gain, not a
+    # free swing normalization, so higher IL => more amplified front-end noise.
+    x += rng.normal(0, config_ch.get('host_tx_noise_rms', 0.001), len(x))
+
+    # VGA / swing control (upstream of the fixed driver gain)
     x = x - np.mean(x)
     current_rms = np.std(x)
+    driver_vpp = config_ch.get('driver_vpp', 0.617)
+    driver_gain = config_ch.get('driver_gain', 2.0)   # REAL linear voltage gain (SJTU Driver Vpp=2.0)
+    target_rms = driver_vpp * 0.3726
     if current_rms > 1e-12:
-        target_vpp = config_ch.get('driver_vpp', 0.617)
-        target_rms = target_vpp * 0.3726
-        x = x * (target_rms / current_rms)
-        
-    # [Host Tx Noise]
-    x += rng.normal(0, config_ch.get('host_tx_noise_rms', 0.001), len(x))
+        x = x * (target_rms / (current_rms * driver_gain))
+
+    # Real driver gain (fixed; decoupled from the band-limit)
+    x = x * driver_gain
+
+    # Driver band-limit (decoupled; its flat loss is re-normalized downstream by the TIA/ADC AGC)
+    x = lowpass_filter(x, config_ch.get('driver_bw', config_ch.get('mzm_bw', 40e9)), fs_analog, order=4)
 
     x_analog = x.copy()
     
@@ -222,7 +250,17 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     
     P_laser = P_in_W + rng.normal(0, np.sqrt(var_rin), len(x))
     P_laser = np.maximum(P_laser, 0.0)
-    E_in = np.sqrt(P_laser)
+
+    # Laser phase noise (linewidth -> Wiener phase random walk). In a direct-detection IMDD
+    # link this only converts to intensity noise through fiber dispersion (CD), so it is
+    # transparent at CD=0 and stresses the CD cases — matching the physical model.
+    linewidth_hz = config_ch.get('laser_linewidth_hz', 0.0)
+    if linewidth_hz > 0:
+        dphase = rng.normal(0, np.sqrt(2.0 * np.pi * linewidth_hz / fs_analog), len(x))
+        phase_noise = np.cumsum(dphase)
+    else:
+        phase_noise = np.zeros(len(x))
+    E_in = np.sqrt(P_laser) * np.exp(1j * phase_noise)
     
     v_pi = config_ch.get('mzm_v_pi', 3.0)
     v_bias = config_ch.get('mzm_v_bias', 2.25)
@@ -310,6 +348,10 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     # 9. ADC Sampling
     dec_factor = sps_channel // sps_adc
     x_adc_out = x_adc_in[::dec_factor]
+    
+    # ADC quantization (ENOB)
+    if config_ch.get('adc_enob', 0) > 0:
+        x_adc_out = quantize(x_adc_out, config_ch['adc_enob'])
     
     # Ideal Digital AGC: Normalize ADC output to match PAM4 Tx RMS (sqrt(5))
     x_adc_out = x_adc_out - np.mean(x_adc_out)
