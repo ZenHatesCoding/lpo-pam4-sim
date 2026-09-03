@@ -10,3 +10,7 @@ diagnostic_results/
 # scratch 调试输出（图/图源），脚本本身仍跟踪
 scratch/*.png
 scratch/*.mmd
+
+# 历史归档：physical-model 分支（及后续主线）不纳入版本控制；
+# 完整历史保留在 sjtu-channel-model 分支。
+archive/
