@@ -40,7 +40,7 @@ DEFAULT_MODE = '112G'
 | [05. 微观物理信道模型升级记录](docs/05_Physical_Channel_Upgrade.md) | 抽象高斯噪声 → SJTU 级微观光电物理模型的升级过程 |
 | [LPO MSA 规范核心参数提炼](docs/LPO_MSA_Specification_Summary.md) | 电气/光学/信道参数标准依据（插损、噪声分配等） |
 
-> 早期古典优化器（BO / GA / SA / SHC 等）及其历史数据集/模型/结果已统一归档至 [`archive/`](archive/)（详见 `archive/README.md`），仅供历史参考。
+> 早期古典优化器（BO / GA / SA / SHC 等）及其历史数据集/模型/结果已归档，完整保留在 **`sjtu-channel-model` 分支**的 `archive/` 目录（本分支不保留 archive）。
 
 ## ⚡ 快速上手 (Quick Start)
 

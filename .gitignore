@@ -11,6 +11,5 @@ diagnostic_results/
 scratch/*.png
 scratch/*.mmd
 
-# 历史归档：physical-model 分支（及后续主线）不纳入版本控制；
-# 完整历史保留在 sjtu-channel-model 分支。
+# 历史归档：本分支不保留 archive/，完整历史在 sjtu-channel-model 分支。
 archive/

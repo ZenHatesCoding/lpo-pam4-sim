@@ -97,10 +97,10 @@ Stage 1 的任务**不是**找最优解，而是"探明地形、积累数据"。
 
 ## 9. 历史算法索引（已归档）
 
-以下古典优化器及早期原型已从主线移除，统一封存于 [`../archive/`](../archive/)（`algorithms/` + `docs/`），仅供历史参考：
+以下古典优化器及早期原型已从主线移除，完整保留在 **`sjtu-channel-model` 分支**的 `archive/`（`algorithms/` + `docs/`），仅供历史参考：
 
 - **TuRBO-Safe**：贝叶斯模型 + 动态信任域。
 - **SafeQCD**：纯数学二阶优化器（微小摄动探测梯度/曲率 + 抛物线悬崖边界）。
 - **Two-Stage Online Optimization**：DDPS 前身（BO_Safe + GPR 眼图特征）。
 - **Surrogate-SHC**：代理辅助爬山。
-- **传统基线 (SHC / GA / SA / ESC)**：详见 [`archive/docs/Baselines.md`](../archive/docs/Baselines.md)。
+- **传统基线 (SHC / GA / SA / ESC)**：详见 `sjtu-channel-model` 分支 `archive/docs/Baselines.md`。
