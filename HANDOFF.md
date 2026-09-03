@@ -55,7 +55,7 @@ DDPS（Data-Driven Physical Surrogate，数据驱动物理代理优化器）**�
 ## 六、需要清理/待定
 
 - **`feature_ablation.py` 是跑题的**（拿配置比 FIR、试 15/31 抽头），甲方明确否了"加抽头"。建议**删除**，并撤销
-  `docs/04_Algorithms/DDPS.md` 里"为什么是 0.70"那一节里的抽头消融内容。结论只剩一条有用的："仿真器里配置排序
+  `docs/04_DDPS_Optimization.md` 里"为什么是 0.70"那一节里的抽头消融内容。结论只剩一条有用的："仿真器里配置排序
   更强，但真实系统里实测 FIR 可能更可靠，需真实数据定论"——这句可保留，抽头实验撤掉。
 - **`tx_channel_extract.py` 的 `pre_cursors` 参数**是为抽头消融加的，若删 `feature_ablation.py` 可一并还原。
 - **分支未合 `main`**：`feature/ddps-optimization` 只在特性分支上，需要的话开 PR / merge。
@@ -69,8 +69,8 @@ DDPS（Data-Driven Physical Surrogate，数据驱动物理代理优化器）**�
 - `compare_surrogates.py` — Ridge/GPR/GPR+UCB 代理对比
 - `cross_snr_ranking.py` — 跨 SNR 排序迁移实验
 - `feature_ablation.py` — 跑题，待删
-- `docs/04_Algorithms/DDPS.md` — DDPS 架构 + 结果 + 记录规范
-- `result/latest_comparison/ddps/` — 可追踪的结果报告 + 图（ddps_convergence.png / cross_snr_ranking.png）
+- `docs/04_DDPS_Optimization.md` — DDPS 架构 + 结果 + 记录规范
+- `result/ddps/` — 可追踪的结果报告 + 图
 
 ## 八、下一步（按甲方意图的候选方向，未经甲方拍板）
 

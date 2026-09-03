@@ -84,4 +84,4 @@
 - [x] 刷新应力用例：默认插损 10 dB、最差 20 dB（LPO MSA 7.2.1 die-to-die）
 - [x] 修复 CD 单位 bug：`apply_cd` 的 `D` 系数由 `1e-12` 改为 `1e-3`（此前 CD 相位被削弱 1e9 倍，色散应力近乎失效）
 - [x] 修复发端 FIR 提取的插损缩放一致性（此前 `extract_tx_s21` 用原始 S4P 16 dB，与实际信道 10/20 dB 不一致）
-- [x] 全流程重跑（dataset_v2 / models_v2 / result_v2）
+- [x] 全流程重跑（数据集/模型/结果统一在 `dataset/`、`models/`、`result/`，历史归档于 `archive/`）

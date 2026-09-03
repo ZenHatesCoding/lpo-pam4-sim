@@ -57,7 +57,7 @@ def write_markdown_report(results, out_dir):
         f.write("2. **CD/DGD 已生效**：CD 15/28 ps/nm 使最优 MLSE 从 `1.04e-3` 升至 `1.15e-3`/`1.16e-3`，DGD 5 ps (SOP=45°) 下为 `8.64e-4`，说明此前 CD 单位 bug 修复后色散应力已真实施加。\n")
         f.write("3. **Stage 2 寻优发散（已知限制）**：在本轮更高噪声的物理底座下，Model A (发端 7-tap FIR -> BER) 的测试 R2 仅 0.174，其有限差分梯度方向不可靠，Stage 2 下降沿 Model A 梯度走偏，真实 BER 从种子点 `~1e-3` 一路发散到 `~9e-2`。表中记录的\"最优\"实为**种子点 (step 1)**，而非下降所得。该现象是代理模型在噪声主导区域失效的体现，需后续用更高保真的发端特征或 Model B 主导下降来修复，不在本轮物理对齐范围内。\n")
 
-def run_generalization_test(snr_db=0, model_dir="models_v2", out_dir="result_v2/mlse_comparison/ddps"):
+def run_generalization_test(snr_db=0, model_dir="models", out_dir="result/ddps"):
     create_config.generate_config()
     
     model_a_path = os.path.join(model_dir, "model_a_s21.pkl")

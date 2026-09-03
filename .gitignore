@@ -1,13 +1,12 @@
+# Python
 .venv/
 __pycache__/
-*.png
+*.pyc
+
+# 生成/可再生产物（不纳入版本控制）
 *.pptx
 diagnostic_results/
-result/*
-!result/latest_comparison/
-!result/latest_comparison/*
-!result/latest_comparison/*.png
-!result/latest_comparison/ddps/*.png
+
+# scratch 调试输出（图/图源），脚本本身仍跟踪
+scratch/*.png
 scratch/*.mmd
-# DDPS 离线数据集（可经 dataset_generator.py 再生）
-dataset/*.csv
