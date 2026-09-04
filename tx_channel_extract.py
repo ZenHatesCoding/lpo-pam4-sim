@@ -103,6 +103,21 @@ def extract_tx_s21(config, custom_tx_taps=None, num_taps=7):
     else:
         x = lowpass_filter(x_analog, fc_pcb, fs_analog, order=1)
         
+    # 5.5 Driver AGC and Band-limit (Matching channel_imdd.py exactly)
+    # The true signal RMS if we sent PAM4 symbols (std = sqrt(5)/3)
+    # would be: std(PAM4) * sqrt(sum(x^2) / sps_channel)
+    sigma_s = np.sqrt(5)/3
+    current_rms = sigma_s * np.sqrt(np.sum(x**2) / sps_channel)
+    driver_vpp = config_ch.get('driver_vpp', 0.617)
+    target_rms = driver_vpp * 0.3726
+    
+    # Apply the equivalent linear gain from the VGA/AGC
+    if current_rms > 1e-12:
+        x = x * (target_rms / current_rms)
+        
+    # Driver band-limit
+    x = lowpass_filter(x, config_ch.get('driver_bw', config_ch.get('mzm_bw', 40e9)), fs_analog, order=4)
+
     # 6. E-O Conversion (MZM Modulator)
     x = lowpass_filter(x, config_ch['mzm_bw'], fs_analog)
     
