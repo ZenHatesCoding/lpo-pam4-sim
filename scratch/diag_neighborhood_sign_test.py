@@ -35,15 +35,15 @@ def main():
     import sys, train_surrogates as _ts
     sys.modules['__main__'].WhiteBoxRidge = _ts.WhiteBoxRidge
     sys.modules['__main__'].WhiteBoxGPR = _ts.WhiteBoxGPR
-    ma = pickle.load(open('models/model_a_s21.pkl', 'rb'))
-    mb = pickle.load(open('models/model_b_config.pkl', 'rb'))
+    ma = pickle.load(open('archive/20260904_ddps_v1_physical_pre_v2/models/model_a_s21.pkl', 'rb'))
+    mb = pickle.load(open('archive/20260904_ddps_v1_physical_pre_v2/models/model_b_config.pkl', 'rb'))
 
     x0 = D._taps_to_x(D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, ffe_pre)
     print('x0 (10D pre/post + gDC,gDC2):', np.round(x0, 4))
     print('x0 9-tap config:', np.round(D.construct_9tap(x0[:8], ffe_pre), 4))
 
     # --- train-domain mismatch: global datasets have center tap pinned to 1.0 ---
-    for p in ['dataset/ddps_dataset_20260904_093954.csv']:
+    for p in ['archive/20260904_ddps_v1_physical_pre_v2/dataset/ddps_dataset_20260904_093954.csv']:
         dfg = pd.read_csv(p)
         print(f'\n[train domain] {p}: center tap range = '
               f'[{dfg["ffe_tap_4"].min():.4f}, {dfg["ffe_tap_4"].max():.4f}] (pinned to 1.0)')

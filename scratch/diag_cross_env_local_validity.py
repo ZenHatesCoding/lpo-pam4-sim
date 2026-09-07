@@ -85,8 +85,8 @@ def local_check(cfg, model_a, model_b, name, n=40, seed=11):
 
 def main():
     create_config.generate_config()
-    model_a = pickle.load(open('models/model_a_s21.pkl', 'rb'))
-    model_b = pickle.load(open('models/model_b_config.pkl', 'rb'))
+    model_a = pickle.load(open('archive/20260904_ddps_v1_physical_pre_v2/models/model_a_s21.pkl', 'rb'))
+    model_b = pickle.load(open('archive/20260904_ddps_v1_physical_pre_v2/models/model_b_config.pkl', 'rb'))
     cases = [
         ('IL_Sweep_14dB', dict(il=14.0, cd=0.0, dgd=0.0, pol=0.0)),
         ('IL_Worst_20dB', dict(il=20.0, cd=0.0, dgd=0.0, pol=0.0)),
