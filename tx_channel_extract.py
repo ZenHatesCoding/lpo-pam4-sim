@@ -1,14 +1,19 @@
 import numpy as np
 import os
 from tx_dsp import tx_dsp_chain
-from channel_imdd import apply_ctle, dac_zoh, lowpass_filter, find_f_scale_for_target_il, apply_s4p_filter
+from channel_imdd import apply_ctle, dac_zoh, lowpass_filter, apply_s4p_filter
 try:
     import skrf as rf
 except ImportError:
     rf = None
 
 _s4p_cache = {}
-_ref_peak_idx = None
+
+# 符号格对齐基准缓存：按"物理信道环境"缓存，而不是进程级一次性粘滞锁。
+# 背景：S4P 为匹配不同目标插损做频率缩放，脉冲响应的群时延会随 IL 明显漂移
+# （实测 Base_IL10 峰值 idx=1247，而 IL_Worst_20dB 在 idx=238），若把首个探测
+# 的对齐永久粘滞在进程里，跨环境复用时 FIR 会在错误的符号格上采样。
+_ref_peak_by_env = {}
 
 
 def _load_s4p_cached(path):
@@ -18,66 +23,39 @@ def _load_s4p_cached(path):
     return _s4p_cache[path]
 
 
-def _fixed_peak_idx(x):
-    """固定参考对齐：首次调用时锁定峰值位置，之后所有提取共用同一基准。
+def _env_signature(config):
+    """唯一刻画"符号格对齐"所依赖的信道环境（与 FFE/CTLE 无关）。"""
+    ch = config['channel']
+    return (
+        ch.get('use_s4p', False),
+        ch.get('s4p_file', ''),
+        round(float(ch.get('tx_pcb_loss_nyquist_db', -1.0)), 6),
+        round(float(ch.get('driver_bw', ch.get('mzm_bw', 40e9))), 0),
+        round(float(ch.get('mzm_bw', 40e9)), 0),
+        round(float(ch.get('cd_ps_nm', 0.0)), 4),
+        round(float(ch.get('dgd_ps', 0.0)), 4),
+        round(float(ch.get('pol_angle_deg', 0.0)), 2),
+    )
 
-    （argmax 会在两个近等峰值之间跳变，导致 FIR 特征在 FFE 系数上不连续，
-      进而污染梯度下降。固定对齐使 FIR 成为 x 的光滑函数。）
-    """
-    global _ref_peak_idx
-    if _ref_peak_idx is None:
-        _ref_peak_idx = int(np.argmax(np.abs(x)))
-    return _ref_peak_idx
 
-def extract_tx_s21(config, custom_tx_taps=None, num_taps=7):
-    pre_cursors = 2
-    """
-    Extract the equivalent T-spaced FIR representation of the entire 
-    transmitter (Tx FFE -> DAC -> CTLE -> PCB -> MZM Modulator).
-    
-    config: system configuration dict
-    custom_tx_taps: 9-tap FFE weights (if None, reads from config)
-    num_taps: number of central taps to extract (default 7)
-    pre_cursors: number of pre-cursors before the main cursor (default 2)
-    
-    Returns:
-        np.ndarray of shape (num_taps,) representing the Tx equivalent impulse response.
-    """
+def _chain_impulse(config, custom_taps, pad_len=100):
+    """把理想单位脉冲打过整条 Tx 模拟链（FFE→DAC→CTLE→PCB→Driver→MZM），
+    返回 8sps 模拟波形。与 extract_tx_s21 的旧实现逐段等价。"""
     baud_rate = config['system']['baud_rate']
     sps_dsp = int(config['system']['sps_dsp'])
     sps_dac = int(config['system']['sps_dac'])
     sps_channel = int(config['system']['sps_channel'])
-    
-    # 1. Create a clean digital impulse (Dirac delta) at baud rate
-    # Need enough padding to avoid boundary effects
-    pad_len = 100
+
     tx_symbols = np.zeros(2 * pad_len + 1)
-    tx_symbols[pad_len] = 1.0 # The impulse
-    
-    # Optional override for Tx FFE taps
+    tx_symbols[pad_len] = 1.0  # 单位脉冲
+
     tx_config = config['tx'].copy()
-    if custom_tx_taps is not None:
-        tx_config['custom_taps'] = custom_tx_taps
-    elif 'custom_taps' in tx_config:
-        val = tx_config['custom_taps']
-        if isinstance(val, str) and val.strip().startswith('['):
-            import ast
-            tx_config['custom_taps'] = np.array(ast.literal_eval(val))
-        else:
-            tx_config['custom_taps'] = np.array(val)
-    else:
-        default_taps = np.zeros(int(tx_config['ffe_taps']))
-        default_taps[int(tx_config['ffe_pre'])] = 1.0
-        tx_config['custom_taps'] = default_taps
-        
-    # 2. Digital Tx DSP (FFE)
+    tx_config['custom_taps'] = custom_taps
     tx_out = tx_dsp_chain(tx_symbols, sps_dsp, baud_rate, tx_config)
-    
-    # 3. DAC (ZOH) -> Upsample to channel rate
+
     x_analog = dac_zoh(tx_out, sps_dac, sps_channel)
     fs_analog = baud_rate * sps_channel
-    
-    # 4. CTLE (if enabled)
+
     if tx_config.get('use_ctle', False):
         f_b = baud_rate
         f_z = f_b / tx_config.get('ctle_fz_ratio', 2.5)
@@ -87,13 +65,12 @@ def extract_tx_s21(config, custom_tx_taps=None, num_taps=7):
         g_dc_db = tx_config.get('ctle_g_dc_db', 0.0)
         g_dc2_db = tx_config.get('ctle_g_dc2_db', 0.0)
         x_analog = apply_ctle(x_analog, fs_analog, f_z, f_p1, f_p2, g_dc_db, g_dc2_db, f_lf)
-        
-    # 5. Host PCB Trace (same IL scaling as apply_channel for consistency)
+
     config_ch = config['channel']
     nyquist = baud_rate / 2
     loss_db = config_ch.get('tx_pcb_loss_nyquist_db', config_ch.get('pcb_loss_nyquist_db', 15.0))
-    fc_pcb = nyquist / np.sqrt(10**(loss_db/10) - 1)
-    
+    fc_pcb = nyquist / np.sqrt(10 ** (loss_db / 10) - 1)
+
     if config_ch.get('use_s4p', False) and rf is not None:
         x_s4p = apply_s4p_filter(x_analog, fs_analog, config_ch, 'tx_pcb_loss_nyquist_db', nyquist)
         if x_s4p is not None:
@@ -102,61 +79,92 @@ def extract_tx_s21(config, custom_tx_taps=None, num_taps=7):
             x = lowpass_filter(x_analog, fc_pcb, fs_analog, order=1)
     else:
         x = lowpass_filter(x_analog, fc_pcb, fs_analog, order=1)
-        
-    # 5.5 Driver AGC and Band-limit (Matching channel_imdd.py exactly)
-    # The true signal RMS if we sent PAM4 symbols (std = sqrt(5)/3)
-    # would be: std(PAM4) * sqrt(sum(x^2) / sps_channel)
-    sigma_s = np.sqrt(5)/3
-    current_rms = sigma_s * np.sqrt(np.sum(x**2) / sps_channel)
+
+    # Driver AGC and band-limit (matching channel_imdd.py exactly)
+    sigma_s = np.sqrt(5) / 3
+    current_rms = sigma_s * np.sqrt(np.sum(x ** 2) / sps_channel)
     driver_vpp = config_ch.get('driver_vpp', 0.617)
     target_rms = driver_vpp * 0.3726
-    
-    # Apply the equivalent linear gain from the VGA/AGC
     if current_rms > 1e-12:
         x = x * (target_rms / current_rms)
-        
-    # Driver band-limit
-    x = lowpass_filter(x, config_ch.get('driver_bw', config_ch.get('mzm_bw', 40e9)), fs_analog, order=4)
-
-    # 6. E-O Conversion (MZM Modulator)
+    x = lowpass_filter(x, config_ch.get('driver_bw', config_ch.get('mzm_bw', 40e9)),
+                       fs_analog, order=4)
+    # E-O conversion band-limit
     x = lowpass_filter(x, config_ch['mzm_bw'], fs_analog)
-    
-    # 7. Extract the T-spaced equivalent FIR from the overall impulse response
-    # The signal `x` is sampled at `sps_channel`. We want to downsample to 1 sps.
-    # 用固定参考对齐（而非每次 argmax），保证 FIR 特征对 FFE 系数光滑。
-    peak_idx = _fixed_peak_idx(x)
-    
-    # We want to extract `num_taps` around the peak at `sps_channel` intervals.
-    # The peak is the main cursor.
-    # We usually take some pre-cursors and some post-cursors.
-    # E.g., for 7 taps, we might take 2 pre, 1 main, 4 post.
-    # However, depending on the actual FFE configuration, the peak might shift.
-    # Let's align such that the main cursor index corresponds to the original impulse.
-    
-    # Alternative to argmax: we know the impulse was at `pad_len`. 
-    # The delay introduced by tx_dsp (pulse shaping) is `pad_len * sps_channel`.
-    # Let's just find the global peak and extract relative to it.
-    
+    return x, fs_analog, sps_channel
+
+
+def _nominal_taps(config):
+    n = int(config['tx'].get('ffe_taps', 9))
+    taps = np.zeros(n)
+    taps[int(config['tx'].get('ffe_pre', n // 2))] = 1.0
+    return taps
+
+
+def _peak_idx_for_env(config):
+    """当前信道环境下的符号格基准（主游标位置）。结果按环境缓存。"""
+    key = _env_signature(config)
+    if key not in _ref_peak_by_env:
+        x, _, _ = _chain_impulse(config, _nominal_taps(config))
+        _ref_peak_by_env[key] = int(np.argmax(np.abs(x)))
+    return _ref_peak_by_env[key]
+
+
+def reset_probe_cache():
+    """清空对齐缓存（多进程/多环境调试时用）。"""
+    _ref_peak_by_env.clear()
+    _s4p_cache.clear()
+
+
+def extract_tx_s21(config, custom_tx_taps=None, num_taps=7):
+    """提取发端等效 T 间隔 FIR（Tx FFE -> DAC -> CTLE -> PCB -> MZM）。
+
+    - 符号格基准按"物理信道环境"（IL/CD/DGD/S4P 文件等）缓存，保证同一环境下
+      FIR 是 FFE/CTLE 的光滑函数、跨环境复用时对齐正确。
+    - config: 系统配置字典
+    - custom_tx_taps: 9-tap FFE 权重（None 时用配置/透传抽头）
+    - num_taps: 提取中心抽头数（默认 7）
+    """
+    sps_channel = int(config['system']['sps_channel'])
+    pre_cursors = 2
     post_cursors = num_taps - pre_cursors - 1
-    
+
+    # 1. 取当前配置的 FFE 权重
+    if custom_tx_taps is not None:
+        custom_taps = np.asarray(custom_tx_taps, dtype=float)
+    else:
+        tx_config = config['tx']
+        if 'custom_taps' in tx_config and str(tx_config['custom_taps']).lower() not in ('none', 'nan'):
+            val = tx_config['custom_taps']
+            if isinstance(val, str) and val.strip().startswith('['):
+                import ast
+                custom_taps = np.array(ast.literal_eval(val), dtype=float)
+            else:
+                custom_taps = np.asarray(val, dtype=float)
+        else:
+            custom_taps = _nominal_taps(config)
+
+    # 2. 打理想单位脉冲过整条 Tx 链
+    x, _, _ = _chain_impulse(config, custom_taps)
+
+    # 3. 符号格基准 = 当前环境下透传冲激的峰值位置（按环境缓存）
+    peak_idx = _peak_idx_for_env(config)
+
+    # 4. 以 sps_channel 间隔取 num_taps 个等效 T 间隔抽头
     fir_taps = np.zeros(num_taps)
     for i in range(num_taps):
         tap_offset = i - pre_cursors
         idx = peak_idx + tap_offset * sps_channel
         if 0 <= idx < len(x):
             fir_taps[i] = x[idx]
-            
-    # Normalize for scale invariance? Or keep absolute scale?
-    # Keeping absolute scale preserves loss information, but normalization might be better for ML.
-    # We will keep absolute values so the model sees the real attenuation.
     return fir_taps
+
 
 if __name__ == "__main__":
     from utils_config import load_config
     import create_config
     create_config.generate_config()
     config = load_config('config.xlsx')
-    
-    # Test extraction
+
     taps = extract_tx_s21(config)
     print("Extracted 7-tap Tx FIR:", np.round(taps, 4))

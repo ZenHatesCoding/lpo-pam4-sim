@@ -1,79 +1,67 @@
-# DDPS 任务交接说明
+# DDPS v2 任务交接说明
 
-> 给接手的 Agent。先读这份，再动手。重点看「非协商约束」和「已踩过的坑」，避免重复走弯路。
+> 给接手的 Agent。先读 [06. DDPS v2 重做报告](docs/06_DDPS_v2_Rerun.md) + `archive/20260904_ddps_v1_physical_pre_v2/README.md`，
+> 再动手。重点看「非协商约束」与「v1 踩过的坑（已修，别回退）」。
 
 ## 一、一句话现状
 
-DDPS（Data-Driven Physical Surrogate，数据驱动物理代理优化器）**已经跑通并验证**：白盒、两阶段、不回传真实 BER，
-在 112G 下从起点 `1.44e-3` 收敛到 `3.76e-05`（DEEP_1E5，追平 SHC 基线）。代码在分支 `feature/ddps-optimization`，
-已推送到远端，最新提交 `047ad2e`，工作树干净。
+DDPS 已完成 **v2 全链路重做**（数据收集 → 训练 → 在线调优泛化测试 → 可视化报告），
+8/8 物理应力用例全程真实 BER_MLSE **无负向优化**并显著改善（20dB 插损用例改善约 20×，
+复合应力约 13×）。分支 `physical-model`，v1 旧产物归档于 `archive/20260904_ddps_v1_physical_pre_v2/`。
 
 ## 二、非协商约束（甲方底线，别碰）
 
-1. **7-tap 发端 FIR 是固定约束**。仿真器里的 `extract_tx_s21` 只是真实系统"获取 7 个发端抽头"的等效占位；真实
-   系统另有手段获取，但**就是 7 个**。**不要加抽头、不要做"换更丰富发端特征"去提升它**——那等于改题目。上次
-   我加 15/31 抽头做特征消融，被甲方否了，见下方"需要清理的东西"。
-2. **两阶段的核心底线**：
-   - Stage 1（离线标定）：**可以崩、可以拿到真实端到端 BER**；
-   - Stage 2（在线调优）：**不能崩、只能拿到发端指标**（拿不到真实收端 BER）。
-   - 守住这条底线，其余（信任域 vs Model B 谁兜底、在线能不能更新模型）都可折衷。
-3. **100% 白盒，面向芯片**：训练/推理、梯度计算，**禁用 sklearn、scipy.optimize 等现成算法**；numpy 最多，能手
-   写都手写（Ridge 闭式解、多项式特征、有限差分梯度、GPR 闭式后验均已手写）。
-4. **不要"统一架构"**：两阶段 GPR 方案与 DDPS 各自能 work 即可，强行抽象成一套框架是画蛇添足（甲方原话）。
-5. **发端 FIR 怎么获取，不用操心**——甲方有办法，仿真器里不用做完整实现。
+1. **7-tap 发端 FIR 探针是固定约束**（`tx_channel_extract.extract_tx_s21(num_taps=7)`）。
+   不要加抽头、不要换"更丰富发端特征"——那等于改题目。
+2. **两阶段底线**：Stage 1（离线标定）可崩、可拿真实端到端 BER；Stage 2（在线调优）
+   **不能崩、只能拿发端指标**（真实收端 BER 只记录验证、绝不回传方向决策）。
+3. **100% 白盒**：训练/推理/梯度手写（numpy 最多）；无 sklearn/scipy.optimize 黑盒。
+4. **统一 BER_MLSE 口径**：全链路指标 = MLSE(memory=1, Burg 白化) 判决输出（Gray 映射）。
+5. **文档全中文**（README/docs），图内文字可英文。
 
-## 三、架构（已按甲方意图对齐）
+## 三、v1 踩过的坑（已修，勿回退/勿重犯）
 
-- **Stage 1（模型供给）**：在起点 x0 邻域做 LHS 采样（FFE ±0.05 / CTLE ±3 dB），训练两个白盒 Ridge 代理：
-  - **Model A**：发端 7-tap FIR → log10(BER)，作**寻优目标**；
-  - **Model B**：FFE 9-tap + CTLE → log10(BER)，作**安全约束**。
-  - 产出 = 起点 + 双模型，**不追求穷尽地形**（地形 9 维里极窄，全优化域 1000 个随机点 0 命中）。
-- **Stage 2（约束下降，不回传真实 BER）**：手写投影梯度下降 `x_{k+1}=clip(x_k - lr·g/|g|, 信任域)`，
-  - 梯度 g = Model A 有限差分；
-  - 安全 = Model B 相对红线（`Model_B(x) ≤ Model_B(种子)+0.3`，校准无关）+ 信任域（FFE ±0.10 / CTLE ±6 dB）；
-  - 步长 0.92 衰减收敛；真实 BER 只记录验证，**不参与方向决策**。
+1. **LHS 采样器维度与索引必须一致**：v1 `LatinHypercube(d=9)` 却取 `sp[i,9]` → 首样本
+   IndexError → Stage-1 邻域数据从未生成，模型退化为只在全优化域（主抽头恒 1.0）上训练，
+   与下降空间（主抽头=1−Σ|旁瓣|≈0.61）错配。v2 已统一参数化 + d=10。
+2. **S4P 频率缩放的群时延漂移**：不同目标插损（10/14/20dB）下脉冲峰值位置不同
+   （idx 1247 vs 238）。任何"进程级粘滞 argmax"在多环境复用都会在错误符号格取 FIR。
+   v2 的 `_peak_idx_for_env` 按信道环境缓存、透传冲激决定对齐。改对齐逻辑前先跑
+   `scratch/diag_*.py` 确认。
+3. **代理趋平要停**：Model A 在训练域外 |∇|≈1e-4 仍会沿拟合噪声乱走 → 负向优化。
+   v2 加了梯度门控 `GRAD_GATE=0.05`（`ddps_optimizer.py`）。
+4. **安全裕度标定**：`SAFETY_MARGIN=0.3` 会在真实 BER 仍在改善时过早刹车；0.6 可到真实
+   平台区且全程无恶化（实测 IL20）。改裕度请先做单用例 margin 扫描。
+5. **模型 pickle 用模块路径**：`train_v2()` 已把类指到 `train_surrogates`；加载用
+   `train_surrogates.load_models()`（兼容 v1 `__main__` 旧档）。
 
-## 四、已验证的结果（可信，别推翻重来）
+## 四、v2 标准流程（复现命令）
 
-| 指标 | 数值 |
-| --- | --- |
-| 起点 x0（次优点） | `1.44e-03` @DEEP_1E5 |
-| Stage 2 收敛（Ridge+GD，不回传） | `7.20e-04` @26.5dB → `3.76e-05` @DEEP_1E5 |
-| 全程最大 BER（安全） | `7.99e-03`（仅首步过冲，全程 < 1e-2 无掉锁） |
-| 跨 SNR 排序迁移 | 真实排序跨 SNR 完全不变（Spearman=1.0），Model A 排序 0.70 且与 SNR 无关 → **不用分桶** |
-| 代理对比（Ridge/GPR/GPR+UCB） | 三者都收敛到 3.76e-05；GPR 收敛更快（step2 vs 3）、首步过冲更小；Ridge 最简、最贴芯片 |
+```bash
+python dataset_generator.py --base-samples 320 --anchor-samples 60 --num-symbols 131072
+python -c "from train_surrogates import train_v2; import glob; \
+train_v2(sorted(glob.glob('dataset/ddps_v2_dataset_*.csv'))[-1], 'models/ddps_v2')"
+python test_generalization.py --model-dir models/ddps_v2 --out-dir result/ddps_v2_<ts> \
+    --num-symbols 131072 --n-steps 30 --cloud-n 16
+python report_ddps_v2.py --test-dir result/ddps_v2_<ts> --model-dir models/ddps_v2 --deep-symbols 262144
+```
 
-## 五、已踩过的坑（接手时注意，别重新踩）
+方法学对照（可选）：`python run_ddps_v2_control.py --dataset <csv> --model-dir models/ddps_v2_control`。
 
-1. **纯随机全优化域采样 = 0 命中**（1000 个点 BER 全 > 0.17）。必须用起点邻域采样。
-2. **FIR 提取 argmax 跳变** → Model A 不连续 → 梯度下降震荡。已改成**固定参考对齐**（`_fixed_peak_idx`）。
-3. **Model B 绝对阈值失配**（预测偏悲观，绝对 -2.0 会把安全种子点误判成不安全）→ 已改成相对种子点的红线。
-4. **scipy SLSQP 会顺着代理外推越界**（实测跳到 post1=0.19 死区）→ 信任域兜底。
-5. **SLSQP 内部迭代被折叠成"1 步"**，甲方看不到优化过程 → 已换成手写、逐步可见的梯度下降。
-6. **首步过冲 7.99e-3 离 1e-2 只差 1.25×**——这是已知隐患，未根治（可考虑 Armijo 线搜索压过冲），但不是阻塞项。
+## 五、当前产物索引
 
-## 六、需要清理/待定
+- 数据集：`dataset/ddps_v2_dataset_20260907_190819.csv`
+- 模型：`models/ddps_v2/`（model_a.pkl / model_b.pkl / meta.json；meta 含 R²+Spearman 及按环境拆分）
+- 泛化测试：`result/ddps_v2_20260907/`（case_summary.csv/.json、trace_*.csv、model_meta_snapshot.json）
+- 可视化报告：`result/ddps_v2_20260907/report/`（ddps_v2_report.md、overview png、逐用例 _a/_b png、deep_check.csv）
+- 单环境对照：`result/ddps_v2_control/` + `models/ddps_v2_control/`
+- v1 诊断证据脚本：`scratch/diag_*.py` / `scratch/diag_*_evidence*.csv`
 
-- **`feature_ablation.py` 是跑题的**（拿配置比 FIR、试 15/31 抽头），甲方明确否了"加抽头"。建议**删除**，并撤销
-  `docs/04_DDPS_Optimization.md` 里"为什么是 0.70"那一节里的抽头消融内容。结论只剩一条有用的："仿真器里配置排序
-  更强，但真实系统里实测 FIR 可能更可靠，需真实数据定论"——这句可保留，抽头实验撤掉。
-- **`tx_channel_extract.py` 的 `pre_cursors` 参数**是为抽头消融加的，若删 `feature_ablation.py` 可一并还原。
-- **分支未合 `main`**：`feature/ddps-optimization` 只在特性分支上，需要的话开 PR / merge。
+## 六、已知边界（诚实记录，勿包装成成功）
 
-## 七、关键文件索引
-
-- `ddps_optimizer.py` — 主流程（Stage1 采样/训练 + Stage2 手写梯度下降 + 跨 SNR 深水校验）
-- `train_surrogates.py` — 白盒 Ridge + 白盒 GPR（训练/推理，纯 numpy）
-- `tx_channel_extract.py` — 7-tap 发端 FIR 提取（固定参考对齐 + s4p 缓存）
-- `dataset_generator.py` — 全优化域 LHS 采样（可选死区覆盖数据）
-- `compare_surrogates.py` — Ridge/GPR/GPR+UCB 代理对比
-- `cross_snr_ranking.py` — 跨 SNR 排序迁移实验
-- `feature_ablation.py` — 跑题，待删
-- `docs/04_DDPS_Optimization.md` — DDPS 架构 + 结果 + 记录规范
-- `result/ddps/` — 可追踪的结果报告 + 图
-
-## 八、下一步（按甲方意图的候选方向，未经甲方拍板）
-
-1. 把 Model A 的 feature 做成可插拔（`fir` / `config` / `fir+config`），**默认保留 `fir`**，供真实链路数据去定"哪个发端指标在物理世界里更稳"（仿真器定不了这个）。
-2. 用 Armijo 线搜索压掉首步过冲，把安全做硬。
-3. 对 Model A/B 的**绝对预测值**做单调/分位数校准（跨 SNR 排序已证明可迁移，绝对值需要校准后才能接绝对阈值）。
+1. Model A/B 的**绝对标定弱**（欠/过估真实 BER），只用其排序/方向；任何"绝对红线/阈值"
+   用法都需要另行校准（跨环境标定不可迁移）。
+2. 种子邻域采样云内的"优于种子"点很少（混合锚定模型的 seed 附近基本已是局部平台），
+   Stage-2 的增益来自信任域内更大步幅的移动。
+3. BER_MLSE 评估随块长有系统漂移（65536/131072/262144 符号给出不同绝对值），
+   报告必须固定协议并注明。

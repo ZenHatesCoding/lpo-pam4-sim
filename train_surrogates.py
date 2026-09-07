@@ -184,3 +184,119 @@ if __name__ == "__main__":
         print(f"Auto-selected latest dataset: {dataset_file}")
 
     train_models(dataset_file, output_dir=args.out_dir)
+
+
+# ============================================================================
+# DDPS v2 训练/加载接口（稳健 pickle + 排序类评估指标）
+# ============================================================================
+import json
+
+V2_CONFIG_COLS = [f'ffe_tap_{i}' for i in range(9)] + ['ctle_dc', 'ctle_dc2']
+
+
+def _spearman(y_true, y_pred):
+    r = np.corrcoef(
+        np.argsort(np.argsort(y_true)), np.argsort(np.argsort(y_pred))
+    )[0, 1]
+    return float(r)
+
+
+def _col(df, *names):
+    for n in names:
+        if n in df.columns:
+            return n
+    raise KeyError(f"none of {names} in columns {list(df.columns)[:20]}...")
+
+
+def train_v2(dataset_csv, model_dir="models", label_col=None, verbose=True,
+             test_size=0.2, seed=42):
+    """DDPS v2：白盒 Ridge 双代理训练（Model A: Tx-FIR->BER；Model B: 配置->BER）。
+
+    相对 v1：
+      - 标签列用 log10_ber_mlse（明确 MLSE 口径）；
+      - 附加 Spearman 排序类指标（寻优只依赖排序/方向，比绝对 R² 更贴任务）；
+      - 模型以模块路径安全 pickle，并输出 meta.json 供结果可审计。
+    返回 (model_a, model_b, meta)。
+    """
+    import pandas as pd
+    if label_col is None:
+        label_col = _col(pd.read_csv(dataset_csv, nrows=1), 'log10_ber_mlse', 'log10_ber')
+    df = pd.read_csv(dataset_csv)
+    df = df[df[label_col] < -0.1].reset_index(drop=True)   # 剔除锁死样本(BER>0.79)
+
+    X_A = df[FIR_COLS].values.astype(float)
+    X_B = df[V2_CONFIG_COLS].values.astype(float)
+    y = df[label_col].values.astype(float)
+    envs = df['env'].values if 'env' in df.columns else None
+
+    tr, te = _train_test_split_idx(len(df), test_size, seed)
+    X_A_tr, X_A_te = X_A[tr], X_A[te]
+    X_B_tr, X_B_te = X_B[tr], X_B[te]
+    y_tr, y_te = y[tr], y[te]
+
+    model_a = WhiteBoxRidge(degree=2, alpha=1.0).fit(X_A_tr, y_tr)
+    model_b = WhiteBoxRidge(degree=2, alpha=1.0).fit(X_B_tr, y_tr)
+
+    pa = model_a.predict(X_A_te)
+    pb = model_b.predict(X_B_te)
+    meta = {
+        'dataset_csv': dataset_csv, 'label_col': label_col,
+        'n_train': int(len(tr)), 'n_test': int(len(te)),
+        'model_a': {
+            'r2_test': _r2_score(y_te, pa), 'mse_test': _mse(y_te, pa),
+            'spearman_test': _spearman(y_te, pa),
+        },
+        'model_b': {
+            'r2_test': _r2_score(y_te, pb), 'mse_test': _mse(y_te, pb),
+            'spearman_test': _spearman(y_te, pb),
+        },
+    }
+    if envs is not None:
+        env_te = envs[te]
+        for tag, pred in [('model_a', pa), ('model_b', pb)]:
+            by_env = {}
+            for e in np.unique(env_te):
+                m = env_te == e
+                if m.sum() >= 5:
+                    by_env[str(e)] = {'n': int(m.sum()),
+                                      'spearman_test': _spearman(y_te[m], pred[m])}
+            meta[f'{tag}_by_env'] = by_env
+
+    if verbose:
+        print(f"Model A (TxFIR->logBER_MLSE): n={len(df)} | R2={meta['model_a']['r2_test']:.3f} "
+              f"| Spearman={meta['model_a']['spearman_test']:.3f}")
+        print(f"Model B (Config->logBER_MLSE): n={len(df)} | R2={meta['model_b']['r2_test']:.3f} "
+              f"| Spearman={meta['model_b']['spearman_test']:.3f}")
+
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
+    # 确保 pickle 引用的是模块路径而非 __main__（v1 曾因此无法跨脚本加载）
+    WhiteBoxRidge.__module__ = 'train_surrogates'
+    WhiteBoxGPR.__module__ = 'train_surrogates'
+    with open(os.path.join(model_dir, 'model_a.pkl'), 'wb') as f:
+        pickle.dump(model_a, f)
+    with open(os.path.join(model_dir, 'model_b.pkl'), 'wb') as f:
+        pickle.dump(model_b, f)
+    with open(os.path.join(model_dir, 'meta.json'), 'w', encoding='utf-8') as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False, default=float)
+    return model_a, model_b, meta
+
+
+def load_models(model_dir="models", verbose=False):
+    """加载 DDPS v2 模型。向后兼容 v1 的 __main__ pickle 陷阱。"""
+    import sys
+    a_path = os.path.join(model_dir, 'model_a.pkl')
+    b_path = os.path.join(model_dir, 'model_b.pkl')
+    if not (os.path.exists(a_path) and os.path.exists(b_path)):
+        raise FileNotFoundError(f"models missing in {model_dir}")
+
+    def _load(p):
+        try:
+            with open(p, 'rb') as f:
+                return pickle.load(f)
+        except AttributeError:
+            sys.modules['__main__'].WhiteBoxRidge = WhiteBoxRidge
+            sys.modules['__main__'].WhiteBoxGPR = WhiteBoxGPR
+            with open(p, 'rb') as f:
+                return pickle.load(f)
+    return _load(a_path), _load(b_path)

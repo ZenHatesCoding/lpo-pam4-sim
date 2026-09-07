@@ -10,10 +10,14 @@ from metrics import calculate_ber, plot_eye, plot_spectrum
 from scipy.signal import correlate
 from datetime import datetime
 
-def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_results"):
+def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_results",
+            return_nodes=False):
     """
     Run a single point simulation of the LPO PAM4 link.
     Returns the MLSE BER and FFE BER.
+    If return_nodes=True, additionally returns a dict of intermediate node
+    signals (Tx analog out, Rx analog in, ADC out, FFE out, whitened FFE out)
+    for eye/spectrum visualization.
     """
     baud_rate = config['system']['baud_rate']
     
@@ -146,7 +150,21 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_
     min_len = min(len(tx_aligned), len(ffe_aligned), len(mlse_aligned))
     ffe_ser, ffe_ber = calculate_ber(tx_aligned[:min_len], ffe_aligned[:min_len])
     mlse_ser, mlse_ber = calculate_ber(tx_aligned[:min_len], mlse_aligned[:min_len])
-    
+
+    if return_nodes:
+        nodes = {
+            'ffe_ber': ffe_ber, 'mlse_ber': mlse_ber,
+            'tx_analog': tx_analog,          # Tx 驱动输出(模拟, 8sps, MZM 前)
+            'rx_analog': rx_analog,          # Rx ADC 输入前(模拟, 8sps)
+            'rx_adc': rx_adc,                # ADC 输出(2sps)
+            'rx_eq': rx_eq,                  # Rx FFE 均衡输出(T 间隔, 1sps)
+            'rx_eq_whitened': rx_eq_whitened,  # FFE+Burg 白化(喂给 MLSE)
+            'tx_pam4': tx_pam4, 'tx_symbols': tx_symbols,
+            'phase_offset': phase_offset, 'sync_delay': sync_delay,
+            'train_len': train_len,
+        }
+        return ffe_ber, mlse_ber, nodes
+
     return ffe_ber, mlse_ber
 
 if __name__ == '__main__':

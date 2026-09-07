@@ -38,16 +38,20 @@ CTLE_GDC_MAX = 5.0
 CTLE_GDC2_MIN = -5.0
 CTLE_GDC2_MAX = 5.0
 PEAK_SUM_LIMIT = 0.8          # sum(|pre_post|) <= 0.8 -> 主抽头 >= 0.2
-SAFETY_MARGIN = 0.3           # Model B 安全裕度：允许相对种子点恶化 0.3 个 log10（≈2× BER）
+SAFETY_MARGIN = 0.6           # Model B 安全裕度：允许相对种子点恶化 0.6 个 log10
+                              # （v2 标定：0.3 过紧导致 4~5 步即刹车、真实仍在改善；
+                              #  0.6 可下探到真实平台区，全程真实 BER 无恶化）
 TRUST_FFE = 0.10              # Stage 2 信任域半径（FFE，相对起点）：防代理外推越界
 TRUST_CTLE = 3.0              # Stage 2 信任域半径（CTLE）
 GD_LR = 0.02                  # Stage 2 归一化梯度下降初始步长（随 step 以 0.92 衰减）
+GRAD_GATE = 0.05              # Stage 2 梯度门控：|g| 低于该值视为代理曲面趋平
+                              # （外推区/无效区），停止下降而非沿拟合噪声乱走
 
 # 已知“不错的起点”（种子）：来自两阶段实验的初始次优点
 SEED_TAPS = np.array([0.0, 0.0, -0.034, -0.2987, 0.6091, 0.0, 0.0582, 0.0, 0.0])
 SEED_GDC = 0.0
 SEED_GDC2 = 0.0
-FFE_SPREAD = 0.05             # Stage 1 邻域采样幅值
+FFE_SPREAD = 0.05             # Stage 1 邻域采样幅值（旧 v1 参数，v2 由 TRUST_FFE 决定）
 CTLE_SPREAD = 1.0
 
 
@@ -123,7 +127,7 @@ def _stage1_collect(config, n_samples, ffe_pre, seed=42):
     seed_pre_post[:ffe_pre] = SEED_TAPS[:ffe_pre]
     seed_pre_post[ffe_pre:] = SEED_TAPS[ffe_pre + 1:]
 
-    sampler = qmc.LatinHypercube(d=9, seed=seed)
+    sampler = qmc.LatinHypercube(d=10, seed=seed)
     sp = sampler.random(n=n_samples)
 
     rows = []
@@ -198,7 +202,11 @@ def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_ref, 
         # 1. 数值梯度 + 归一化下降方向
         g = _numerical_gradient(objective_a, x, eps=0.01)
         gn = np.linalg.norm(g)
-        if gn < 1e-9:
+        # 梯度门控：代理曲面趋平(外推/无效区)时停止，不沿拟合噪声乱走。
+        # 旧版在此处会以 |g|~1e-4 的"噪声方向"继续下降，导致真实 BER 反向爬升。
+        if gn < GRAD_GATE:
+            print(f"[Stage 2] stop: |grad|={gn:.2e} < gate {GRAD_GATE} "
+                  f"(Model A surface flat at step {step})")
             break
         direction = g / gn
 
@@ -271,6 +279,10 @@ def _deep_config(config):
 
 def run_ddps(dataset_csv=None, model_dir="models", n_stage1_samples=600, n_stage2_steps=40,
              result_dir=None, deep_validate=True, cross_snr_probes=5):
+    """[DEPRECATED] 单进程端到端入口 —— 已被 v2 流水线取代：
+        dataset_generator.py (数据) -> train_surrogates.train_v2 (训练)
+        -> test_generalization.py (在线调优泛化测试) -> report_ddps_v2.py (报告)。
+    本函数保留旧结构供参考；v1 历史产物见 archive/20260904_ddps_v1_physical_pre_v2/。"""
     import create_config
     create_config.generate_config()
     config = load_config('config.xlsx')

@@ -77,11 +77,13 @@
 - [x] 修复 MZM 方程中的倍数差异和接收端 AGC 的噪声敏感问题 (使用 RMS)
 - [x] 修复光纤传输中的色散分离问题：CD 作用于光场 (Complex FFT)，DGD 作用于检波后功率 (Real FFT)
 - [x] 重新生成训练集并训练 Surrogate 模型
-- [/] 验证 DDPS/SHC 泛化性能
+- [x] 验证 DDPS/SHC 泛化性能（物理模型版 v2，见 [06. DDPS v2 重做报告](06_DDPS_v2_Rerun.md)）
 - [x] 补回 Driver 显式增益 + 带限（与摆幅控制解耦），前端噪声移到增益之前
 - [x] 补回 DAC/ADC ENOB 量化 (5.5 bit)
 - [x] 补回激光器相位噪声 (线宽 10 MHz)
 - [x] 刷新应力用例：默认插损 10 dB、最差 20 dB（LPO MSA 7.2.1 die-to-die）
 - [x] 修复 CD 单位 bug：`apply_cd` 的 `D` 系数由 `1e-12` 改为 `1e-3`（此前 CD 相位被削弱 1e9 倍，色散应力近乎失效）
 - [x] 修复发端 FIR 提取的插损缩放一致性（此前 `extract_tx_s21` 用原始 S4P 16 dB，与实际信道 10/20 dB 不一致）
-- [x] 全流程重跑（数据集/模型/结果统一在 `dataset/`、`models/`、`result/`，历史归档保留在 `sjtu-channel-model` 分支的 `archive/`）
+- [x] **DDPS v2 全链路重做**：修复 v1 负向优化（Stage-1 死代码 / FFE 参数化错配 / 探针跨 IL 对齐漂移），
+  数据→训练→在线调优泛化测试重跑，见 [06. DDPS v2 重做报告](06_DDPS_v2_Rerun.md)；
+  v1 数据/模型/结果归档于 `archive/20260904_ddps_v1_physical_pre_v2/`（本分支 git 历史亦保留）。

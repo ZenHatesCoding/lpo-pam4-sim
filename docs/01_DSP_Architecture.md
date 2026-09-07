@@ -23,9 +23,10 @@
   - **光纤频散解耦**：色散 (CD) 严格作用于复数光场，而偏振态分裂带来的差分群延迟 (DGD) 直接作用于检波后的实数光功率。
 
 ### 1.3 接收端 (Rx DSP & 均衡)
-- **模拟均衡 (Rx Analog CTLE)**：双级连续时间线性均衡器（CTLE），带有 `gDC` 和 `gDC2` 两个独立可调参数，这是我们在 Tx 之外的额外优化自由度（构成 10 维寻优空间）。
-- **数字均衡 (Rx FFE/DFE)**：Host ASIC 接收端使用长达 22-tap 的 T-spaced FFE 和 1-tap DFE。通过内置的 LMS (最小均方差) 算法，针对接收到的受损信号进行盲搜抽头收敛。为了抵抗巨大的物理噪声，系统的 AGC (自动增益控制) 全部采用 RMS 均方根功率度量，以稳定 LMS 步长。
-- **无 MLSE 的纯切片判决 (Pure Slicer)**：为了模拟最严苛、延迟最低的 LPO 场景，**当前代码中的维特比 MLSE 内存被设为了 0 (`mlse_memory = 0`)**。这意味着系统在 Rx 均衡后直接退化为简单的无记忆 4 电平切片器 (Slicer)。测试报表中的 `MLSE BER` 即指代此切片器的真实硬判决误码率。
+- **发送端模拟均衡 (Tx Analog CTLE)**：注意：本平台的双级 CTLE（`gDC`/`gDC2` 两个独立增益）在代码与配置中隶属于 **[tx] 表**，物理上施加于 Tx 模拟链路（DAC 零阶保持之后、Tx PCB S-param 之前）。它是 DDPS 在 Tx FFE 之外的第二个优化自由度（合计构成 10 维寻优空间）。
+- **数字均衡 (Rx FFE)**：Host ASIC 接收端使用 22-tap T-spaced Rx FFE，内置 LMS 自适应收敛（DFE 默认 `dfe_taps=0` 全关，防高误码雪崩）。
+- **MLSE (默认开启, memory=1)**：Rx FFE 之后送入 **Viterbi MLSE（memory=1，4 状态）+ Burg AR 白化** 联合解码。当前配置 `mlse_memory = 1`，因此**全平台所有误码率报告统一为 `BER_MLSE`**（该 MLSE 判决输出的 Gray 映射 BER）。一旦开启 MLSE，系统自动锁死 DFE（见 `main.py`），避免 DFE 吃掉 MLSE 所需的残余 ISI。
+- **AGC 约定**：链路各段 AGC（Driver VGA、TIA、ADC 数字 AGC）全部采用 RMS 均方根功率度量，以稳定 LMS 步长与摆幅。
 
 ### 1.4 全链路数据流框图
 
@@ -36,12 +37,13 @@ graph LR
         direction TB
         A[Data Bits] --> B[PAM4 Mapper]
         B --> C["9-tap Tx FFE"]
-        C --> D["DAC (0.617 Vpp)"]
+        C --> D["DAC (ENOB 5.5)"]
     end
 
-    subgraph R2 ["2. Physical Electro-Optic Channel"]
+    subgraph R2 ["2. Tx Analog + Physical Electro-Optic Channel"]
         direction TB
-        F["Tx PCB (Scaled S-Param)"] --> G1["Driver (VGA + Gain x2 + BW)"]
+        E["Tx Analog CTLE (gDC, gDC2)"] --> F["Tx PCB (Scaled S-Param)"]
+        F --> G1["Driver (VGA + Gain x2 + BW)"]
         G1 --> G["E-O MZM (w/ RIN + Phase Noise)"]
         G --> H["Fiber (CD Complex FFT)"]
         H --> I["Fiber (DGD Real FFT)"]
@@ -52,13 +54,13 @@ graph LR
 
     subgraph R3 ["3. Rx Host (Analog + Digital)"]
         direction TB
-        M["Analog CTLE (gDC, gDC2)"] --> N["ADC"]
-        N --> O["22-tap Rx FFE + 1-tap DFE"]
-        O --> P["Hard Slicer (No MLSE)"]
+        M["ADC (ENOB 5.5)"] --> N["22-tap Rx FFE (LMS, no DFE)"]
+        N --> O["Burg AR Whitening"]
+        O --> P["Viterbi MLSE (memory=1)"]
         P --> Q[Data Bits]
     end
-    
-    D -.-> F
+
+    D -.-> E
     L -.-> M
 ```
 
@@ -86,9 +88,10 @@ graph LR
 
 ### [Tx / Rx] 均衡与算法配置
 - `ffe_taps` / `ffe_pre`: FFE 总抽头数与前向抽头数。Tx 固定为 9，Rx 固定为 22。
-- `dfe_taps`: 默认 1-tap。
+- `use_ctle` / `ctle_g_dc_db` / `ctle_g_dc2_db`: Tx 模拟 CTLE 开关与双级增益（[tx] 表）。
 - `lms_mu`: Rx LMS 训练步长（如 1e-4）。
-- `mlse_memory`: 默认 0，系统全退化为纯线性/DFE均衡后的简单门限切片。
+- `dfe_taps`: 默认 0（全关）。
+- `mlse_memory`: 默认 1 —— Viterbi MLSE（Burg 白化）开启；`BER_MLSE` 为平台统一终极指标。开启 MLSE 时 DFE 自动锁死。
 
 ---
 

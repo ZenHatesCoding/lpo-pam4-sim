@@ -1,0 +1,28 @@
+{
+  "dataset_csv": "dataset\\ddps_v2_Base_IL10_only_control.csv",
+  "label_col": "log10_ber_mlse",
+  "n_train": 257,
+  "n_test": 64,
+  "model_a": {
+    "r2_test": 0.24127315104702152,
+    "mse_test": 0.4108968004344931,
+    "spearman_test": 0.4972527472527472
+  },
+  "model_b": {
+    "r2_test": 0.18648532901766857,
+    "mse_test": 0.4405677430216728,
+    "spearman_test": 0.3993589743589743
+  },
+  "model_a_by_env": {
+    "Base_IL10": {
+      "n": 64,
+      "spearman_test": 0.4972527472527472
+    }
+  },
+  "model_b_by_env": {
+    "Base_IL10": {
+      "n": 64,
+      "spearman_test": 0.3993589743589743
+    }
+  }
+}
