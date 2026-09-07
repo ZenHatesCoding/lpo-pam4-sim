@@ -5,6 +5,8 @@
 > 本文件是 **v2 修正后的正式结果页**。v1（物理模型修复前）出现“Model A 下降但真实 BER 反向变差”
 > 的负向优化现象，根因排查结论、修正清单与最终结果见下文。历史数据/模型/结果完整归档于
 > `archive/20260904_ddps_v1_physical_pre_v2/`（本分支 git 历史与 `origin/physical-model` 亦保留旧版）。
+>
+> **📊 结果统一入口：[`result/SUMMARY.md`](../result/SUMMARY.md)** —— 所有图/数据/逐用例页从那里跳转。
 
 ---
 
