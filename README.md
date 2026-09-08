@@ -34,8 +34,8 @@ DEFAULT_MODE = '112G'
 *(注：历史 Baseline 与 DDPS v1（物理模型修复前）的测试结果已归档到 `archive/20260904_ddps_v1_physical_pre_v2/`，见 [06. DDPS v2 重做报告](docs/06_DDPS_v2_Rerun.md)。)*
 
 > [!TIP]
-> 📊 **结果与图件索引见 [`result/SUMMARY.md`](result/SUMMARY.md)**：两组实验（混合锚定 vs
-> 仅基训对照）的数据区别、8 用例横向对比、全部图（收敛/抽头/眼图/频谱）与数据文件链接。
+> 📊 **结果与图件索引见 [`result/SUMMARY.md`](result/SUMMARY.md)**：以“只用基线训练 → 跨环境
+> 泛化”为核心（另附带锚点训练的上限对比），8 用例横向对比、全部图与数据链接。
 
 ## 📚 文档导航 (Documentation Navigation)
 

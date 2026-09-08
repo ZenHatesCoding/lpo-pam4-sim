@@ -248,7 +248,7 @@ def plot_overview(out_dir, summary_df):
                     fontsize=8)
     ax.set_yticks(y); ax.set_yticklabels(names)
     ax.axvline(0, color='k', lw=0.8)
-    ax.set_xlabel(r'$\Delta \log_{10}(BER\_MLSE)$: seed $\rightarrow$ Stage-2 best (负值=改善)')
+    ax.set_xlabel(r'$\Delta \log_{10}(BER\_MLSE)$: seed $\rightarrow$ Stage-2 best (negative = improvement)')
     ax.set_title('DDPS v2: per-case improvement (frozen models, no real-BER feedback)')
     ax.grid(alpha=0.3, axis='x')
     fig.tight_layout()
