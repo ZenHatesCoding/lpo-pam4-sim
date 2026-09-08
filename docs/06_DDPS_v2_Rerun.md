@@ -6,7 +6,8 @@
 > 的负向优化现象，根因排查结论、修正清单与最终结果见下文。历史数据/模型/结果完整归档于
 > `archive/20260904_ddps_v1_physical_pre_v2/`（本分支 git 历史与 `origin/physical-model` 亦保留旧版）。
 >
-> **📊 结果统一入口：[`result/SUMMARY.md`](../result/SUMMARY.md)** —— 所有图/数据/逐用例页从那里跳转。
+> **📊 结果与图件索引：[`result/SUMMARY.md`](../result/SUMMARY.md)** —— 主实验 vs 对照实验的
+> 数据区别、8 用例横向对比表与全部图/数据链接。
 
 ---
 

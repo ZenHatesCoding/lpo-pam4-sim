@@ -34,8 +34,8 @@ DEFAULT_MODE = '112G'
 *(注：历史 Baseline 与 DDPS v1（物理模型修复前）的测试结果已归档到 `archive/20260904_ddps_v1_physical_pre_v2/`，见 [06. DDPS v2 重做报告](docs/06_DDPS_v2_Rerun.md)。)*
 
 > [!TIP]
-> 📊 **结果统一入口：[`result/SUMMARY.md`](result/SUMMARY.md)** —— 所有跑批的结果报告、
-> 图件、数据、模型的唯一起点（含 `result/` 目录导览、主结果/对照实验说明、逐用例页）。
+> 📊 **结果与图件索引见 [`result/SUMMARY.md`](result/SUMMARY.md)**：两组实验（混合锚定 vs
+> 仅基训对照）的数据区别、8 用例横向对比、全部图（收敛/抽头/眼图/频谱）与数据文件链接。
 
 ## 📚 文档导航 (Documentation Navigation)
 
