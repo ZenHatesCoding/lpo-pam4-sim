@@ -35,26 +35,28 @@ DEFAULT_MODE = '112G'
 
 > [!TIP]
 > 📊 **结果与图件索引见 [`result/SUMMARY.md`](result/SUMMARY.md)**：以“只用基线训练 → 跨环境
-> 泛化”为核心（另附带锚点训练的上限对比），8 用例横向对比、全部图与数据链接。
+> 泛化”为核心（另附带锚点训练的上限对比与“冻结新增维度”的消融对照），15 用例横向对比、全部图与数据链接。
 
 ## 📚 文档导航 (Documentation Navigation)
 
 | 文档 | 内容 |
 | --- | --- |
-| [📄 **DDPS v2 交付说明（对外呈现件 · 自包含 HTML）**](DDPS_v2_Deliverable.html) | **一份文件讲清整件事**：任务约束、平台全参数、模型如何建立与全部超参数、算法流程与复杂度、实测效果与边界（含全部图表，可离线打开直接呈现） |
+| [📄 **DDPS v3 交付说明（对外呈现件 · 自包含 HTML）**](DDPS_v3_Deliverable.html) | **一份文件讲清整件事**：任务约束、平台全参数、模型如何建立与全部超参数、算法流程与复杂度、实测效果与边界（含全部图表，可离线打开直接呈现） |
 | [01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md) | 收发机模型、多采样率机制、`config.xlsx` 参数物理含义 |
 | [02. 独立分析与诊断工具集](docs/02_Utility_Scripts.md) | `scratch/` 下的信道频响查看器、寻参脚本 |
 | [03. 调试排坑与经验沉淀](docs/03_Troubleshooting_History.md) | DFE 误差传播、发送端相位失真、FFE 抽头对齐等踩坑记录 |
-| [04. DDPS 数据驱动物理代理寻优](docs/04_DDPS_Optimization.md) | Zero-Shot 双层代理寻优架构（Model A/B、Stage 2 约束梯度下降） |
+| [04. DDPS 数据驱动物理代理寻优](docs/04_DDPS_Optimization.md) | Zero-Shot 双层代理寻优架构（Model A/B、Stage 2 约束梯度下降、11 维搜索空间） |
 | [05. 微观物理信道模型升级记录](docs/05_Physical_Channel_Upgrade.md) | 抽象高斯噪声 → SJTU 级微观光电物理模型的升级过程 |
 | [06. DDPS v2 重做报告](docs/06_DDPS_v2_Rerun.md) | v1 负向优化根因排查与 v2 全链路重做（数据/训练/在线调优/可视化） |
+| [**07. DDPS v3 模型修正与评估协议**](docs/07_DDPS_v3_Model_Update.md) | CTLE 位置修正、driver_gain 由死参数变为可调维度、11 维空间、评估协议选择依据（块长/种子实测） |
 | [LPO MSA 规范核心参数提炼](docs/LPO_MSA_Specification_Summary.md) | 电气/光学/信道参数标准依据（插损、噪声分配等） |
 | [分支关系与版本导览](BRANCHES.md) | 仓库各分支（main / feature / sjtu-channel-model / physical-model）的关系与差异，以及本文档地图 |
 
 > 早期古典优化器（BO / GA / SA / SHC 等）已归档在 **`sjtu-channel-model` 分支** 的 `archive/`，
 > 分支关系与“archive/ 去哪了”速查见 [分支关系与版本导览](BRANCHES.md)。
-> DDPS v1（物理模型修复前）的数据/模型/结果在磁盘上归档于 `archive/20260904_ddps_v1_physical_pre_v2/`
-> （按仓库政策不入库，git 历史仍完整保留本分支旧版）。
+> **v2 与更早**的数据/模型/结果/v1 归档于 `archive/`（按仓库政策不入库，仅留在磁盘；git 历史完整保留）：
+> `archive/20260904_ddps_v1_physical_pre_v2/`、`archive/20260910_ddps_v2_pre_ctle_reorder/`
+> （后者含 v2 数据集/模型/结果与旧交付件，并说明为何在 CTLE 位置与 driver_gain 修正后不可比）。
 
 ## ⚡ 快速上手 (Quick Start)
 
@@ -70,28 +72,41 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### 3. 全链路代理数据集生成与模型训练（DDPS v2）
+### 3. 全链路代理数据集生成与模型训练（DDPS v3）
 ```bash
-# 生成"环境锚定邻域"数据集（基准环境 320 点密集 + 7 个应力环境各 60 点锚点，
-# 覆盖 Stage-2 信任域 FFE ±0.1 / CTLE ±3 dB；单点真实 BER_MLSE 评估 131072 符号）
-python dataset_generator.py --base-samples 320 --anchor-samples 60 --num-symbols 131072
+# 生成"环境锚定邻域"数据集：基准环境 320 点密集 + 14 个应力环境各 60 点锚点，
+# 覆盖 Stage-2 信任域（FFE ±0.10 / CTLE ±3 dB / driver_gain ±0.5），11 维 LHS；
+# 单点真实 BER_MLSE 用 262144 符号 × 3 个仿真种子取均值（抑制 BER 估计噪声）；
+# --jobs 多进程并行（结果与串行逐位一致）
+python dataset_generator.py --base-samples 320 --anchor-samples 60 \
+    --num-symbols 262144 --sim-seeds 42,43,44 --jobs 14
 
-# 白盒多项式 Ridge 训练 Model A & B（输出 models/ddps_v2/ + meta.json）
-python -c "from train_surrogates import train_v2; import glob;\
-f=sorted(glob.glob('dataset/ddps_v2_dataset_*.csv'))[-1]; train_v2(f, 'models/ddps_v2')"
+# 白盒多项式 Ridge 训练 Model A & B（Model A: 7-tap FIR 形状 + MZM 驱动 RMS；Model B: 12 维配置）
+python -c "from train_surrogates import train_v3; import glob;\
+f=sorted(glob.glob('dataset/ddps_v3_dataset_*.csv'))[-1]; train_v3(f, 'models/ddps_v3')"
 ```
 
-### 4. DDPS v2 在线调优泛化测试 + 可视化报告
+### 4. DDPS v3 在线调优泛化测试 + 可视化报告
 ```bash
-# 冻结模型，逐环境（IL/CD/DGD/复合）Stage-2 约束下降；真实 BER_MLSE 只记录不回传
-python test_generalization.py --model-dir models/ddps_v2 --out-dir result/ddps_v2_<ts> \
-    --num-symbols 131072 --n-steps 30 --cloud-n 16
+# 冻结模型，逐环境（对称/非对称插损、CD、DGD、复合、器件噪声）Stage-2 约束下降；
+# 真实 BER_MLSE 只记录不回传（11 维：8 FFE 旁瓣 + gDC + gDC2 + driver_gain）
+python test_generalization.py --model-dir models/ddps_v3 --out-dir result/ddps_v3_<ts> \
+    --num-symbols 262144 --sim-seeds 42,43,44 --n-steps 15 --cloud-n 8
 
-# 可视化报告：收敛/抽头/CTLE 响应/眼图/频谱/均衡电平 + 中文 summary + 深水复核
-python report_ddps_v2.py --test-dir result/ddps_v2_<ts> --model-dir models/ddps_v2 \
-    --deep-symbols 262144
+# 消融对照：冻结 CTLE 与 driver_gain，只优化 FFE（量化新增维度的贡献）
+python test_generalization.py --model-dir models/ddps_v3_control \
+    --out-dir result/ddps_v3_control_ffe_only --freeze-extra \
+    --num-symbols 262144 --sim-seeds 42,43,44 --n-steps 15
+
+# 可视化报告：收敛/抽头/CTLE 响应/driver_gain 轨迹/眼图/频谱 + 中文报告 + 深水复核
+python report_ddps_v3.py --test-dir result/ddps_v3_<ts> --model-dir models/ddps_v3 \
+    --deep-symbols 524288 --summary "result/ddps_v3_control:只用基线" \
+    "result/ddps_v3_<ts>:带锚点" "result/ddps_v3_control_ffe_only:消融(冻结 CTLE+增益)"
 ```
-> 运行结束后，汇总报告在 `result/ddps_v2_<ts>/report/`：`ddps_v2_report.md`（含
-> BER_MLSE 口径、模型指标、逐用例收敛表、统计复核）+ `ddps_v2_overview.png` +
-> 各用例 `_a/_b` 图（收敛轨迹、Tx FFE 抽头、Tx CTLE 频率响应、Tx FIR 探针、
-> 眼图、频谱、Rx FFE 均衡电平）。
+> 运行结束后，报告在 `result/ddps_v3_<ts>/report/`：`ddps_v3_report.md`（BER_MLSE 口径、
+> 模型指标、逐用例收敛表、云校验、深水复核）+ `ddps_v3_overview.png` + 各用例 `_a/_b` 图
+> （收敛轨迹、Tx FFE 抽头、CTLE 频响、driver_gain 轨迹、眼图、频谱、Rx FFE 输出分布），
+> 跨实验汇总写到 `report/SUMMARY.md`。
+>
+> **模型修正与评估协议的选择依据**（CTLE 位置、driver_gain 为何曾是死参数、块长/种子实测）
+> 见 [07. DDPS v3 模型修正与评估协议](docs/07_DDPS_v3_Model_Update.md)。

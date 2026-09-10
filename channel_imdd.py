@@ -9,6 +9,27 @@ except ImportError:
 
 _s4p_cache = {}
 
+# ---------------------------------------------------------------------------
+# Tx front-end calibration constants.
+#
+# The SJTU-derived calibration is: the MZM must be driven at driver_vpp = 0.617 V (PAM4
+# Vpp), i.e. an RMS of 0.617 * 0.3726, and the nominal driver gain is 2.0. The VGA is a
+# swing-control stage *upstream* of the driver: it normalises the module-input signal to a
+# FIXED level that does NOT depend on the driver gain. This is what makes driver_gain a real
+# degree of freedom (it changes the actual MZM drive amplitude, hence the optical OMA versus
+# MZM-linearity trade-off) instead of a cancelled-out no-op.
+# ---------------------------------------------------------------------------
+DRIVER_VPP_NOMINAL = 0.617
+PAM4_RMS_FACTOR = 0.3726
+DRIVER_GAIN_NOMINAL = 2.0
+VGA_OUT_RMS_NOMINAL = DRIVER_VPP_NOMINAL * PAM4_RMS_FACTOR / DRIVER_GAIN_NOMINAL   # 0.11497 V
+
+
+def wgn(rng, sigma, n):
+    """White Gaussian noise vector (helper kept explicit for clarity)."""
+    return rng.normal(0, sigma, n)
+
+
 def _load_s4p_cached(path):
     """Cache the Touchstone Network so repeated simulations don't re-parse the file."""
     if path not in _s4p_cache:
@@ -153,6 +174,69 @@ def apply_s4p_filter(x, fs, config_ch, target_il_key, nyquist):
     X_filtered = X * H_channel
     return np.fft.irfft(X_filtered, n=N)
 
+def tx_frontend_lti(x, config, baud_rate, fs_analog, nyquist, rng=None):
+    """Tx 模拟前端（线性时不变部分），顺序与物理链路严格一致：
+
+        Tx 电插损(S4P/解析) -> [1 mV 前端噪声] -> Tx 模拟 CTLE -> VGA(AGC) -> Driver 真增益 -> Driver 带限
+
+    要点：
+    - Tx 模拟 CTLE 位于电插损之后、Driver 之前（post-channel 均衡）。
+    - VGA 紧跟在 CTLE 之后，把信号归一化到固定 RMS（vga_out_rms）：这样 CTLE 主要负责
+      **频谱整形**（其直流增益被 VGA 吸收），而驱动摆幅只由 driver_gain 决定 ——
+      两个搜索维度在物理上互不冗余。
+    - driver_gain 是真实、独立的自由度（决定 MZM 驱动幅度，即 OMA 与 MZM 线性度的折中）。
+    - 该函数被 channel_imdd.apply_channel 与 tx_channel_extract 物理探针共用，
+      保证"真实链路"与"探针"永不漂移。
+    """
+    config_ch = config['channel']
+    config_tx = config['tx']
+
+    loss_db = config_ch.get('tx_pcb_loss_nyquist_db', config_ch.get('pcb_loss_nyquist_db', 15.0))
+    fc_pcb = nyquist / np.sqrt(10 ** (loss_db / 10) - 1)
+
+    # 1) Tx 电插损（Host Tx -> Module Tx）
+    if config_ch.get('use_s4p', False) and rf is not None:
+        x_s4p = apply_s4p_filter(x, fs_analog, config_ch, 'tx_pcb_loss_nyquist_db', nyquist)
+        if x_s4p is not None:
+            x = x_s4p
+        else:
+            print("Warning: S4P file not found. Using analytical filter.")
+            x = lowpass_filter(x, fc_pcb, fs_analog, order=1)
+    else:
+        x = lowpass_filter(x, fc_pcb, fs_analog, order=1)
+
+    # 2) 模块输入端的 1 mV 前端噪声（在 VGA/Driver 增益之前，故随补偿增益一起被放大）
+    if rng is not None:
+        x = x + rng.normal(0, config_ch.get('host_tx_noise_rms', 0.001), len(x))
+
+    # 3) Tx 模拟 CTLE（电插损之后、Driver 之前）。放在 VGA 之前，使其主要作用是
+    #    "频谱整形/峰化"而不是"改摆幅"：直流增益会被后面的 VGA 归一化掉，
+    #    因此 CTLE 与 driver_gain 两个维度在物理上互不冗余。
+    if config_tx.get('use_ctle', False):
+        f_b = baud_rate
+        f_z = f_b / config_tx.get('ctle_fz_ratio', 2.5)
+        f_p1 = f_b / config_tx.get('ctle_fp1_ratio', 2.5)
+        f_p2 = f_b / config_tx.get('ctle_fp2_ratio', 1.0)
+        f_lf = f_b / config_tx.get('ctle_flf_ratio', 40.0)
+        x = apply_ctle(x, fs_analog, f_z, f_p1, f_p2,
+                       config_tx.get('ctle_g_dc_db', 0.0),
+                       config_tx.get('ctle_g_dc2_db', 0.0), f_lf)
+
+    # 4) VGA：归一化到固定模块输入 RMS（与 driver_gain 解耦）。
+    #    放在 CTLE 之后 => 驱动摆幅由 driver_gain 单独决定，CTLE 只改变波形形状。
+    x = x - np.mean(x)
+    current_rms = np.std(x)
+    vga_out_rms = config_ch.get('vga_out_rms', VGA_OUT_RMS_NOMINAL)
+    if current_rms > 1e-12:
+        x = x * (vga_out_rms / current_rms)
+
+    # 5) Driver：真实线性增益（可调搜索维度）+ 自身带限
+    x = x * config_ch.get('driver_gain', DRIVER_GAIN_NOMINAL)
+    x = lowpass_filter(x, config_ch.get('driver_bw', config_ch.get('mzm_bw', 40e9)),
+                       fs_analog, order=4)
+    return x
+
+
 def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     config_ch = config['channel']
     config_tx = config['tx']
@@ -167,7 +251,7 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     loss_db_rx = config_ch.get('rx_pcb_loss_nyquist_db', 15.0)
     fc_pcb_rx = nyquist / np.sqrt(10**(loss_db_rx/10) - 1)
     
-    rng = np.random.RandomState(123)
+    rng = np.random.RandomState(int(config_ch.get('seed', 123)))
 
     # 2. DAC Output: ENOB quantization -> ZOH
     if config_ch.get('dac_enob', 0) > 0:
@@ -179,18 +263,12 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     if config_ch.get('use_distributed_noise', False):
         x += rng.normal(0, config_ch.get('host_tx_noise_rms', 0.0), len(x))
 
-    # --- Apply Tx CTLE (Analog Equalization before channel) ---
-    if config_tx.get('use_ctle', False):
-        f_b = baud_rate
-        f_z = f_b / config_tx.get('ctle_fz_ratio', 2.5)
-        f_p1 = f_b / config_tx.get('ctle_fp1_ratio', 2.5)
-        f_p2 = f_b / config_tx.get('ctle_fp2_ratio', 1.0)
-        f_lf = f_b / config_tx.get('ctle_flf_ratio', 40.0)
-        g_dc_db = config_tx.get('ctle_g_dc_db', 0.0)
-        g_dc2_db = config_tx.get('ctle_g_dc2_db', 0.0)
-        x = apply_ctle(x, fs_analog, f_z, f_p1, f_p2, g_dc_db, g_dc2_db, f_lf)
-    # ----------------------------------------------------------
-    
+    # NOTE: the Tx analog CTLE is NOT applied here any more. It belongs AFTER the Tx
+    # electrical insertion loss and BEFORE the driver (see the module-input section below).
+    # Applying it at the DAC output made it largely ineffective: the post-channel VGA
+    # re-normalisation absorbed its flat gain, so it could not shape the spectrum that
+    # actually reaches the MZM.
+
     # --- ISI BYPASS (DEBUG MODE) ---
     if config_ch.get('disable_isi', False):
         loss_db = config_ch.get('target_il_nyquist_db', 18.0)
@@ -207,37 +285,9 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
         return x, x_noisy, x_adc_out
     # -------------------------------
     
-    # [Host Tx to Module Tx]
-    if config_ch.get('use_s4p', False) and rf is not None:
-        x_filtered = apply_s4p_filter(x, fs_analog, config_ch, 'tx_pcb_loss_nyquist_db', nyquist)
-        if x_filtered is not None:
-            x = x_filtered
-        else:
-            print(f"Warning: S4P file not found. Using analytical filter.")
-            x = lowpass_filter(x, fc_pcb_tx, fs_analog, order=1)
-    else:
-        x = lowpass_filter(x, fc_pcb_tx, fs_analog, order=1)
-        
-    # --- Physical Tx Driver: VGA -> real gain -> band-limit (decoupled) ---
-    # [Host Tx Noise] injected at module input BEFORE the driver gain (SJTU: 1 mV RMS right
-    # after the IL board). It is then amplified by the VGA + driver gain — a REAL gain, not a
-    # free swing normalization, so higher IL => more amplified front-end noise.
-    x += rng.normal(0, config_ch.get('host_tx_noise_rms', 0.001), len(x))
-
-    # VGA / swing control (upstream of the fixed driver gain)
-    x = x - np.mean(x)
-    current_rms = np.std(x)
-    driver_vpp = config_ch.get('driver_vpp', 0.617)
-    driver_gain = config_ch.get('driver_gain', 2.0)   # REAL linear voltage gain (SJTU Driver Vpp=2.0)
-    target_rms = driver_vpp * 0.3726
-    if current_rms > 1e-12:
-        x = x * (target_rms / (current_rms * driver_gain))
-
-    # Real driver gain (fixed; decoupled from the band-limit)
-    x = x * driver_gain
-
-    # Driver band-limit (decoupled; its flat loss is re-normalized downstream by the TIA/ADC AGC)
-    x = lowpass_filter(x, config_ch.get('driver_bw', config_ch.get('mzm_bw', 40e9)), fs_analog, order=4)
+    # [Host Tx to Module Tx] -> 1 mV 前端噪声 -> VGA -> Tx 模拟 CTLE -> Driver(真增益 + 带限)
+    # 与物理探针共用同一实现（tx_frontend_lti），保证"探针 = 真实链路"，永不漂移。
+    x = tx_frontend_lti(x, config, baud_rate, fs_analog, nyquist, rng=rng)
 
     x_analog = x.copy()
     

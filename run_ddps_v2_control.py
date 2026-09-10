@@ -1,3 +1,6 @@
+# [v2 时代脚本] v2 的只用基线训练对照入口。
+# v2 产物已归档到 archive/20260910_ddps_v2_pre_ctle_reorder/（不入库）。
+# 当前请使用 run_ddps_v3_control.py 与 test_generalization.py。
 # -*- coding: utf-8 -*-
 """run_ddps_v2_control.py — DDPS v2 单环境训练对照（科学对照，非主结果）
 

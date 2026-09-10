@@ -1,7 +1,8 @@
 import numpy as np
 import os
-from tx_dsp import tx_dsp_chain
-from channel_imdd import apply_ctle, dac_zoh, lowpass_filter, apply_s4p_filter
+from tx_dsp import pam4_map, tx_dsp_chain
+from channel_imdd import (apply_ctle, dac_zoh, lowpass_filter, apply_s4p_filter,
+                          tx_frontend_lti, VGA_OUT_RMS_NOMINAL, DRIVER_GAIN_NOMINAL)
 try:
     import skrf as rf
 except ImportError:
@@ -39,59 +40,62 @@ def _env_signature(config):
 
 
 def _chain_impulse(config, custom_taps, pad_len=100):
-    """把理想单位脉冲打过整条 Tx 模拟链（FFE→DAC→CTLE→PCB→Driver→MZM），
-    返回 8sps 模拟波形。与 extract_tx_s21 的旧实现逐段等价。"""
+    """把理想单位脉冲打过整条 Tx 模拟链，返回 8sps 波形（MZM 输入端，单位 V）。
+
+    链路顺序与 channel_imdd.apply_channel **完全一致**（共用 tx_frontend_lti）：
+        FFE -> DAC(ZOH) -> Tx 电插损 -> VGA -> Tx CTLE -> Driver 真增益 -> Driver 带限 -> MZM 带限
+    """
     baud_rate = config['system']['baud_rate']
     sps_dsp = int(config['system']['sps_dsp'])
     sps_dac = int(config['system']['sps_dac'])
     sps_channel = int(config['system']['sps_channel'])
 
     tx_symbols = np.zeros(2 * pad_len + 1)
-    tx_symbols[pad_len] = 1.0  # 单位脉冲
+    tx_symbols[pad_len] = 1.0  # 单位脉冲（1 sps）
 
     tx_config = config['tx'].copy()
     tx_config['custom_taps'] = custom_taps
     tx_out = tx_dsp_chain(tx_symbols, sps_dsp, baud_rate, tx_config)
 
-    x_analog = dac_zoh(tx_out, sps_dac, sps_channel)
+    x = dac_zoh(tx_out, sps_dac, sps_channel)
     fs_analog = baud_rate * sps_channel
-
-    if tx_config.get('use_ctle', False):
-        f_b = baud_rate
-        f_z = f_b / tx_config.get('ctle_fz_ratio', 2.5)
-        f_p1 = f_b / tx_config.get('ctle_fp1_ratio', 2.5)
-        f_p2 = f_b / tx_config.get('ctle_fp2_ratio', 1.0)
-        f_lf = f_b / tx_config.get('ctle_flf_ratio', 40.0)
-        g_dc_db = tx_config.get('ctle_g_dc_db', 0.0)
-        g_dc2_db = tx_config.get('ctle_g_dc2_db', 0.0)
-        x_analog = apply_ctle(x_analog, fs_analog, f_z, f_p1, f_p2, g_dc_db, g_dc2_db, f_lf)
-
-    config_ch = config['channel']
     nyquist = baud_rate / 2
-    loss_db = config_ch.get('tx_pcb_loss_nyquist_db', config_ch.get('pcb_loss_nyquist_db', 15.0))
-    fc_pcb = nyquist / np.sqrt(10 ** (loss_db / 10) - 1)
 
-    if config_ch.get('use_s4p', False) and rf is not None:
-        x_s4p = apply_s4p_filter(x_analog, fs_analog, config_ch, 'tx_pcb_loss_nyquist_db', nyquist)
-        if x_s4p is not None:
-            x = x_s4p
-        else:
-            x = lowpass_filter(x_analog, fc_pcb, fs_analog, order=1)
-    else:
-        x = lowpass_filter(x_analog, fc_pcb, fs_analog, order=1)
-
-    # Driver AGC and band-limit (matching channel_imdd.py exactly)
-    sigma_s = np.sqrt(5) / 3
-    current_rms = sigma_s * np.sqrt(np.sum(x ** 2) / sps_channel)
-    driver_vpp = config_ch.get('driver_vpp', 0.617)
-    target_rms = driver_vpp * 0.3726
-    if current_rms > 1e-12:
-        x = x * (target_rms / current_rms)
-    x = lowpass_filter(x, config_ch.get('driver_bw', config_ch.get('mzm_bw', 40e9)),
-                       fs_analog, order=4)
+    x = tx_frontend_lti(x, config, baud_rate, fs_analog, nyquist, rng=None)
     # E-O conversion band-limit
-    x = lowpass_filter(x, config_ch['mzm_bw'], fs_analog)
+    x = lowpass_filter(x, config['channel']['mzm_bw'], fs_analog)
     return x, fs_analog, sps_channel
+
+
+def _drive_rms(config, custom_taps, n_symbols=4096, seed=7):
+    """该配置下 MZM 输入端的真实驱动 RMS（V）。
+
+    用一段固定 PAM4 测试序列跑同一套模拟前端（不含 MZM 与后端），把 driver_gain 与
+    CTLE 直流增益对"实际驱动幅度"的影响变成一个显式标量特征。
+
+    为什么必须有它：driver_gain 在纯线性 Tx 链里只是一个标量乘子，而 7-tap FIR 形状
+    对整体尺度是不变的 —— 若 Model A 只看 FIR 形状，它对 driver_gain 的梯度恒为 0，
+    寻优将永远无法移动这一维。驱动幅度正是决定 MZM 非线性（以及 OMA/SNR）的物理量。
+    """
+    baud_rate = config['system']['baud_rate']
+    sps_dsp = int(config['system']['sps_dsp'])
+    sps_dac = int(config['system']['sps_dac'])
+    sps_channel = int(config['system']['sps_channel'])
+
+    rng = np.random.RandomState(seed)
+    pam4 = pam4_map(rng.randint(0, 4, n_symbols))
+
+    tx_config = config['tx'].copy()
+    tx_config['custom_taps'] = custom_taps
+    tx_out = tx_dsp_chain(pam4, sps_dsp, baud_rate, tx_config)
+
+    x = dac_zoh(tx_out, sps_dac, sps_channel)
+    fs_analog = baud_rate * sps_channel
+    x = tx_frontend_lti(x, config, baud_rate, fs_analog, baud_rate / 2, rng=None)
+
+    skip = 200 * sps_channel          # 跳过滤波器暂态
+    seg = x[skip:] if len(x) > skip else x
+    return float(np.std(seg))
 
 
 def _nominal_taps(config):
@@ -116,41 +120,44 @@ def reset_probe_cache():
     _s4p_cache.clear()
 
 
+def _resolve_taps(config, custom_tx_taps=None):
+    """解析当前生效的 9-tap FFE 权重（显式传入优先，其次 config，最后名义抽头）。"""
+    if custom_tx_taps is not None:
+        return np.asarray(custom_tx_taps, dtype=float)
+    tx_config = config['tx']
+    if 'custom_taps' in tx_config and str(tx_config['custom_taps']).lower() not in ('none', 'nan'):
+        val = tx_config['custom_taps']
+        if isinstance(val, str) and val.strip().startswith('['):
+            import ast
+            return np.array(ast.literal_eval(val), dtype=float)
+        return np.asarray(val, dtype=float)
+    return _nominal_taps(config)
+
+
 def extract_tx_s21(config, custom_tx_taps=None, num_taps=7):
-    """提取发端等效 T 间隔 FIR（Tx FFE -> DAC -> CTLE -> PCB -> MZM）。
+    """提取发端等效 T 间隔 FIR（绝对标定，单位 V）。
+
+    链序：Tx FFE -> DAC -> Tx 电插损 -> VGA -> Tx CTLE -> Driver 真增益 -> MZM。
 
     - 符号格基准按"物理信道环境"（IL/CD/DGD/S4P 文件等）缓存，保证同一环境下
-      FIR 是 FFE/CTLE 的光滑函数、跨环境复用时对齐正确。
+      FIR 是 FFE/CTLE/Driver 增益的光滑函数、跨环境复用时对齐正确。
+    - 注意：整条 Tx 链是线性时不变的，因此该 FIR 的**形状**对纯增益（driver_gain）
+      不敏感；需要感知驱动幅度时请使用 extract_tx_features()。
     - config: 系统配置字典
     - custom_tx_taps: 9-tap FFE 权重（None 时用配置/透传抽头）
     - num_taps: 提取中心抽头数（默认 7）
     """
     sps_channel = int(config['system']['sps_channel'])
     pre_cursors = 2
-    post_cursors = num_taps - pre_cursors - 1
+    custom_taps = _resolve_taps(config, custom_tx_taps)
 
-    # 1. 取当前配置的 FFE 权重
-    if custom_tx_taps is not None:
-        custom_taps = np.asarray(custom_tx_taps, dtype=float)
-    else:
-        tx_config = config['tx']
-        if 'custom_taps' in tx_config and str(tx_config['custom_taps']).lower() not in ('none', 'nan'):
-            val = tx_config['custom_taps']
-            if isinstance(val, str) and val.strip().startswith('['):
-                import ast
-                custom_taps = np.array(ast.literal_eval(val), dtype=float)
-            else:
-                custom_taps = np.asarray(val, dtype=float)
-        else:
-            custom_taps = _nominal_taps(config)
-
-    # 2. 打理想单位脉冲过整条 Tx 链
+    # 1. 打理想单位脉冲过整条 Tx 链
     x, _, _ = _chain_impulse(config, custom_taps)
 
-    # 3. 符号格基准 = 当前环境下透传冲激的峰值位置（按环境缓存）
+    # 2. 符号格基准 = 当前环境下透传冲激的峰值位置（按环境缓存）
     peak_idx = _peak_idx_for_env(config)
 
-    # 4. 以 sps_channel 间隔取 num_taps 个等效 T 间隔抽头
+    # 3. 以 sps_channel 间隔取 num_taps 个等效 T 间隔抽头
     fir_taps = np.zeros(num_taps)
     for i in range(num_taps):
         tap_offset = i - pre_cursors
@@ -158,6 +165,21 @@ def extract_tx_s21(config, custom_tx_taps=None, num_taps=7):
         if 0 <= idx < len(x):
             fir_taps[i] = x[idx]
     return fir_taps
+
+
+def extract_tx_features(config, custom_tx_taps=None, num_taps=7):
+    """Model A 的输入特征 = (fir_shape, drive_rms)。
+
+    - fir_shape: num_taps 个等效 T 间隔抽头，按峰值归一化（主游标 = 1），只描述波形形状；
+      对纯增益尺度不变，数值条件好。
+    - drive_rms: 该配置下 MZM 输入端的真实驱动 RMS（V），显式携带 driver_gain 与
+      CTLE 直流增益决定的驱动幅度 —— 这是 MZM 非线性 / OMA 的决定性物理量。
+    """
+    custom_taps = _resolve_taps(config, custom_tx_taps)
+    fir = extract_tx_s21(config, custom_tx_taps=custom_taps, num_taps=num_taps)
+    peak = float(np.max(np.abs(fir)))
+    shape = fir / peak if peak > 1e-12 else fir
+    return shape, _drive_rms(config, custom_taps)
 
 
 if __name__ == "__main__":

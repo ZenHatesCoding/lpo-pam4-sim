@@ -1,3 +1,6 @@
+# [v2 时代脚本] 生成 v2 的 result/SUMMARY.md。
+# v2 产物已归档到 archive/20260910_ddps_v2_pre_ctle_reorder/（不入库）。
+# 当前请使用 report_ddps_v3.py --summary 生成跨实验汇总。
 # -*- coding: utf-8 -*-
 """make_result_summary.py — 从现有产物重建「结果页」（不重跑寻优/数据收集）
 

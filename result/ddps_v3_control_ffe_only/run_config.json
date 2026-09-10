@@ -1,0 +1,34 @@
+{
+  "model_dir": "models/ddps_v3_control",
+  "n_steps": 15,
+  "num_symbols": 262144,
+  "cloud_n": 0,
+  "sim_seeds": [
+    42,
+    43,
+    44
+  ],
+  "cloud_symbols": 65536,
+  "cloud_sim_seeds": [
+    42,
+    43
+  ],
+  "freeze_extra": true,
+  "envs": [
+    "Base_IL10x10",
+    "IL14x14",
+    "IL20x20",
+    "IL20x10_TxHeavy",
+    "IL10x20_RxHeavy",
+    "IL16x10",
+    "IL10x16",
+    "CD15ps",
+    "CD28ps",
+    "DGD2ps",
+    "DGD5ps",
+    "Comb_IL20x20_CD15_DGD5",
+    "Comb_IL20x10_CD15_DGD5",
+    "HighNoise_IL10x10",
+    "HighNoise_IL16x16"
+  ]
+}

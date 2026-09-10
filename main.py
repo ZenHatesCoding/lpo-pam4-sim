@@ -45,7 +45,7 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_
     sps_adc = int(config['system']['sps_adc'])
     num_symbols = int(config['system']['num_symbols'])
     
-    rng = np.random.RandomState(42)
+    rng = np.random.RandomState(int(config['system'].get('seed', 42)))
     tx_symbols = rng.randint(0, 4, num_symbols)
     tx_pam4 = pam4_map(tx_symbols)
     

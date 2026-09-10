@@ -2,13 +2,19 @@
 
 [🔙 返回主页](../README.md)
 
+> [!IMPORTANT]
+> **本文描述的是 v2 时代的物理模型与结果，已被 v3 取代。**
+> v3 修正了 Tx 链的两处建模问题（Tx 模拟 CTLE 的位置、`driver_gain` 曾被 VGA 归一化完全抵消），
+> 并把搜索空间扩到 11 维、用例扩到 15 个、评估协议升级为 262144 符号 × 3 个仿真实例种子。
+> 因此本文的数值与结论**不能与 v3 结果混用**。v3 的模型修正说明见
+> [07. DDPS v3 模型修正与评估协议](07_DDPS_v3_Model_Update.md)，最新结果见
+> [`result/SUMMARY.md`](../result/SUMMARY.md)；v2 全部产物已归档到
+> `archive/20260910_ddps_v2_pre_ctle_reorder/`（磁盘，不入库）。
+
 > 本文件是 **v2 修正后的正式结果页**。v1（物理模型修复前）出现“Model A 下降但真实 BER 反向变差”
 > 的负向优化现象，根因排查结论、修正清单与最终结果见下文。历史数据/模型/结果完整归档于
 > `archive/20260904_ddps_v1_physical_pre_v2/`（本分支 git 历史与 `origin/physical-model` 亦保留旧版）。
 > 仓库分支分工见 [分支关系与版本导览 (BRANCHES.md)](../BRANCHES.md)。
->
-> **📊 结果与图件索引：[`result/SUMMARY.md`](../result/SUMMARY.md)** —— 以“只用基线训练 → 跨环境
-> 泛化”为核心结果，另附“带锚点训练”上限对比；含 8 用例对比表与全部图/数据链接。
 
 ---
 

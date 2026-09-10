@@ -1,3 +1,6 @@
+# [v2 时代脚本] 用于 v2 物理模型（CTLE 位置 / driver_gain 修正前）的结果报告。
+# v2 产物已归档到 archive/20260910_ddps_v2_pre_ctle_reorder/（不入库），本脚本默认路径已不存在。
+# 当前请使用 report_ddps_v3.py（见 docs/07_DDPS_v3_Model_Update.md）。
 # -*- coding: utf-8 -*-
 """report_ddps_v2.py — DDPS v2 可视化结果报告生成器。
 

@@ -300,3 +300,90 @@ def load_models(model_dir="models", verbose=False):
             with open(p, 'rb') as f:
                 return pickle.load(f)
     return _load(a_path), _load(b_path)
+
+
+# ============================================================================
+# DDPS v3 训练接口
+#
+#   Model A 输入 = [7-tap Tx FIR 形状, MZM 驱动 RMS]        -> 8 维，D = 45
+#       * drive_rms 是必需的：driver_gain 在纯线性 Tx 链里只是标量乘子，FIR 形状对整体
+#         尺度不变；把"实际驱动幅度"显式喂给 Model A，它才能对 driver_gain 产生非零梯度。
+#   Model B 输入 = [9 个 FFE 抽头, gDC, gDC2, driver_gain]  -> 12 维，D = 91
+# ============================================================================
+V3_A_COLS = [f'tx_fir_{i}' for i in range(7)] + ['drive_rms']
+V3_CONFIG_COLS = [f'ffe_tap_{i}' for i in range(9)] + ['ctle_dc', 'ctle_dc2', 'driver_gain']
+
+
+def train_v3(dataset_csv, model_dir="models", label_col=None, verbose=True,
+             test_size=0.2, seed=42):
+    """DDPS v3：白盒 Ridge 双代理训练（11 维搜索空间的代理模型）。
+
+    与 train_v2 的区别：
+      - Model A 特征 = 7-tap FIR 形状 + MZM 驱动 RMS（8 维）；
+      - Model B 特征 = 9 抽头 + gDC + gDC2 + driver_gain（12 维）；
+      - meta.json 额外记录特征维度，便于审计与复算。
+    返回 (model_a, model_b, meta)。
+    """
+    import pandas as pd
+    if label_col is None:
+        label_col = _col(pd.read_csv(dataset_csv, nrows=1), 'log10_ber_mlse', 'log10_ber')
+    df = pd.read_csv(dataset_csv)
+    df = df[df[label_col] < -0.1].reset_index(drop=True)   # 剔除锁死样本(BER>0.79)
+
+    X_A = df[V3_A_COLS].values.astype(float)
+    X_B = df[V3_CONFIG_COLS].values.astype(float)
+    y = df[label_col].values.astype(float)
+    envs = df['env'].values if 'env' in df.columns else None
+
+    tr, te = _train_test_split_idx(len(df), test_size, seed)
+    X_A_tr, X_A_te = X_A[tr], X_A[te]
+    X_B_tr, X_B_te = X_B[tr], X_B[te]
+    y_tr, y_te = y[tr], y[te]
+
+    model_a = WhiteBoxRidge(degree=2, alpha=1.0).fit(X_A_tr, y_tr)
+    model_b = WhiteBoxRidge(degree=2, alpha=1.0).fit(X_B_tr, y_tr)
+
+    pa = model_a.predict(X_A_te)
+    pb = model_b.predict(X_B_te)
+    meta = {
+        'dataset_csv': dataset_csv, 'label_col': label_col, 'pipeline': 'ddps_v3',
+        'n_rows': int(len(df)), 'n_train': int(len(tr)), 'n_test': int(len(te)),
+        'model_a_features': V3_A_COLS, 'model_b_features': V3_CONFIG_COLS,
+        'model_a_dim': int(len(V3_A_COLS)), 'model_b_dim': int(len(V3_CONFIG_COLS)),
+        'model_a': {
+            'r2_test': _r2_score(y_te, pa), 'mse_test': _mse(y_te, pa),
+            'spearman_test': _spearman(y_te, pa),
+        },
+        'model_b': {
+            'r2_test': _r2_score(y_te, pb), 'mse_test': _mse(y_te, pb),
+            'spearman_test': _spearman(y_te, pb),
+        },
+    }
+    if envs is not None:
+        env_te = envs[te]
+        for tag, pred in [('model_a', pa), ('model_b', pb)]:
+            by_env = {}
+            for e in np.unique(env_te):
+                m = env_te == e
+                if m.sum() >= 5:
+                    by_env[str(e)] = {'n': int(m.sum()),
+                                      'spearman_test': _spearman(y_te[m], pred[m])}
+            meta[f'{tag}_by_env'] = by_env
+
+    if verbose:
+        print(f"Model A (FIR+drive -> logBER): n={len(df)} | R2={meta['model_a']['r2_test']:.3f} "
+              f"| Spearman={meta['model_a']['spearman_test']:.3f}")
+        print(f"Model B (config -> logBER):    n={len(df)} | R2={meta['model_b']['r2_test']:.3f} "
+              f"| Spearman={meta['model_b']['spearman_test']:.3f}")
+
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
+    WhiteBoxRidge.__module__ = 'train_surrogates'
+    WhiteBoxGPR.__module__ = 'train_surrogates'
+    with open(os.path.join(model_dir, 'model_a.pkl'), 'wb') as f:
+        pickle.dump(model_a, f)
+    with open(os.path.join(model_dir, 'model_b.pkl'), 'wb') as f:
+        pickle.dump(model_b, f)
+    with open(os.path.join(model_dir, 'meta.json'), 'w', encoding='utf-8') as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False, default=float)
+    return model_a, model_b, meta

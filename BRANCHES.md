@@ -1,6 +1,6 @@
 # 分支关系与版本导览 (Branch & Version Map)
 
-[🔙 返回主页](README.md) ｜ 相关文档：[06. DDPS v2 重做报告](docs/06_DDPS_v2_Rerun.md) ｜ [结果索引 result/SUMMARY.md](result/SUMMARY.md) ｜ [Agent 交接 HANDOFF](HANDOFF.md)
+[🔙 返回主页](README.md) ｜ 相关文档：[07. DDPS v3 模型修正与评估协议](docs/07_DDPS_v3_Model_Update.md) ｜ [04. DDPS 寻优架构](docs/04_DDPS_Optimization.md) ｜ [结果索引 result/SUMMARY.md](result/SUMMARY.md) ｜ [Agent 交接 HANDOFF](HANDOFF.md)
 
 > 本文档回答三类问题：仓库里有哪些分支、它们之间是什么关系、尤其是 **`sjtu-channel-model`** 与 **`physical-model`** 到底差在哪。
 
@@ -101,7 +101,8 @@ DDPS（Data-Driven Physical Surrogate）从 0 到 1 的阶段：架构对齐 Sta
 | --- | --- |
 | 古典优化器源码 + 文档（BO/GA/SA/SHC/TuRBO/SafeQCD/Two-Stage…） | `sjtu-channel-model` 分支的 `archive/algorithms/` + `archive/docs/`（入库）；本机磁盘目录 `archive/`（未入库，与 sjtu 内容一致） |
 | DDPS v1（物理模型修复前）数据/模型/结果 | 本机磁盘 `archive/20260904_ddps_v1_physical_pre_v2/`（不入库）；git 历史保留旧版 |
-| DDPS v2 全部产物 | `physical-model`：`result/ddps_v2_20260907/`、`result/ddps_v2_control/`（入口 `result/SUMMARY.md`） |
+| DDPS v2（CTLE 位置/driver_gain 修正前）数据/模型/结果/交付件 | 本机磁盘 `archive/20260910_ddps_v2_pre_ctle_reorder/`（不入库，含 README 说明为何与 v3 不可比）；git 历史保留 |
+| DDPS v3（当前）全部产物 | `physical-model`：`dataset/ddps_v3_dataset_<ts>.csv`、`models/ddps_v3{,_control}/`、`result/ddps_v3_<ts>/`、`result/ddps_v3_control/`、`result/ddps_v3_control_ffe_only/`（入口 `result/SUMMARY.md`） |
 
 ### 5.5 什么时候用哪条
 
@@ -118,17 +119,19 @@ DDPS（Data-Driven Physical Surrogate）从 0 到 1 的阶段：架构对齐 Sta
 | 文档 | 内容 | main | feature | sjtu | physical |
 | --- | --- | --- | --- | --- | --- |
 | [README.md](README.md) | 项目主页 / 导航枢纽 | ✅ | ✅ | ✅ | ✅ |
-| [DDPS_v2_Deliverable.html](DDPS_v2_Deliverable.html) | 对外交付件：方案总结（自包含 HTML，含全部图表） | — | — | — | ✅ |
+| [DDPS_v3_Deliverable.html](DDPS_v3_Deliverable.html) | 对外交付件：方案总结（自包含 HTML，含全部图表） | — | — | — | ✅ |
 | [01. DSP 架构与核心参数](docs/01_DSP_Architecture.md) | 收发机模型、config.xlsx 参数 | ✅ | ✅ | ✅ | ✅ |
 | [02. 独立分析与诊断工具](docs/02_Utility_Scripts.md) | scratch/ 工具集 | ✅ | ✅ | ✅ | ✅ |
 | [03. 调试排坑与经验沉淀](docs/03_Troubleshooting_History.md) | 踩坑记录 | ✅ | ✅ | ✅ | ✅ |
 | [04. DDPS 数据驱动物理代理寻优](docs/04_DDPS_Optimization.md) | DDPS 架构（重构自 `docs/04_Algorithms/DDPS.md`） | — | 旧版 | ✅ | ✅ |
 | [05. 物理信道模型升级](docs/05_Physical_Channel_Upgrade.md) | 高斯噪声 → 微观物理模型 | — | — | ✅ | ✅ |
-| [06. DDPS v2 重做报告](docs/06_DDPS_v2_Rerun.md) | v2 根因与结果（本分支新文档） | — | — | — | ✅ |
+| [06. DDPS v2 重做报告](docs/06_DDPS_v2_Rerun.md) | v2 根因与结果（v2 时代物理模型，已被 v3 取代） | — | — | — | ✅ |
+| [07. DDPS v3 模型修正与评估协议](docs/07_DDPS_v3_Model_Update.md) | CTLE 位置修正、driver_gain 可调、11 维空间、评估协议依据 | — | — | — | ✅ |
 | [LPO MSA 规范提炼](docs/LPO_MSA_Specification_Summary.md) | 电气/光学参数依据 | — | — | ✅ | ✅ |
-| [结果索引 result/SUMMARY.md](result/SUMMARY.md) | v2 两实验对比表 + 全部图/数据 | — | — | — | ✅ |
+| [结果索引 result/SUMMARY.md](result/SUMMARY.md) | v3 跨实验对比表 + 全部图/数据 | — | — | — | ✅ |
 | [HANDOFF.md](HANDOFF.md) | Agent 任务交接说明 | — | ✅ | ✅ | ✅ |
 | 古典优化器文档 | Baselines/SafeQCD/TuRBO_Safe/Surrogate_SHC/Two-Stage | `docs/04_Algorithms/` | 同左 | `archive/docs/` | 磁盘 `archive/`（或 sjtu） |
+| v2 及更早产物 | 数据集/模型/结果/旧交付件（磁盘归档，不入库） | — | — | — | `archive/20260910_ddps_v2_pre_ctle_reorder/` |
 
 ---
 
