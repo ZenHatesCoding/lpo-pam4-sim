@@ -1,5 +1,7 @@
 # 物理信道建模升级 (Physical Channel Upgrade)
 
+[🔙 返回主页](../README.md)
+
 本文档记录了从原有抽象的高斯噪声模型向具体的微观物理器件模型升级的理论基础与实现进度。
 
 ## 1. MZM 与 Laser 建模 (E-O Conversion)
@@ -87,3 +89,7 @@
 - [x] **DDPS v2 全链路重做**：修复 v1 负向优化（Stage-1 死代码 / FFE 参数化错配 / 探针跨 IL 对齐漂移），
   数据→训练→在线调优泛化测试重跑，见 [06. DDPS v2 重做报告](06_DDPS_v2_Rerun.md)；
   v1 数据/模型/结果归档于 `archive/20260904_ddps_v1_physical_pre_v2/`（本分支 git 历史亦保留）。
+
+---
+
+[🔙 返回主页](../README.md)

@@ -1,5 +1,7 @@
 # DDPS v2：只用基线训练跨环境泛化 & 带锚点训练（BER_MLSE）
 
+[🔙 返回主页](../README.md) ｜ 分支分工与产物归档见 [分支关系与版本导览 (BRANCHES.md)](../BRANCHES.md)
+
 两个实验共用同一套评估：Rx 22-tap LMS FFE（无 DFE）→ MLSE（memory=1，Burg 白化），指标为 BER_MLSE；每点 131072 符号、固定随机种子；种子 x0 相同；Stage-2 只依据代理模型，真实 BER 仅记录不参与决策。
 
 ## 两个实验怎么切（差异只有训练数据）

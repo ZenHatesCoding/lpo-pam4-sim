@@ -1,5 +1,7 @@
 # LPO MSA Specification (v1.01) - 核心参数提炼与指南
 
+[🔙 返回主页](../README.md)
+
 本文档总结了从 `LPO_MSA_Specification_v1p01.pdf` 中提取的关键电气、光学和信道物理参数。这些参数是配置 `config.xlsx` 和底层信道模型的重要依据。
 
 ## 1. 系统与拓扑总览
@@ -55,3 +57,7 @@ LPO 规范在 OIF CEI-112G-LINEAR-PAM4 基础上扩展了最大允许电插损�
 在 `channel_imdd.py` 中的实施原则：
 1. **去中心化噪声**: 废弃原本利用统一电 `snr_db` 拟合全链路的简单模型。根据标准，需要在 DAC 输出端、驱动端 (VGA)、TIA 输出端以及 ADC 输入端分别根据物理等效（如 3~6 mV RMS）来分配分布式的加性高斯白噪声。
 2. **非对称电插损滤波**: Host->Module (Tx) 和 Module->Host (Rx) 两段独立配置电气信道，允许两端的插损不一样，最高支持 16 dB（26.56GHz）的损耗滤波。对于 S4P 滤波器的接入，需要针对 Tx 和 Rx 的目标插损分别进行频率轴缩放 (Frequency Scaling)。
+
+---
+
+[🔙 返回主页](../README.md)

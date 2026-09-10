@@ -48,8 +48,10 @@ DEFAULT_MODE = '112G'
 | [05. 微观物理信道模型升级记录](docs/05_Physical_Channel_Upgrade.md) | 抽象高斯噪声 → SJTU 级微观光电物理模型的升级过程 |
 | [06. DDPS v2 重做报告](docs/06_DDPS_v2_Rerun.md) | v1 负向优化根因排查与 v2 全链路重做（数据/训练/在线调优/可视化） |
 | [LPO MSA 规范核心参数提炼](docs/LPO_MSA_Specification_Summary.md) | 电气/光学/信道参数标准依据（插损、噪声分配等） |
+| [分支关系与版本导览](BRANCHES.md) | 仓库各分支（main / feature / sjtu-channel-model / physical-model）的关系与差异，以及本文档地图 |
 
-> 早期古典优化器（BO / GA / SA / SHC 等）已归档在 **`sjtu-channel-model` 分支** 的 `archive/`。
+> 早期古典优化器（BO / GA / SA / SHC 等）已归档在 **`sjtu-channel-model` 分支** 的 `archive/`，
+> 分支关系与“archive/ 去哪了”速查见 [分支关系与版本导览](BRANCHES.md)。
 > DDPS v1（物理模型修复前）的数据/模型/结果在磁盘上归档于 `archive/20260904_ddps_v1_physical_pre_v2/`
 > （按仓库政策不入库，git 历史仍完整保留本分支旧版）。
 
