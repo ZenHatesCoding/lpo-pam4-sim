@@ -41,6 +41,7 @@ DEFAULT_MODE = '112G'
 
 | 文档 | 内容 |
 | --- | --- |
+| [📄 **DDPS v2 交付说明（对外呈现件 · 自包含 HTML）**](DDPS_v2_Deliverable.html) | **一份文件讲清整件事**：任务约束、平台全参数、模型如何建立与全部超参数、算法流程与复杂度、实测效果与边界（含全部图表，可离线打开直接呈现） |
 | [01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md) | 收发机模型、多采样率机制、`config.xlsx` 参数物理含义 |
 | [02. 独立分析与诊断工具集](docs/02_Utility_Scripts.md) | `scratch/` 下的信道频响查看器、寻参脚本 |
 | [03. 调试排坑与经验沉淀](docs/03_Troubleshooting_History.md) | DFE 误差传播、发送端相位失真、FFE 抽头对齐等踩坑记录 |

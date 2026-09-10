@@ -118,6 +118,7 @@ DDPS（Data-Driven Physical Surrogate）从 0 到 1 的阶段：架构对齐 Sta
 | 文档 | 内容 | main | feature | sjtu | physical |
 | --- | --- | --- | --- | --- | --- |
 | [README.md](README.md) | 项目主页 / 导航枢纽 | ✅ | ✅ | ✅ | ✅ |
+| [DDPS_v2_Deliverable.html](DDPS_v2_Deliverable.html) | 对外交付件：方案总结（自包含 HTML，含全部图表） | — | — | — | ✅ |
 | [01. DSP 架构与核心参数](docs/01_DSP_Architecture.md) | 收发机模型、config.xlsx 参数 | ✅ | ✅ | ✅ | ✅ |
 | [02. 独立分析与诊断工具](docs/02_Utility_Scripts.md) | scratch/ 工具集 | ✅ | ✅ | ✅ | ✅ |
 | [03. 调试排坑与经验沉淀](docs/03_Troubleshooting_History.md) | 踩坑记录 | ✅ | ✅ | ✅ | ✅ |
