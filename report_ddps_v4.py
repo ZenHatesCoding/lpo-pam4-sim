@@ -321,8 +321,11 @@ def _rows_params(summ):
         seed_t, best_t = _params_of(r)
         n_tap = len(seed_t)
         c_seed, c_best = seed_t[int((n_tap - 1) / 2)], best_t[int((n_tap - 1) / 2)]
-        ffe = ' / '.join(f'{a:+.4f}→{b:+.4f}' for a, b in zip(seed_t, best_t) if abs(a - b) > 1e-9)
-        unchanged = sum(1 for a, b in zip(seed_t, best_t) if abs(a - b) <= 1e-9)
+        mid = int((len(seed_t) - 1) / 2)
+        ffe = ' / '.join(f't{k}: {a:+.4f}→{b:+.4f}'
+                         for k, (a, b) in enumerate(zip(seed_t, best_t)) if abs(a - b) > 1e-9)
+        unchanged = sum(1 for k, (a, b) in enumerate(zip(seed_t, best_t))
+                        if k != mid and abs(a - b) <= 1e-9)
         gain_s = float(r.get('seed_gain_ratio', 1.0))
         gain_b = float(r.get('best_gain_ratio', float('nan')))
         out.append(
@@ -419,9 +422,9 @@ def write_report(test_dir, model_dir, report_dir, protocol):
              f'平均改善 ×{float((summ["seed_ber"]/summ["best_ber"]).mean()):.2f}。\n')
 
     L.append('## 逐用例：收敛后的全部可调参数 vs 起点\n')
-    L.append('`best_step` 为轨迹中真实 BER 最小的那一步；FFE 只列出**发生变化的旁瓣**（其余保持不变），'
-             '主抽头为派生量（= 1 − Σ|旁瓣|）。\n')
-    L.append('| 用例 | 最优步 | FFE 旁瓣 种子→收敛 | 未变旁瓣数 | 主抽头 种子→收敛 | gDC (dB) | gDC2 (dB) | 增益倍率 | BER 种子→最优 |')
+    L.append('`best_step` 为轨迹中真实 BER 最小的那一步；FFE 列出 5 个抽头里**发生变化的那些**'
+             '（t2 为主抽头，由 1 − Σ|旁瓣| 派生）；"未动的旁瓣"统计 4 个自由旁瓣里没变的个数。\n')
+    L.append('| 用例 | 最优步 | FFE 5 抽头 种子→收敛（t2 为主抽头，派生） | 未动的旁瓣 | 主抽头 种子→收敛 | gDC (dB) | gDC2 (dB) | 增益倍率 | BER 种子→最优 |')
     L.append('| --- | --- | --- | --- | --- | --- | --- | --- | --- |')
     L.append(_rows_params(summ))
     L.append('')

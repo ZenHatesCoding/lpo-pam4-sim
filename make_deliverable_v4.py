@@ -1002,11 +1002,11 @@ Model B : B(x) = f(x) + c · S(x),                S 由 |y − f(x)| 再拟合�
 
 <h3>6.2 每个用例收敛后的全部可调参数（对照起点）</h3>
 <p>下表逐用例列出 <code>best_step</code>（轨迹中真实 BER 最小的那一步）对应的全部可调量与种子的对比。
-FFE 只列出<strong>发生变化的旁瓣</strong>，主抽头为派生量（= 1 − Σ|旁瓣|，因此也随旁瓣变化）。</p>
+FFE 列出 5 个抽头里<strong>发生变化的那些</strong>（t2 是主抽头，由 <code>1 − Σ|旁瓣|</code> 派生，因此也随旁瓣改变）；“未动的旁瓣”统计 4 个自由旁瓣里没变的个数。</p>
 <div class="tw">
 <table class="wide">
   <caption>逐用例：种子 → 收敛（7 个自由变量） <span class="sh">· 可左右滑动</span></caption>
-  <tr><th>用例</th><th class="n">最优步</th><th>FFE 旁瓣 种子→收敛</th><th class="n">未变旁瓣</th><th class="n">主抽头 种子→收敛</th><th class="n">gDC (dB)</th><th class="n">gDC2 (dB)</th><th class="n">增益倍率</th><th class="n">BER 种子→最优</th></tr>
+  <tr><th>用例</th><th class="n">最优步</th><th>FFE 5 抽头 种子→收敛（t2 为主抽头，由 1−Σ|旁瓣| 派生）</th><th class="n">未动的旁瓣</th><th class="n">主抽头 种子→收敛</th><th class="n">gDC (dB)</th><th class="n">gDC2 (dB)</th><th class="n">增益倍率</th><th class="n">BER 种子→最优</th></tr>
   <!--PARAM_ROWS-->
 </table>
 </div>
@@ -1305,10 +1305,11 @@ def _rows_params(summary, order):
         seed_t, best_t = D.SEED_TAPS.astype(float), _taps_of(r)
         mid = int((len(seed_t) - 1) / 2)
         changed = [(k, a, b) for k, (a, b) in enumerate(zip(seed_t, best_t)) if abs(a - b) > 1e-9]
+        side = [c for c in changed if c[0] != mid]
         ffe = ' / '.join(f't{k}: {a:+.4f}→{b:+.4f}' for k, a, b in changed) or '（未变）'
         out.append(
             f"<tr><td>{env}</td><td class=\"n\">{int(r['best_step'])}</td><td>{ffe}</td>"
-            f"<td class=\"n\">{len(seed_t) - len(changed)}/{len(seed_t)}</td>"
+            f"<td class=\"n\">{D.N_SIDE - len(side)}/{D.N_SIDE}</td>"
             f"<td class=\"n\">{seed_t[mid]:+.4f} → {best_t[mid]:+.4f}</td>"
             f"<td class=\"n\">{r['best_gdc']:+.2f}</td><td class=\"n\">{r['best_gdc2']:+.2f}</td>"
             f"<td class=\"n\">×{r.get('seed_gain_ratio', 1.0):.2f} → "
