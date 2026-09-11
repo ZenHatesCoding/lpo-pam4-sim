@@ -24,6 +24,8 @@ from ddps_cases import ENV_CASES  # noqa: E402
 
 
 def _load(d):
+    if not d or not os.path.exists(os.path.join(d, 'case_summary.csv')):
+        return None, {}
     s = pd.read_csv(os.path.join(d, 'case_summary.csv')).set_index('env')
     tr = {}
     for e in [c['name'] for c in ENV_CASES]:
@@ -53,7 +55,7 @@ def _stats(summary, traces, order, K):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--main', default='result/ddps_v4_main')
-    ap.add_argument('--ablation', default='result/ddps_v4_abl_ffe')
+    ap.add_argument('--ablation', default=None, help='可选的对照实验目录（不给则只输出主实验列）')
     ap.add_argument('--out', default='result/ddps_v4_run_length.csv')
     a = ap.parse_args()
 
@@ -61,19 +63,23 @@ def main():
     s, tr = _load(a.main)
     order = [e for e in order if e in s.index]
     sa, tra = _load(a.ablation)
+    has_abl = sa is not None and len(tra) > 0
     kmax = max(len(tr[e]) for e in order)
 
     rows = []
     for K in range(1, kmax + 1):
         p1, m1, w1, st1 = _stats(s, tr, order, K)
-        p2, m2, w2, st2 = _stats(sa, tra, order, K)
-        rows.append({'k_steps': K, 'n_cases': len(order),
-                     'main_positive': p1, 'main_mean_improve_x': m1,
-                     'main_worse_steps': w1, 'main_steps': st1,
-                     'abl_positive': p2, 'abl_mean_improve_x': m2,
-                     'abl_worse_steps': w2, 'abl_steps': st2})
-        print(f'  K={K:2d} | 主 {p1:2d}/{len(order)} ×{m1:.2f} worse={w1:3d}/{st1:3d} '
-              f'| 消融 {p2:2d}/{len(order)} ×{m2:.2f} worse={w2:3d}/{st2:3d}')
+        row = {'k_steps': K, 'n_cases': len(order),
+               'main_positive': p1, 'main_mean_improve_x': m1,
+               'main_worse_steps': w1, 'main_steps': st1}
+        msg = f'  K={K:2d} | {p1:2d}/{len(order)} 正向 ×{m1:.2f} 劣化={w1:3d}/{st1:3d}'
+        if has_abl:
+            p2, m2, w2, st2 = _stats(sa, tra, order, K)
+            row.update({'abl_positive': p2, 'abl_mean_improve_x': m2,
+                        'abl_worse_steps': w2, 'abl_steps': st2})
+            msg += f' | 对照 {p2:2d}/{len(order)} ×{m2:.2f} 劣化={w2:3d}/{st2:3d}'
+        rows.append(row)
+        print(msg)
     os.makedirs(os.path.dirname(a.out) or '.', exist_ok=True)
     pd.DataFrame(rows).to_csv(a.out, index=False, encoding='utf-8-sig')
     print(f'[replay] -> {a.out}')

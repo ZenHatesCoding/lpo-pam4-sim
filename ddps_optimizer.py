@@ -32,6 +32,17 @@ from train_surrogates import train_from_df, WhiteBoxRidge, WhiteBoxGPR
 #     通过“沿 26.5 dB 引导的下降轨迹，在 28 dB 深水回测”来检验。
 # ============================================================
 
+# ---------------------------------------------------------------------------
+# Tx FFE：**5 抽头**（4 个旁瓣自由变量 + 1 个派生主抽头），T-spaced
+#
+#   方案数从 11 维降到 7 维（4 FFE 旁瓣 + gDC + gDC2 + u_gain）。定 5 抽头的理由：
+#   原 9 抽头里外侧 4 个抽头在整条轨迹上基本停在 0 附近，却同样消耗数据分辨力；
+#   7 维下 2001 个样本的局部斜率可分辨性显著好于 11 维（实测见 result/ddps_v4_local_gradient.csv）。
+# ---------------------------------------------------------------------------
+N_FFE_TAPS = 5
+FFE_PRE = 2                    # 主抽头位置（2 个前游标 + 2 个后游标）
+N_SIDE = N_FFE_TAPS - 1        # 4 个旁瓣自由变量
+
 FFE_BOUND = 0.3
 CTLE_GDC_MIN = -5.0
 CTLE_GDC_MAX = 5.0
@@ -56,6 +67,11 @@ TRUST_CTLE = 3.0              # Stage 2 信任域半径（CTLE, dB）
                               # driver_gain 不设"半径"，直接在整个搜索箱内寻优（见下）
 GD_LR = 0.05                  # Stage 2 初始步长（相对各维箱宽的比例，随 step 以 ALPHA_DECAY 衰减）
 ALPHA_DECAY = 0.97            # 步长衰减：越走越稳（末期用于收敛落点）
+TRUST_PATH_K = 1.0            # 轨迹信任域：标准化位移超过 TRUST_PATH_K × ρ 就停
+                              # ρ = 训练数据的局部颗粒度（第 32 近邻中位距离，训练时写入
+                              # model.local_spacing_）。理由：模型只在“走过约一个数据格”的
+                              # 范围内可信；再往外它给出的“还能继续降”没有数据支撑
+                              # （实测：预测下降总量 −0.77 dex/用例 vs 实测最优 −0.34 dex）。
 GROUP_GATE = 1e-3             # 组梯度门控：某组"每走满整箱"的预测收益低于该值（dex）就冻结该组，
                               # 不沿拟合噪声推动无油水的自由度
 MIN_GAIN_DEX = 0.01           # 边际改善门控：Model A 预测每步改善 < 0.01 个 log10 即停
@@ -69,7 +85,7 @@ MIN_GAIN_DEX = 0.01           # 边际改善门控：Model A 预测每步改善 
 #     —— 对数参数化让"增益步长"与增益量级无关（10~20 dB 插损补偿需要 ~3 倍增益范围）。
 #   三组自由度都会被 Model A 的梯度下降直接优化。
 # ---------------------------------------------------------------------------
-N_DIM = 11
+N_DIM = N_SIDE + 3          # 4 旁瓣 + gDC + gDC2 + u_gain = 7
 from channel_imdd import GAIN_LOG10_MIN, GAIN_LOG10_MAX, DRIVER_GAIN_NOMINAL   # noqa: E402
 
 # 各维"满箱宽度"：步长按各维自身箱宽的固定比例走 —— 三组自由度的步长各自与其箱宽成比例，
@@ -78,10 +94,10 @@ from channel_imdd import GAIN_LOG10_MIN, GAIN_LOG10_MAX, DRIVER_GAIN_NOMINAL   #
 #   FFE  ：箱宽 = 2 × 信任域半径 = 0.20
 #   CTLE ：箱宽 = 2 × 信任域半径 = 6.0 dB
 #   gain ：箱宽 = 整个设计箱 = GAIN_LOG10_MAX - GAIN_LOG10_MIN
-STEP_SPAN = np.array([2.0 * TRUST_FFE] * 8 + [2.0 * TRUST_CTLE] * 2
+STEP_SPAN = np.array([2.0 * TRUST_FFE] * N_SIDE + [2.0 * TRUST_CTLE] * 2
                      + [GAIN_LOG10_MAX - GAIN_LOG10_MIN])
 # 三组自由度（用于分组归一化步长 + 分组梯度门控）
-GROUP_SLICES = (slice(0, 8), slice(8, 10), slice(10, 11))
+GROUP_SLICES = (slice(0, N_SIDE), slice(N_SIDE, N_SIDE + 2), slice(N_SIDE + 2, N_SIDE + 3))
 GROUP_NAMES = ('FFE', 'CTLE', 'driver_gain')
 
 # 评估协议：仿真种子序列。多 seed 时对 log10 BER 取均值，抑制"单一实现"造成的
@@ -96,7 +112,7 @@ def set_sim_seeds(seeds):
     return SIM_SEEDS
 
 # 已知“不错的起点”（种子）：来自两阶段实验的初始次优点
-SEED_TAPS = np.array([0.0, 0.0, -0.034, -0.2987, 0.6091, 0.0, 0.0582, 0.0, 0.0])
+SEED_TAPS = np.array([-0.034, -0.2987, 0.6091, 0.0, 0.0582])   # 5-tap：主抽头 = 1 - Σ|旁瓣|
 SEED_GDC = 0.0
 SEED_GDC2 = 0.0
 SEED_GAIN_U = 0.0             # u = log10(gain / DRIVER_GAIN_NOMINAL)，种子即标定值（0.0）
@@ -117,31 +133,33 @@ def u_from_gain(gain):
     return float(np.log10(max(float(gain), 1e-12) / DRIVER_GAIN_NOMINAL))
 
 
-def construct_9tap(pre_post, ffe_pre):
+def construct_taps(pre_post, ffe_pre=FFE_PRE, n_taps=N_FFE_TAPS):
+    """4 个旁瓣 -> 5-tap FFE（主抽头由总能量恒等式派生）。"""
+    pre_post = np.asarray(pre_post, dtype=float)
     abs_sum = np.sum(np.abs(pre_post))
     if abs_sum > PEAK_SUM_LIMIT:
         pre_post = pre_post * (PEAK_SUM_LIMIT / abs_sum)
-    taps = np.zeros(9)
+    taps = np.zeros(n_taps)
     taps[:ffe_pre] = pre_post[:ffe_pre]
     taps[ffe_pre + 1:] = pre_post[ffe_pre:]
     taps[ffe_pre] = 1.0 - np.sum(np.abs(pre_post))
     return taps
 
 
-def _x_to_taps_ctle(x, ffe_pre):
-    """x -> (9-tap FFE, gDC, gDC2, driver_gain[线性])  —— 增益维按 log10 倍率解码。"""
-    return construct_9tap(x[:8], ffe_pre), x[8], x[9], gain_from_u(x[10])
+def _x_to_taps_ctle(x, ffe_pre=FFE_PRE):
+    """x -> (5-tap FFE, gDC, gDC2, driver_gain[线性]) —— 增益维按 log10 倍率解码。"""
+    return (construct_taps(x[:N_SIDE], ffe_pre), x[N_SIDE], x[N_SIDE + 1],
+            gain_from_u(x[N_SIDE + 2]))
 
-def _taps_to_x(taps, gdc, gdc2, gain, ffe_pre):
-    """(9-tap FFE, gDC, gDC2, driver_gain[线性]) -> x（增益维编码为 log10 倍率）。"""
-    pre_post = np.zeros(8)
-    pre_post[:ffe_pre] = taps[:ffe_pre]
-    pre_post[ffe_pre:] = taps[ffe_pre + 1:]
+def _taps_to_x(taps, gdc, gdc2, gain, ffe_pre=FFE_PRE):
+    """(5-tap FFE, gDC, gDC2, driver_gain[线性]) -> x（增益维编码为 log10 倍率）。"""
+    taps = np.asarray(taps, dtype=float)
+    pre_post = np.concatenate([taps[:ffe_pre], taps[ffe_pre + 1:]])
     return np.concatenate([pre_post, [gdc, gdc2, u_from_gain(gain)]])
 
 
 def _bounds():
-    b = [(-FFE_BOUND, FFE_BOUND)] * 8
+    b = [(-FFE_BOUND, FFE_BOUND)] * N_SIDE
     b.append((CTLE_GDC_MIN, CTLE_GDC_MAX))
     b.append((CTLE_GDC2_MIN, CTLE_GDC2_MAX))
     b.append((GAIN_LOG10_MIN, GAIN_LOG10_MAX))
@@ -178,7 +196,7 @@ def _make_row(sample_id, taps, gdc, gdc2, gain, logber, mlse_ber, tx_fir, drive_
     row = {'sample_id': sample_id, 'ctle_dc': gdc, 'ctle_dc2': gdc2,
            'driver_gain': gain, 'gain_u': u_from_gain(gain), 'drive_rms': drive_rms,
            'mlse_ber': mlse_ber, 'log10_ber': logber}
-    for j in range(9):
+    for j in range(len(taps)):
         row[f'ffe_tap_{j}'] = taps[j]
     for j in range(7):
         row[f'tx_fir_{j}'] = tx_fir[j]
@@ -186,7 +204,7 @@ def _make_row(sample_id, taps, gdc, gdc2, gain, logber, mlse_ber, tx_fir, drive_
 
 
 def _ffe_pre(config):
-    return int(config['tx'].get('ffe_pre', 4))
+    return int(config['tx'].get('ffe_pre', FFE_PRE))
 
 
 def _predict_a_x(model_a, x, ucb_kappa=0.0):
@@ -244,9 +262,7 @@ def _grad_a(model_a, x):
 
 def _stage1_collect(config, n_samples, ffe_pre, seed=42):
     """围绕起点 x0 做 LHS 邻域采样（11 维），仅为训练 A/B 模型。"""
-    seed_pre_post = np.zeros(8)
-    seed_pre_post[:ffe_pre] = SEED_TAPS[:ffe_pre]
-    seed_pre_post[ffe_pre:] = SEED_TAPS[ffe_pre + 1:]
+    seed_pre_post = np.concatenate([SEED_TAPS[:ffe_pre], SEED_TAPS[ffe_pre + 1:]])
 
     sampler = qmc.LatinHypercube(d=N_DIM, seed=seed)
     sp = sampler.random(n=n_samples)
@@ -254,14 +270,14 @@ def _stage1_collect(config, n_samples, ffe_pre, seed=42):
     rows = []
     print(f"[Stage 1] neighborhood sampling ({n_samples} samples around x0)...")
     for i in range(n_samples):
-        pre_post = seed_pre_post + (sp[i, :8] * 2 - 1.0) * TRUST_FFE
-        gdc = float(np.clip(SEED_GDC + (sp[i, 8] * 2 - 1.0) * TRUST_CTLE,
+        pre_post = seed_pre_post + (sp[i, :N_SIDE] * 2 - 1.0) * TRUST_FFE
+        gdc = float(np.clip(SEED_GDC + (sp[i, N_SIDE] * 2 - 1.0) * TRUST_CTLE,
                             CTLE_GDC_MIN, CTLE_GDC_MAX))
-        gdc2 = float(np.clip(SEED_GDC2 + (sp[i, 9] * 2 - 1.0) * TRUST_CTLE,
+        gdc2 = float(np.clip(SEED_GDC2 + (sp[i, N_SIDE + 1] * 2 - 1.0) * TRUST_CTLE,
                              CTLE_GDC2_MIN, CTLE_GDC2_MAX))
-        gain = float(np.clip(SEED_GAIN + (sp[i, 10] * 2 - 1.0) * TRUST_GAIN,
+        gain = float(np.clip(SEED_GAIN + (sp[i, N_SIDE + 2] * 2 - 1.0) * TRUST_GAIN,
                              GAIN_MIN, GAIN_MAX))
-        taps = construct_9tap(pre_post, ffe_pre)
+        taps = construct_taps(pre_post, ffe_pre)
         logber, mlse_ber = _physical_eval(config, taps, gdc, gdc2, gain)
         fir_shape, drive_rms = extract_tx_features(config, custom_tx_taps=taps, num_taps=7)
         rows.append(_make_row(i, taps, gdc, gdc2, gain, logber, mlse_ber, fir_shape, drive_rms))
@@ -320,7 +336,7 @@ def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_ref, 
     # 搜索箱：FFE / CTLE 相对种子收紧（防代理外推），driver_gain 允许走满整个设计箱
     gbounds = _bounds()
     gain_radius = max(abs(GAIN_LOG10_MIN), abs(GAIN_LOG10_MAX))
-    radius = np.array([TRUST_FFE] * 8 + [TRUST_CTLE, TRUST_CTLE, gain_radius])
+    radius = np.array([TRUST_FFE] * N_SIDE + [TRUST_CTLE, TRUST_CTLE, gain_radius])
     span = STEP_SPAN.copy()
     if freeze_extra:
         radius[8:] = 0.0          # 消融：只优化 FFE
@@ -334,6 +350,13 @@ def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_ref, 
     # 拦截红线（百分比口径）：允许的 BER = 种子点预测值 × (1 + MAX_DEGRADE_FRAC)
     seed_pred_ber = 10.0 ** safety_ref
     allowed_ber = seed_pred_ber * (1.0 + MAX_DEGRADE_FRAC)
+
+    # 轨迹信任域：标准化空间里从 x0 出发的位移上限
+    rho = float(getattr(model_a, 'local_spacing_', 0.0) or 0.0)
+    sd_vec = np.asarray(getattr(model_a, 'sd', np.ones_like(x0)), dtype=float)
+    mu_vec = np.asarray(getattr(model_a, 'mu', np.zeros_like(x0)), dtype=float)
+    z0 = (x0 - mu_vec) / sd_vec
+    path_limit = TRUST_PATH_K * rho if rho > 0 else None
 
     trace = []
     x = x0.copy()
@@ -369,6 +392,14 @@ def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_ref, 
         if x_new is None:
             print(f'[Stage 2] stop: 无候选点通过 Model B 拦截线 {allowed_ber:.2e}（step {step}）')
             break
+
+        # 2b. 轨迹信任域：走出数据支持的邻域就停（不等它继续“预测下降”）
+        if path_limit is not None:
+            z_new = (x_new - mu_vec) / sd_vec
+            if float(np.linalg.norm(z_new - z0)) > path_limit:
+                print(f'[Stage 2] stop: 轨迹位移超过信任域 {path_limit:.2f}σ '
+                      f'(= {TRUST_PATH_K:g} × ρ, ρ={rho:.2f}σ) at step {step}')
+                break
 
         # 3. 代理预测 + 真实 BER（仅记录验证）
         taps, gdc, gdc2, gain = _x_to_taps_ctle(x_new, ffe_pre)

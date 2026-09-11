@@ -4,7 +4,7 @@
 
 > [!NOTE]
 > 本项目的核心理念是 **“白盒化” (White-Box)** 与 **“符合物理直觉”**。
-> 我们移除了容易在超高误码率下发生雪崩效应的 DFE，并禁止对发送端架构做随意扩增（锁死在 T-spaced 9 抽头）。系统强制通过真实的 S4P 级联网络与纯线性 FIR 结构探索性能边界。
+> 我们移除了容易在超高误码率下发生雪崩效应的 DFE，并禁止对发送端架构做随意扩增（锁死在 T-spaced 5 抽头）。系统强制通过真实的 S4P 级联网络与纯线性 FIR 结构探索性能边界。
 
 ## 🚀 核心架构与多模切换 (Multi-Mode Switch)
 
@@ -22,7 +22,7 @@ DEFAULT_MODE = '112G'
 * **光物理层应力容限测试**：已将 IEEE 标准中的色散 (CD) 和差分群时延 (DGD) 白盒化。可通过 `config.xlsx` 中的 `stress_cases` 工作表进行任意应力组合的独立配置。
 
 ## 💡 均衡器配置底座
-* **Tx FFE**: 9-tap T-Spaced，架构锁死，权重预留供 DDPS 贝叶斯/梯度类优化器寻优。
+* **Tx FFE**: 5-tap T-Spaced（4 个旁瓣自由变量 + 1 个派生主抽头），架构锁死，权重供 DDPS 梯度下降寻优。
 * **Rx FFE**: 22-tap T-Spaced（LPO 模式），内置 LMS 自适应盲调。
 * **DFE**: 默认全关（`dfe_taps=0`），防止高误码率下的雪崩式错误传播。
 * **MLSE**: 默认开启 (Memory=1) + Burg AR 白化，Viterbi 4 态联合解码。开启时自动锁死 DFE。
@@ -35,7 +35,7 @@ DEFAULT_MODE = '112G'
 
 > [!TIP]
 > 📊 **结果与图件索引见 [`result/SUMMARY.md`](result/SUMMARY.md)**：以“只用基线训练 → 跨环境
-> 泛化”为核心（另附带锚点训练的上限对比与“冻结新增维度”的消融对照），15 用例横向对比、全部图与数据链接。
+> 泛化”为核心，15 用例横向对比、逐用例参数对照、预测-实测跟踪诊断与全部图/数据链接。
 
 ## 📚 文档导航 (Documentation Navigation)
 
@@ -45,7 +45,7 @@ DEFAULT_MODE = '112G'
 | [01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md) | 收发机模型、多采样率机制、`config.xlsx` 参数物理含义 |
 | [02. 独立分析与诊断工具集](docs/02_Utility_Scripts.md) | `scratch/` 下的信道频响查看器、寻参脚本 |
 | [03. 调试排坑与经验沉淀](docs/03_Troubleshooting_History.md) | DFE 误差传播、发送端相位失真、FFE 抽头对齐等踩坑记录 |
-| [04. DDPS 数据驱动物理代理寻优](docs/04_DDPS_Optimization.md) | Zero-Shot 双层代理寻优架构（Model A/B、Stage 2 约束梯度下降、11 维搜索空间） |
+| [04. DDPS 数据驱动物理代理寻优](docs/04_DDPS_Optimization.md) | Zero-Shot 双层代理寻优架构（Model A/B、Stage 2 约束梯度下降、7 维搜索空间） |
 | [05. 微观物理信道模型升级记录](docs/05_Physical_Channel_Upgrade.md) | 抽象高斯噪声 → SJTU 级微观光电物理模型的升级过程 |
 | [06. DDPS v2 重做报告](docs/06_DDPS_v2_Rerun.md) | v1 负向优化根因排查与 v2 全链路重做（数据/训练/在线调优/可视化） |
 | [**07. DDPS v3 模型修正与评估协议**](docs/07_DDPS_v3_Model_Update.md) | （v4 之前的记录）CTLE 位置修正、driver_gain 可调、块长/种子实测 —— 已被 v4 取代 |
@@ -76,13 +76,15 @@ python main.py
 
 ### 3. 全链路代理数据集生成与模型训练（DDPS v4）
 ```bash
-# 只用基线环境（IL10x10）采样 2000 点，11 维 LHS：
-# FFE ±0.10 / CTLE ±3 dB / Driver 增益倍率 ×0.30~×4.00（对数均匀）；
-# 单点真实 BER_MLSE = 262144 符号 × 3 个仿真种子取 log10 均值；# --jobs 多进程并行（与串行逐位一致）
+# 只用基线环境（IL10x10）采样 2000 点，7 维 LHS（5-tap FFE 的 4 个旁瓣 + CTLE×2 + 增益）：
+#   核心 1200 点：FFE ±0.075 / CTLE ±2.0 dB / 增益 ±0.20 dex（下降轨迹真正经过的小邻域）
+#   外壳  800 点：FFE ±0.10  / CTLE ±3.0 dB / 增益倍率 ×0.30~×4.00（整箱覆盖）
+# 单点真实 BER_MLSE = 262144 符号 × 3 个仿真种子取 log10 均值；--jobs 多进程并行（与串行逐位一致）
 python dataset_generator.py --base-samples 2000 --anchor-samples 0 \
-    --only-envs Base_IL10x10 --num-symbols 262144 --sim-seeds 42,43,44 --jobs 14
+    --only-envs Base_IL10x10 --num-symbols 262144 --sim-seeds 42,43,44 \
+    --jobs 14 --core-samples 1200
 
-# 白盒核岭回归训练 Model A（方向，解析梯度）& B（保守上包络）；输入均为 11 维搜索向量 x
+# 白盒核岭回归训练 Model A（方向，解析梯度）& B（保守上包络）；输入均为 7 维搜索向量 x
 python -c "from train_surrogates import train_v4; import glob;\
 f=sorted(glob.glob('dataset/ddps_v4_dataset_*.csv'))[-1]; train_v4(f, 'models/ddps_v4')"
 ```
@@ -94,15 +96,10 @@ f=sorted(glob.glob('dataset/ddps_v4_dataset_*.csv'))[-1]; train_v4(f, 'models/dd
 python test_generalization.py --model-dir models/ddps_v4 --out-dir result/ddps_v4_main \
     --num-symbols 262144 --sim-seeds 42,43,44 --n-steps 15 --cloud-n 8
 
-# 消融对照：冻结 CTLE 与 Driver 增益，只优化 FFE
-python test_generalization.py --model-dir models/ddps_v4 \
-    --out-dir result/ddps_v4_abl_ffe --freeze-extra \
-    --num-symbols 262144 --sim-seeds 42,43,44 --n-steps 15
-
 # 可视化报告：**三曲线收敛图（Model A / Model B / 实测 BER）** + 抽头/CTLE/增益轨迹/眼图 + 深水复核
 python report_ddps_v4.py --test-dir result/ddps_v4_main --model-dir models/ddps_v4 \
     --deep-symbols 524288 --summary "result/ddps_v4_main:三组自由度全开" \
-    "result/ddps_v4_abl_ffe:消融（只优化 FFE）"
+    --summary-out result/SUMMARY.md
 ```
 
 ### 5. 模型方向实测标定（回答"模型到底对不对"）
@@ -111,6 +108,13 @@ python report_ddps_v4.py --test-dir result/ddps_v4_main --model-dir models/ddps_
 # 与 Model A 的解析梯度逐轴对照：方向命中率 / 加权命中率 / 量级相关系数
 python tools/validate_local_gradient.py --model-dir models/ddps_v4 --env Base_IL10x10 \
     --num-symbols 262144 --sim-seeds 42,43,44 --out result/ddps_v4_local_gradient.csv
+
+# 顺带把"预测下降而实测上升"这件事量化清楚（逐用例 Δ预测 vs Δ实测）
+python tools/diagnose_divergence.py --test-dir result/ddps_v4_main \
+    --model-dir models/ddps_v4 --out result/ddps_v4_divergence.csv
+# trace 记账复核：用独立重仿真逐点核对记录值
+python tools/verify_trace.py --test-dir result/ddps_v4_main \
+    --envs Base_IL10x10,IL20x20 --steps 0,3,7,14
 ```
 > 运行结束后，报告在 `result/ddps_v4_main/report/`：**`ddps_v4_convergence.png`（每个用例的
 > Model A / Model B / 实测 BER 三曲线，用来看在线调优是否单调下降）**、`ddps_v4_report.md`、

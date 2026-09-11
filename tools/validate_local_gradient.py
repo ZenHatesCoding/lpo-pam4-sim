@@ -29,8 +29,10 @@ import ddps_cases as C              # noqa: E402
 from utils_config import load_config  # noqa: E402
 from train_surrogates import load_models  # noqa: E402
 
-DIM_NAMES = [f'FFE_side{i}' for i in range(8)] + ['CTLE_gDC', 'CTLE_gDC2', 'driver_gain_u']
-DIM_UNITS = ['tap'] * 8 + ['dB', 'dB', 'dex']
+# 7 个自由变量：4 个 5-tap FFE 旁瓣 + CTLE 两级 + driver 增益（对数倍率）
+DIM_NAMES = ([f'FFE_tap{i}' for i in range(D.N_SIDE)]
+             + ['CTLE_gDC', 'CTLE_gDC2', 'driver_gain_u'])
+DIM_UNITS = ['tap'] * D.N_SIDE + ['dB', 'dB', 'dex']
 
 
 def main():
@@ -40,8 +42,8 @@ def main():
     ap.add_argument('--num-symbols', type=int, default=262144)
     ap.add_argument('--sim-seeds', default='42,43,44')
     ap.add_argument('--out', default='result/ddps_v4_local_gradient.csv')
-    ap.add_argument('--steps', default='0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,1.0,1.0,0.10',
-                    help='各轴中心差分步长（FFE 8 个、CTLE 2 个、gain 1 个）')
+    ap.add_argument('--steps', default='0.05,0.05,0.05,0.05,1.0,1.0,0.10',
+                    help='各轴中心差分步长（FFE 4 个、CTLE 2 个、gain 1 个），逗号分隔')
     args = ap.parse_args()
 
     seeds = tuple(int(s) for s in args.sim_seeds.split(','))
@@ -62,13 +64,13 @@ def main():
     lb0, ber0 = ev(x0)
     g_a = D._grad_a(model_a, x0)
     g_b = np.asarray(model_b.grad(x0.reshape(1, -1))[0], dtype=float) \
-        if hasattr(model_b, 'grad') else np.full(11, np.nan)
+        if hasattr(model_b, 'grad') else np.full(D.N_DIM, np.nan)
 
     print(f'[validate] env={args.env} | {args.num_symbols} symbols x seeds{seeds}')
     print(f'[validate] seed log10BER={lb0:+.4f} (BER={ber0:.4e})')
 
     rows = []
-    for i in range(11):
+    for i in range(D.N_DIM):
         s = steps[i]
         xp, xm = x0.copy(), x0.copy()
         xp[i] += s

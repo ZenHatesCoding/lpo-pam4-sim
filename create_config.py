@@ -51,9 +51,10 @@ def generate_config(mode=DEFAULT_MODE):
             'sps_dac': 2,
             'levels': 4,              
             'pattern_length': 65536,
-            'ffe_taps': 9,            
+            'ffe_taps': 5,            
             'ffe_spacing': 1,         
-            'custom_taps': "[0.0, 0.0, 0.0, -0.2987, 0.7012, 0.0, 0.0, 0.0, 0.0]", 
+            'ffe_pre': 2,             
+            'custom_taps': "[-0.034, -0.2987, 0.6091, 0.0, 0.0582]", 
             'optimizer_type': 'SHC',
             'optimize_mode': 'JOINT',
             'safe_bo_max_log_ber': -3.0, # (e.g. -3.0 for 1e-3). Set to None to disable Safe-BO

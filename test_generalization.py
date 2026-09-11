@@ -31,12 +31,10 @@ def local_validity_cloud(cfg, model_a, model_b, n=16, seed=11, spread_ffe=None,
                          spread_ctle=None):
     """在 seed 邻域做 LHS 云采样，衡量"真实 BER 排序/方向 vs 模型预测"的一致性。
     仅作离线证据记录，绝不回传给 Stage-2 决策。"""
-    ffe_pre = int(cfg['tx'].get('ffe_pre', 4))
+    ffe_pre = int(cfg['tx'].get('ffe_pre', D.FFE_PRE))
     spread_ffe = spread_ffe or D.TRUST_FFE
     spread_ctle = spread_ctle or D.TRUST_CTLE
-    seed_pre_post = np.zeros(8)
-    seed_pre_post[:ffe_pre] = D.SEED_TAPS[:ffe_pre]
-    seed_pre_post[ffe_pre:] = D.SEED_TAPS[ffe_pre + 1:]
+    seed_pre_post = np.concatenate([D.SEED_TAPS[:ffe_pre], D.SEED_TAPS[ffe_pre + 1:]])
 
     seed_lb, seed_ber = D._physical_eval(cfg, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2,
                                          D.SEED_GAIN)
@@ -47,14 +45,14 @@ def local_validity_cloud(cfg, model_a, model_b, n=16, seed=11, spread_ffe=None,
     sp = sampler.random(n=n)
     real, pa, pb = [], [], []
     for i in range(n):
-        pre_post = seed_pre_post + (sp[i, :8] * 2 - 1.0) * spread_ffe
-        gdc = float(np.clip(D.SEED_GDC + (sp[i, 8] * 2 - 1.0) * spread_ctle,
+        pre_post = seed_pre_post + (sp[i, :D.N_SIDE] * 2 - 1.0) * spread_ffe
+        gdc = float(np.clip(D.SEED_GDC + (sp[i, D.N_SIDE] * 2 - 1.0) * spread_ctle,
                             D.CTLE_GDC_MIN, D.CTLE_GDC_MAX))
-        gdc2 = float(np.clip(D.SEED_GDC2 + (sp[i, 9] * 2 - 1.0) * spread_ctle,
+        gdc2 = float(np.clip(D.SEED_GDC2 + (sp[i, D.N_SIDE + 1] * 2 - 1.0) * spread_ctle,
                              D.CTLE_GDC2_MIN, D.CTLE_GDC2_MAX))
-        u_gain = float(D.GAIN_LOG10_MIN + sp[i, 10] * (D.GAIN_LOG10_MAX - D.GAIN_LOG10_MIN))
+        u_gain = float(D.GAIN_LOG10_MIN + sp[i, D.N_SIDE + 2] * (D.GAIN_LOG10_MAX - D.GAIN_LOG10_MIN))
         gain = D.gain_from_u(u_gain)
-        taps = D.construct_9tap(pre_post, ffe_pre)
+        taps = D.construct_taps(pre_post, ffe_pre)
         lb, _ = D._physical_eval(cfg, taps.copy(), gdc, gdc2, gain)
         real.append(lb)
         pa.append(D._predict_a(model_a, cfg, taps.copy(), gdc, gdc2, gain))
@@ -85,7 +83,7 @@ def run_case(cfg, model_a, model_b, env, n_steps=25, cloud_n=0, freeze_extra=Fal
     freeze_extra=True 时把 CTLE 两维与 driver_gain 冻结在种子值（只优化 FFE），
     用于量化"新增维度到底贡献了多少"。
     """
-    ffe_pre = int(cfg['tx'].get('ffe_pre', 4))
+    ffe_pre = int(cfg['tx'].get('ffe_pre', D.FFE_PRE))
     x0 = D._taps_to_x(D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, D.SEED_GAIN, ffe_pre)
     safety_ref = D._predict_b(model_b, cfg, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, D.SEED_GAIN)
     seed_lb, seed_ber = D._physical_eval(cfg, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2,

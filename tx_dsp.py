@@ -48,7 +48,7 @@ def tx_dsp_chain(tx_pam4, sps_dsp, baud_rate, config_tx):
             tx_taps = np.array(custom_taps)
     else:
         tx_taps = np.zeros(int(config_tx['ffe_taps']))
-        ffe_pre = int(config_tx.get('ffe_pre', 4)) if int(config_tx['ffe_taps']) == 9 else int(config_tx.get('ffe_pre', 1))
+        ffe_pre = int(config_tx.get('ffe_pre', max(0, int(config_tx['ffe_taps']) // 2)))
         tx_taps[ffe_pre] = 1.0 # Pass-through for now
         
     tx_out = tx_ffe(tx_eq, tx_taps, sps_dsp)

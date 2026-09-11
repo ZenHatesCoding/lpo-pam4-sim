@@ -1,5 +1,5 @@
 {
-  "dataset_csv": "dataset/ddps_v4_dataset_20260911_101946.csv",
+  "dataset_csv": "dataset\\ddps_v4_dataset_20260911_140733.csv",
   "label_col": "log10_ber_mlse",
   "pipeline": "ddps_v4",
   "n_rows": 2001,
@@ -13,11 +13,7 @@
     "x_3",
     "x_4",
     "x_5",
-    "x_6",
-    "x_7",
-    "x_8",
-    "x_9",
-    "x_10"
+    "x_6"
   ],
   "model_b_features": [
     "x_0",
@@ -26,32 +22,29 @@
     "x_3",
     "x_4",
     "x_5",
-    "x_6",
-    "x_7",
-    "x_8",
-    "x_9",
-    "x_10"
+    "x_6"
   ],
-  "model_a_dim": 11,
-  "model_b_dim": 11,
+  "model_a_dim": 7,
+  "model_b_dim": 7,
   "model_a_type": "WhiteBoxKernelRidge(RBF, closed form)",
   "model_b_type": "WhiteBoxEnvelope(mean + c*residual-scale ridge)",
-  "gamma": 0.046815701279190436,
-  "alpha": 0.1,
-  "cv_mse": 0.30805056130194686,
+  "gamma": 0.0802465790598619,
+  "alpha": 0.03,
+  "cv_mse": 0.07944422046210778,
   "envelope_c": 2.0,
-  "envelope_coverage_test": 0.9075,
+  "envelope_coverage_test": 0.8575,
+  "local_spacing_sigma": 1.7508802980013676,
   "model_a": {
-    "r2_test": 0.6228697240817174,
-    "mse_test": 0.2511488071387062,
-    "spearman_test": 0.8297658110363189,
-    "pred_std_test": 0.6966270402830343
+    "r2_test": 0.9004946517718502,
+    "mse_test": 0.09444772121543375,
+    "spearman_test": 0.9479963624772654,
+    "pred_std_test": 0.9328265096254239
   },
   "model_b": {
-    "r2_test": -0.07330911464927015,
-    "mse_test": 0.7147670740009056,
-    "spearman_test": 0.6971593572459827,
-    "pred_std_test": 0.571386854927432,
-    "coverage_test": 0.9075
+    "r2_test": 0.7948906894185024,
+    "mse_test": 0.1946840780866771,
+    "spearman_test": 0.9281949262182888,
+    "pred_std_test": 0.9386120868670592,
+    "coverage_test": 0.8575
   }
 }

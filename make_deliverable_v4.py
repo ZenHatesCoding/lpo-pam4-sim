@@ -1,15 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""make_deliverable_v3.py — 由产物自动生成 DDPS v3 交付件（自包含 HTML）。
+"""make_deliverable_v4.py — 由产物自动生成 DDPS v4 交付件（自包含 HTML）。
 
-数据来源（全部为流水线产物，无需手工转录）：
-  result/ddps_v3_control/            只用基线训练 + 15 环境在线调优（严格泛化）
-  result/ddps_v4_main/               只用基线训练 + 15 场景在线调优（核心结果）
-  result/ddps_v3_control_ffe_only/   冻结 CTLE 与 driver_gain 的消融对照
-  models/ddps_v3_control|ddps_v3/    meta.json（模型指标与特征维度）
-  dataset/ddps_v3_dataset_*.csv      数据集统计
-用法:
-  python make_deliverable_v3.py
+数据来源（全部为流水线产物，不手工转录数字）：
+    result/ddps_v4_main/                只用基线训练 + 15 场景在线调优（核心结果）
+    result/ddps_v4_local_gradient.csv   7 轴中心差分实测方向 vs Model A 解析梯度
+    result/ddps_v4_divergence.csv       逐用例 Δ预测 vs Δ实测（跟踪诊断）
+    result/ddps_v4_run_length.csv       运行长度回放
+    result/ddps_v4_block_length.csv     块长精度研究
+    models/ddps_v4/meta.json            模型指标（R²、Spearman、覆盖率、γ、α、ρ）
+    dataset/ddps_v4_dataset_*.csv       训练集规模
+
+用法：
+    python make_deliverable_v4.py --baseline result/ddps_v4_main --model-dir models/ddps_v4
 """
 import matplotlib
 matplotlib.use('Agg')
@@ -20,7 +23,7 @@ TEMPLATE = r'''<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0e2a52">
-<title>DDPS v3 交付说明 — 数据驱动物理代理寻优</title>
+<title>DDPS v4 交付说明 — 只用基线训练，跨场景泛化</title>
 <style>
   :root{
     --ink:#12161c; --ink-2:#3c4858; --ink-3:#6b7a8d;
@@ -145,17 +148,17 @@ TEMPLATE = r'''<!DOCTYPE html>
 
 <header class="top">
   <div class="wrap">
-    <div class="eyebrow">LPO 112G PAM4 仿真平台 · 收发端联合寻优</div>
-    <h1>DDPS v3：数据驱动物理代理寻优 — 交付说明</h1>
+    <div class="eyebrow">LPO 112G PAM4 仿真平台 · 发送端 7 维联合梯度下降</div>
+    <h1>DDPS v4：只用基线训练、跨场景泛化的发送端联合寻优 — 交付说明</h1>
     <div class="scope">
-      本文说明方案的适用范围、物理链路与优化对象、两个代理模型的构成与全部参数、在线调优算法流程与复杂度、实测效果与适用边界。
+      本文说明方案的适用范围、物理链路与 7 个可调量、两个代理模型各自在训练什么、在线调优算法与全部超参的标定依据、15 个用例的实测结果与逐用例参数对照、以及“预测下降而实测上升”这一现象的成因与对策。
       参数取自 <code>config.xlsx</code>、模型 <code>meta.json</code>、结果 <code>case_summary / trace</code> 与源码常量；图表为内嵌 SVG 与 PNG，单文件可离线打开。
     </div>
     <div class="chips">
-      <span class="chip">搜索空间 <b>11</b> 维（FFE + CTLE + Driver 增益）</span>
+      <span class="chip">搜索空间 <b>7</b> 维（4 个 5-tap FFE 旁瓣 + CTLE×2 + Driver 增益）</span>
       <span class="chip">用例 <b>15</b> 个（含非对称 Tx/Rx 插损与器件噪声）</span>
       <span class="chip">评估协议 <b>262144</b> 符号 × <b>3</b> 仿真实例种子</span>
-      <span class="chip">模型训练 <b>&lt;0.1 s</b> · 推理 <b>≈30 µs</b></span>
+      <span class="chip">模型训练 <b>≈2 min</b>（含 5 折 CV）· 单点推理 <b>≈2 ms</b></span>
       <span class="chip">在线决策回路真实 BER <b>0</b> 次</span>
     </div>
   </div>
@@ -168,27 +171,19 @@ TEMPLATE = r'''<!DOCTYPE html>
 <div class="card">
   <h4 style="margin-top:0">适用场景与约束</h4>
   <ul style="margin-bottom:0">
-    <li>LPO 光模块内部不做重 DSP，发送端均衡由 Host ASIC 承担。可用的均衡自由度：<strong>9-tap T-spaced 发送端 FFE</strong>、<strong>发送端模拟 CTLE 的双级直流增益</strong>、以及 <strong>Driver 的真实线性增益</strong>。</li>
+    <li>LPO 光模块内部不做重 DSP，发送端均衡由 Host ASIC 承担。可调量只有三类：<strong>5-tap T-spaced 发送端 FFE</strong>（4 个旁瓣自由变量 + 1 个派生主抽头）、<strong>发送端模拟 CTLE 的双级直流增益</strong>、<strong>Driver 的真实线性增益</strong>。共 7 个自由变量。</li>
     <li>信道条件：奈奎斯特电插损 Tx/Rx <strong>各自</strong> 10～20 dB，色散 0～28 ps/nm，差分群时延 0～5 ps，偏振角 0～45°，另含器件噪声应力（RIN / 消光比 / TIA 噪声）。</li>
-    <li>约束：在线调优阶段<strong>不得使用真实收端误码做决策</strong>（只能使用发送端可获得的物理量）；每一步落地前必须通过“预测不劣化”的安全性审查，真实 BER 只做旁路记账与事后核验。</li>
+    <li>约束：在线调优阶段<strong>不得使用真实收端误码做决策</strong>；每一步落地前须通过“预测不劣化”的安全性审查，真实 BER 只做旁路记账与事后核验。</li>
   </ul>
 </div>
 
 <div class="card">
-  <h4 style="margin-top:0">方法构成</h4>
+  <h4 style="margin-top:0">方法构成（三句话）</h4>
   <ol style="margin-bottom:0">
-    <li><strong>自由度的定义</strong>：搜索向量 <code>x ∈ R¹¹ = [8 个 FFE 旁瓣, gDC, gDC2, u = log10(g/g₀)]</code>。三组自由度——FFE（波形形状）、CTLE（频谱整形）、driver 增益（入 MZM 摆幅）——处在同一个向量里，量纲一致、边界明确。</li>
-    <li><strong>双代理模型</strong>：Model A（<code>x</code> → log10 BER_MLSE 的<strong>条件均值</strong>，负责下降方向，白盒 RBF 核岭回归闭式解 + 解析梯度）；Model B（同一输入 → log10 BER_MLSE 的<strong>保守上包络</strong>，负责安全否决）。两者只有训练目标不同：A 求准、B 求守。</li>
-    <li><strong>分组归一化投影梯度下降</strong>：三组自由度各自按“箱宽的固定比例”前进，方向由 Model A 的<strong>解析梯度</strong>给出；每一步落地前须通过 Model B 的<strong>相对（百分比）</strong>安全审查，并受信任域与组梯度门控约束。真实 BER 全量记录但不参与决策。</li>
+    <li><strong>可调量就是一个 7 维向量</strong>：<code>x = [4 个 FFE 旁瓣, gDC, gDC2, u = log10(g/g₀)]</code>；主抽头由 <code>1 − Σ|旁瓣|</code> 派生，不占自由度。</li>
+    <li><strong>两个代理都在这 7 维上回归同一个标签</strong> <code>log10(BER_MLSE)</code>（只用基线环境的 2001 个真实样本训练）：Model A 拟合它的<strong>条件均值</strong>，给出梯度方向；Model B 拟合它的<strong>保守上包络</strong>，做安全否决。二者的输入、标签完全相同，差别只有一个：A 求准，B 求守。</li>
+    <li><strong>7 个自由变量一起做投影梯度下降</strong>：方向取 Model A 的解析梯度，步长按“组内归一化 × 该组箱宽”分配，候选点须通过 Model B 的百分比红线；另有<strong>轨迹信任域</strong>限制总位移不超过约一个数据格。</li>
   </ol>
-</div>
-
-<div class="tw">
-<table id="tbl-headline">
-  <caption>核心结论（完整数据见第 6 节）</caption>
-  <tr><th>项目</th><th>结果</th></tr>
-  <!--HEADLINE_ROWS-->
-</table>
 </div>
 
 <h2 id="s2"><span class="num">2</span>物理链路与优化对象</h2>
@@ -212,7 +207,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     <text class="ts" x="72" y="85" text-anchor="middle">映射</text>
 
     <rect class="bx-hi" x="148" y="44" width="116" height="54" rx="8"/>
-    <text class="tw2" x="206" y="68" text-anchor="middle">9-tap Tx FFE</text>
+    <text class="tw2" x="206" y="68" text-anchor="middle">5-tap Tx FFE</text>
     <text class="hi-t" x="206" y="85" text-anchor="middle">可优化</text>
 
     <rect class="bx" x="282" y="44" width="116" height="54" rx="8"/>
@@ -305,7 +300,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     <text class="tw2" x="24" y="50">PAM4 映射</text>
 
     <rect class="bx-hi" x="10" y="72" width="340" height="38" rx="7"/>
-    <text class="tw2" x="24" y="90">9-tap Tx FFE</text>
+    <text class="tw2" x="24" y="90">5-tap Tx FFE（4 旁瓣 + 1 派生）</text>
     <text class="hi-t" x="24" y="104">可优化</text>
 
     <rect class="bx" x="10" y="118" width="340" height="38" rx="7"/>
@@ -333,8 +328,8 @@ TEMPLATE = r'''<!DOCTYPE html>
     <line class="ln" x1="180" y1="294" x2="180" y2="300" marker-end="url(#an1)"/>
 
     <rect x="10" y="350" width="340" height="56" rx="7" fill="#fff8e6" stroke="#e0b45f" stroke-width="1.2"/>
-    <text class="t" x="22" y="370">Model A 的输入 = 搜索向量 x（11 维）</text>
-    <text class="ts" x="22" y="386">8 个 FFE 旁瓣 + gDC + gDC2 + u = log10(g/g₀)</text>
+    <text class="t" x="22" y="370">Model A 的输入 = 搜索向量 x（7 维）</text>
+    <text class="ts" x="22" y="386">4 个 FFE 旁瓣 + gDC + gDC2 + u = log10(g/g₀)</text>
     <text class="ts" x="22" y="400">三组自由度同量纲，梯度直接落在搜索变量上</text>
     <line class="ln" x1="180" y1="340" x2="180" y2="348" marker-end="url(#an1)"/>
 
@@ -383,7 +378,7 @@ TEMPLATE = r'''<!DOCTYPE html>
 
 <h3>2.2 优化空间与参数化</h3>
 <figure>
-  <div class="fig-title">图 2 · 11 维搜索空间与约束</div>
+  <div class="fig-title">图 2 · 7 维搜索空间与约束（5-tap FFE + CTLE + Driver 增益）</div>
 
   <svg class="d-wide" viewBox="0 0 1080 320" role="img" aria-label="优化空间参数化示意">
     <defs>
@@ -392,73 +387,65 @@ TEMPLATE = r'''<!DOCTYPE html>
       </marker>
     </defs>
 
-    <text class="tb" x="14" y="26">发送端 FFE：9 抽头，T-spaced（主抽头由归一化恒等式派生，不是自由变量）</text>
+    <text class="tb" x="14" y="26">发送端 FFE：**5 抽头**，T-spaced（主抽头由归一化恒等式派生，不是自由变量）</text>
 
     <rect class="bx" x="14" y="44" width="92" height="46" rx="7"/><text class="tw2" x="60" y="72" text-anchor="middle">t₀</text>
     <rect class="bx" x="118" y="44" width="92" height="46" rx="7"/><text class="tw2" x="164" y="72" text-anchor="middle">t₁</text>
-    <rect class="bx" x="222" y="44" width="92" height="46" rx="7"/><text class="tw2" x="268" y="72" text-anchor="middle">t₂</text>
+    <rect class="bx-hi" x="222" y="44" width="92" height="46" rx="7"/><text class="tw2" x="268" y="72" text-anchor="middle">t₂</text>
     <rect class="bx" x="326" y="44" width="92" height="46" rx="7"/><text class="tw2" x="372" y="72" text-anchor="middle">t₃</text>
-    <rect class="bx-hi" x="430" y="44" width="92" height="46" rx="7"/><text class="tw2" x="476" y="72" text-anchor="middle">t₄</text>
-    <rect class="bx" x="534" y="44" width="92" height="46" rx="7"/><text class="tw2" x="580" y="72" text-anchor="middle">t₅</text>
-    <rect class="bx" x="638" y="44" width="92" height="46" rx="7"/><text class="tw2" x="684" y="72" text-anchor="middle">t₆</text>
-    <rect class="bx" x="742" y="44" width="92" height="46" rx="7"/><text class="tw2" x="788" y="72" text-anchor="middle">t₇</text>
-    <rect class="bx" x="846" y="44" width="92" height="46" rx="7"/><text class="tw2" x="892" y="72" text-anchor="middle">t₈</text>
+    <rect class="bx" x="430" y="44" width="92" height="46" rx="7"/><text class="tw2" x="476" y="72" text-anchor="middle">t₄</text>
 
-    <path class="brk" d="M14 98 L14 110 L918 110 L918 98" marker-end="url(#ah2)"/>
-    <text class="ts" x="466" y="128" text-anchor="middle">8 个旁瓣 = 自由变量，|t| ≤ 0.3，Σ|旁瓣| ≤ 0.8 ⇒ 主抽头 t₄ = 1 − Σ|旁瓣| ≥ 0.2</text>
+    <path class="brk" d="M14 98 L14 110 L522 110 L522 98" marker-end="url(#ah2)"/>
+    <text class="ts" x="268" y="128" text-anchor="middle">4 个旁瓣 = 自由变量，|t| ≤ 0.3，Σ|旁瓣| ≤ 0.8 ⇒ 主抽头 t₂ = 1 − Σ|旁瓣| ≥ 0.2</text>
 
-    <rect class="bx-hi" x="14" y="146" width="330" height="52" rx="7"/>
-    <text class="tw2" x="179" y="168" text-anchor="middle">Tx CTLE：gDC, gDC2 ∈ [−5, +5] dB</text>
-    <text class="ts" x="179" y="186" text-anchor="middle">post-channel 频谱整形（2 维）</text>
+    <rect class="bx-hi" x="14" y="146" width="270" height="52" rx="7"/>
+    <text class="tw2" x="149" y="168" text-anchor="middle">Tx CTLE：gDC, gDC2 ∈ [−5, +5] dB</text>
+    <text class="ts" x="149" y="186" text-anchor="middle">post-channel 频谱整形（2 维）</text>
 
-    <rect class="bx-hi" x="360" y="146" width="250" height="52" rx="7"/>
-    <text class="tw2" x="485" y="168" text-anchor="middle">Driver 增益倍率 ×0.30 ~ ×4.00</text>
-    <text class="ts" x="485" y="186" text-anchor="middle">标定 g₀ = 0.4381，对数参数化（1 维）</text>
+    <rect class="bx-hi" x="300" y="146" width="250" height="52" rx="7"/>
+    <text class="tw2" x="425" y="168" text-anchor="middle">Driver 增益倍率 ×0.30 ~ ×4.00</text>
+    <text class="ts" x="425" y="186" text-anchor="middle">标定 g₀ = 0.4381，对数参数化（1 维）</text>
 
-    <rect class="panel" x="626" y="146" width="440" height="150" rx="8"/>
-    <text class="t" x="642" y="170">搜索向量：</text>
-    <text class="mono" x="722" y="170" style="font-size:12.5px">x ∈ R¹¹ = [8 旁瓣, gDC, gDC2, driver_gain]</text>
-    <text class="ts" x="642" y="192">种子 x₀：FFE 主抽头 0.6091，gDC = gDC2 = 0 dB，倍率 ×1.00（0.617 Vpp）</text>
-    <text class="ts" x="642" y="212">信任域（= 离线采样盒）：FFE ±0.10 / CTLE ±3.0 dB / 倍率 ×0.30 ~ ×4.00</text>
-    <text class="ts" x="642" y="232">分组步长：组内归一化 × 本组箱宽（FFE 0.20 / CTLE 6 dB / gain 1.12 dex）</text>
-    <text class="ts" x="642" y="256">主抽头不进入搜索向量 ⇒ 下降方向只作用于波形形状与驱动条件，</text>
-    <text class="ts" x="642" y="272">不会靠“整体变亮/变暗”这类伪自由度骗 BER。</text>
+    <rect class="panel" x="566" y="146" width="500" height="150" rx="8"/>
+    <text class="t" x="582" y="170">搜索向量：</text>
+    <text class="mono" x="662" y="170" style="font-size:12.5px">x ∈ R⁷ = [4 旁瓣, gDC, gDC2, u_gain]</text>
+    <text class="ts" x="582" y="192">种子 x₀：t₂ = 0.6091，gDC = gDC2 = 0 dB，倍率 ×1.00（0.617 Vpp）</text>
+    <text class="ts" x="582" y="212">信任域（= 离线采样盒）：FFE ±0.10 / CTLE ±3.0 dB / 倍率 ×0.30 ~ ×4.00</text>
+    <text class="ts" x="582" y="232">分组步长：组内归一化 × 本组箱宽（FFE 0.20 / CTLE 6 dB / gain 1.12 dex）</text>
+    <text class="ts" x="582" y="256">为什么是 5 抽头而不是 9：外侧 4 个抽头在轨迹上基本停在 0，却同样消耗数据分辨力；</text>
+    <text class="ts" x="582" y="272">降到 7 维后，同样 2001 个样本的局部斜率可分辨性显著变好（见 §3.4）。</text>
 
     <text class="tb" x="14" y="232">为什么 CTLE 放在电插损之后、Driver 之前</text>
     <text class="ts" x="14" y="254">· 放在电插损之后：它整形的正是"到达 MZM 的频谱"，峰化补偿才有效。</text>
     <text class="ts" x="14" y="272">· 放在 Driver 之前：它的增益与峰化一起改变到达 MZM 的摆幅与频谱，</text>
-    <text class="ts" x="14" y="290">  与 driver 增益自然耦合（这正是需要联合寻优的原因，实测见 §4.5）。</text>
+    <text class="ts" x="14" y="290">  与 driver 增益自然耦合（因此三组量必须一起做梯度下降）。</text>
   </svg>
 
   <svg class="d-narrow" viewBox="0 0 360 430" role="img" aria-label="优化空间参数化示意（竖向）">
-    <text class="tb" x="10" y="16">发送端 FFE：9 抽头（主抽头为派生量）</text>
+    <text class="tb" x="10" y="16">发送端 FFE：5 抽头（主抽头为派生量）</text>
     <rect class="bx" x="10" y="26" width="62" height="38" rx="6"/><text class="tw2" x="41" y="50" text-anchor="middle">t₀</text>
     <rect class="bx" x="80" y="26" width="62" height="38" rx="6"/><text class="tw2" x="111" y="50" text-anchor="middle">t₁</text>
-    <rect class="bx" x="150" y="26" width="62" height="38" rx="6"/><text class="tw2" x="181" y="50" text-anchor="middle">t₂</text>
+    <rect class="bx-hi" x="150" y="26" width="62" height="38" rx="6"/><text class="tw2" x="181" y="50" text-anchor="middle">t₂</text>
     <rect class="bx" x="220" y="26" width="62" height="38" rx="6"/><text class="tw2" x="251" y="50" text-anchor="middle">t₃</text>
-    <rect class="bx-hi" x="290" y="26" width="62" height="38" rx="6"/><text class="tw2" x="321" y="50" text-anchor="middle">t₄</text>
-    <rect class="bx" x="10" y="72" width="62" height="38" rx="6"/><text class="tw2" x="41" y="96" text-anchor="middle">t₅</text>
-    <rect class="bx" x="80" y="72" width="62" height="38" rx="6"/><text class="tw2" x="111" y="96" text-anchor="middle">t₆</text>
-    <rect class="bx" x="150" y="72" width="62" height="38" rx="6"/><text class="tw2" x="181" y="96" text-anchor="middle">t₇</text>
-    <rect class="bx" x="220" y="72" width="62" height="38" rx="6"/><text class="tw2" x="251" y="96" text-anchor="middle">t₈</text>
+    <rect class="bx" x="290" y="26" width="62" height="38" rx="6"/><text class="tw2" x="321" y="50" text-anchor="middle">t₄</text>
 
-    <text class="ts" x="10" y="130">8 个旁瓣自由变量：|t| ≤ 0.3，Σ|旁瓣| ≤ 0.8</text>
-    <text class="hi-t" x="10" y="150">主抽头 t₄ = 1 − Σ|旁瓣| ≥ 0.2</text>
+    <text class="ts" x="10" y="86">4 个旁瓣自由变量：|t| ≤ 0.3，Σ|旁瓣| ≤ 0.8</text>
+    <text class="hi-t" x="10" y="106">主抽头 t₂ = 1 − Σ|旁瓣| ≥ 0.2</text>
 
-    <text class="tb" x="10" y="182">Tx 模拟 CTLE（post-channel）</text>
-    <rect class="bx-hi" x="10" y="192" width="340" height="50" rx="7"/>
-    <text class="tw2" x="24" y="212">gDC, gDC2 ∈ [−5, +5] dB</text>
-    <text class="ts" x="24" y="230">2 维：频谱整形 + 摆幅（与 driver 增益耦合）</text>
+    <text class="tb" x="10" y="138">Tx 模拟 CTLE（post-channel）</text>
+    <rect class="bx-hi" x="10" y="148" width="340" height="50" rx="7"/>
+    <text class="tw2" x="24" y="168">gDC, gDC2 ∈ [−5, +5] dB</text>
+    <text class="ts" x="24" y="186">2 维：频谱整形 + 摆幅（与 driver 增益耦合）</text>
 
-    <text class="tb" x="10" y="266">Driver 真实增益</text>
-    <rect class="bx-hi" x="10" y="276" width="340" height="50" rx="7"/>
-    <text class="tw2" x="24" y="296">driver 增益倍率 ∈ [×0.30, ×4.00]</text>
-    <text class="ts" x="24" y="314">1 维：入 MZM 摆幅（OMA vs MZM 线性度）</text>
+    <text class="tb" x="10" y="222">Driver 真实增益</text>
+    <rect class="bx-hi" x="10" y="232" width="340" height="50" rx="7"/>
+    <text class="tw2" x="24" y="252">driver 增益倍率 ∈ [×0.30, ×4.00]</text>
+    <text class="ts" x="24" y="270">1 维：入 MZM 摆幅（OMA vs MZM 线性度）</text>
 
-    <rect class="panel" x="10" y="340" width="340" height="80" rx="8"/>
-    <text class="mono" x="24" y="362" style="font-size:12.3px">x ∈ R¹¹ = [8 旁瓣, gDC, gDC2, gain]</text>
-    <text class="ts" x="24" y="382">种子：0.6091 / 0 dB / 0 dB / ×1.00</text>
-    <text class="ts" x="24" y="400">信任域：±0.10 / ±3.0 dB / 整箱</text>
+    <rect class="panel" x="10" y="296" width="340" height="80" rx="8"/>
+    <text class="mono" x="24" y="318" style="font-size:12.3px">x ∈ R⁷ = [4 旁瓣, gDC, gDC2, u_gain]</text>
+    <text class="ts" x="24" y="338">种子：0.6091 / 0 dB / 0 dB / ×1.00</text>
+    <text class="ts" x="24" y="356">信任域：±0.10 / ±3.0 dB / 整箱</text>
   </svg>
 
   <figcaption>主抽头不出现在搜索向量中，而由“总能量归一”恒等式导出。</figcaption>
@@ -472,7 +459,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     <tr><th>参数</th><th class="n">取值</th></tr>
     <tr><td>波特率 / 调制</td><td class="n">56 GBd, PAM4</td></tr>
     <tr><td>采样率（DSP / DAC / 信道 / ADC）</td><td class="n">2 / 2 / 8 / 2 sps</td></tr>
-    <tr><td>Tx FFE</td><td class="n">9 tap, T-spaced</td></tr>
+    <tr><td>Tx FFE</td><td class="n">5 tap, T-spaced（4 旁瓣 + 1 派生主抽头）</td></tr>
     <tr><td>Tx CTLE 零极点比</td><td class="n">fz 2.5 / fp1 2.5 / fp2 1 / flf 40</td></tr>
     <tr><td>Rx FFE</td><td class="n">22 tap, ffe_pre = 6</td></tr>
     <tr><td>Rx LMS 步长</td><td class="n">1e-4</td></tr>
@@ -535,7 +522,7 @@ TEMPLATE = r'''<!DOCTYPE html>
 
     <text class="tb" x="14" y="26">Model A（寻优方向）：预测 log10 BER 的条件均值</text>
     <rect class="bx" x="14" y="40" width="196" height="50" rx="8"/>
-    <text class="tw2" x="112" y="62" text-anchor="middle">搜索向量 x（11 维）</text>
+    <text class="tw2" x="112" y="62" text-anchor="middle">搜索向量 x（7 维）</text>
     <text class="ts" x="112" y="79" text-anchor="middle">FFE 旁瓣 / gDC / gDC2 / u_gain</text>
 
     <rect class="bx-hi" x="252" y="40" width="196" height="50" rx="8"/>
@@ -556,7 +543,7 @@ TEMPLATE = r'''<!DOCTYPE html>
 
     <text class="tb" x="14" y="156">Model B（安全否决）：预测 log10 BER 的保守上包络</text>
     <rect class="bx" x="14" y="170" width="300" height="50" rx="8"/>
-    <text class="tw2" x="164" y="192" text-anchor="middle">同一输入 x（11 维）</text>
+    <text class="tw2" x="164" y="192" text-anchor="middle">同一输入 x（7 维）</text>
     <text class="ts" x="164" y="209" text-anchor="middle">与 Model A 输入空间相同</text>
 
     <rect class="bx-hi" x="346" y="170" width="252" height="50" rx="8"/>
@@ -580,8 +567,8 @@ TEMPLATE = r'''<!DOCTYPE html>
     <text class="tb" x="10" y="16">Model A（寻优方向）</text>
 
     <rect class="bx" x="10" y="26" width="340" height="42" rx="7"/>
-    <text class="tw2" x="24" y="46">搜索向量 x（FFE + CTLE + u_gain）</text>
-    <text class="ts" x="24" y="62">11 维，三组自由度同量纲</text>
+    <text class="tw2" x="24" y="46">搜索向量 x（4 旁瓣 + CTLE + u_gain）</text>
+    <text class="ts" x="24" y="62">7 维，三组自由度同量纲</text>
 
     <rect class="bx-hi" x="10" y="80" width="340" height="42" rx="7"/>
     <text class="tw2" x="24" y="100">RBF 核岭回归（闭式解）</text>
@@ -603,7 +590,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     <text class="tb" x="10" y="318">Model B（安全否决）</text>
 
     <rect class="bx" x="10" y="328" width="340" height="52" rx="7"/>
-    <text class="tw2" x="24" y="348">同一输入 x（11 维）</text>
+    <text class="tw2" x="24" y="348">同一输入 x（7 维）</text>
     <text class="ts" x="24" y="366">均值 + c × 残差尺度包络（覆盖率 ≈85%）</text>
 
     <rect class="bx-ok" x="10" y="392" width="340" height="38" rx="7"/>
@@ -624,16 +611,30 @@ TEMPLATE = r'''<!DOCTYPE html>
 </figure>
 
 <div class="card">
-  <h4 style="margin-top:0">为什么两个模型都以“搜索向量 x”为输入</h4>
-  <p style="margin-bottom:0">
-    x 就是优化器真正要动的 11 个量，用它当输入有三个直接好处：<strong>三组自由度同量纲</strong>（∇ₓ 的 11 个分量天然可比）、
-    <strong>没有中间层损失</strong>（FFE 改形状、CTLE 改频响、增益改幅度全部显式在输入里）、<strong>可审计</strong>
-    （预测与搜索变量一一对应，报告里能逐轴对照实测梯度）。
-    v4 第一轮曾用“Tx 端绝对标定 7-tap FIR 探针”作为 Model A 输入；实测同一份数据上，二阶多项式 Ridge 对波形特征的留出集
-    R² 仅 0.29，而搜索向量 R² 0.56（核方法下两者分别为 0.61 / 0.62）。探针是<strong>线性冲激响应</strong>，
-    而真实链路在整形级之前还有 <code>DAC ENOB = 5.5</code> 量化这类幅度相关非线性，探针与真实链路并不严格等价，
-    且 7 抽头绝对 FIR 对 11 维配置是<strong>多对一</strong>压缩。改用 x 后，同等精度下参数更少、梯度直接落在搜索变量上。
-  </p>
+  <h4 style="margin-top:0">这两个模型到底在训练什么（输入、标签、训练集，逐项写清）</h4>
+  <table>
+    <tr><th></th><th>Model A（方向）</th><th>Model B（拦截）</th></tr>
+    <tr><td><strong>输入</strong></td>
+        <td>7 维搜索向量 <code>x = [4 旁瓣, gDC, gDC2, u_gain]</code></td>
+        <td>同一 7 维 <code>x</code>（与 A 完全相同的输入空间）</td></tr>
+    <tr><td><strong>标签</strong></td>
+        <td colspan="2"><code>y = log10(BER_MLSE)</code>：BER_MLSE = 该配置下 262144 符号 × 3 个仿真实例种子的 MLSE(memory=1, Burg 白化) 判决 BER 的 log10 均值（3 个种子先取 log10 再平均）</td></tr>
+    <tr><td><strong>训练集</strong></td>
+        <td colspan="2"><strong>只有基线环境</strong> Base_IL10x10 的 {{N_TRAIN}} 个真实样本（核心加密 1200 + 外壳覆盖 800 + 1 个精确种子点）；其余 14 个场景<strong>零样本</strong></td></tr>
+    <tr><td><strong>拟合目标</strong></td>
+        <td>条件均值 <code>E[y|x]</code>（RBF 核岭回归闭式解，附带解析梯度）</td>
+        <td>保守上包络 <code>E[y|x] + c·S(x)</code>，S 为残差尺度回归，c 标定到 ≈85% 覆盖率</td></tr>
+    <tr><td><strong>用途</strong></td>
+        <td>给下降方向；判"每步还能赚多少"（边际收益门控）</td>
+        <td>按"预测 BER 相对种子预测变差 ≤ 25%"放行/否决候选点</td></tr>
+  </table>
+  <p style="margin-bottom:0"><strong>为什么输入不用"Tx 端波形探针"</strong>：探针是线性冲激响应，
+  而真实链路在整形级之前还有 <code>DAC ENOB = 5.5</code> 量化这类幅度相关非线性，探针与真实链路并不严格等价；
+  且 7 抽头绝对 FIR 对 7 维配置是<strong>多对一</strong>压缩。实测同一份数据上，二阶多项式基对波形特征的留出集
+  R² 只有 0.29，而搜索向量 0.56（核方法下 0.61 / 0.62）。直接用 <code>x</code> 参数更少、梯度直接落在搜索变量上。
+  波形探针（<span class="mono">tx_fir_*</span>）仍保留为数据集里的<strong>诊断列</strong>。</p>
+</div>
+
 </div>
 
 <h3>3.2 模型形式、超参数与指标</h3>
@@ -681,8 +682,8 @@ Model B : B(x) = f(x) + c · S(x),                S 由 |y − f(x)| 再拟合�
 最优倍率在 ×0.5～×0.65；CTLE 的直流增益同样有内部最优（−3～−5 dB）。两者都与 FFE 强耦合，因此必须联合求解。</p>
 
 <h3>3.4 模型方向验证：与实测局部梯度逐轴对照</h3>
-<p>留出集 R² 只能说明“水平/排序”，不能说明<strong>方向</strong>。因此在真实链路上对种子工作点沿 11 个搜索轴做中心差分
-（262144 符号 × 3 种子 = 22 次独立真实 BER 评估；该标定<strong>不参与训练</strong>），与 Model A 的解析梯度逐轴对照。
+<p>留出集 R² 只能说明“水平/排序”，不能说明<strong>方向</strong>。因此在真实链路上对种子工作点沿 7 个搜索轴做中心差分
+（262144 符号 × 3 种子 = 14 次独立真实 BER 评估；该标定<strong>不参与训练</strong>），与 Model A 的解析梯度逐轴对照。
 完整表在 <span class="mono">result/ddps_v4_local_gradient.csv</span>。</p>
 <div class="tw">
 <table class="wide">
@@ -691,14 +692,14 @@ Model B : B(x) = f(x) + c · S(x),                S 由 |y − f(x)| 再拟合�
   <!--LOCALGRAD_ROWS-->
 </table>
 </div>
-<p class="mut">方向命中率与加权命中率见第 7 节；量级上 Model A 对强轴的斜率普遍偏小（这是全局代理在 11 维稀疏数据下的固有代价），
+<p class="mut">方向命中率与加权命中率见第 7 节；量级上 Model A 各轴斜率与实测仍有偏差（这是代理在有限样本下的固有代价，逐轴比值见上表），
 但<strong>符号与相对次序可靠</strong>，这也是算法只把梯度用作“方向”、步长由各维箱宽决定的原因。</p>
 
 <h2 id="s4"><span class="num">4</span>寻优算法</h2>
 
 <h3>4.1 两阶段结构</h3>
 <figure>
-  <div class="fig-title">图 4 · DDPS v3 两阶段流程（Stage 1 离线一次性 / Stage 2 在线逐环境）</div>
+  <div class="fig-title">图 4 · 两阶段流程（Stage 1 离线一次性标定 / Stage 2 在线逐环境寻优）</div>
 
   <svg class="d-wide" viewBox="0 0 1080 500" role="img" aria-label="两阶段算法流程图">
     <defs>
@@ -724,15 +725,15 @@ Model B : B(x) = f(x) + c · S(x),                S 由 |y − f(x)| 再拟合�
 
     <rect class="bx" x="34" y="258" width="472" height="46" rx="7"/>
     <text class="t" x="48" y="278">核岭回归闭式解训练（γ/α 由 5 折 CV 选）</text>
-    <text class="ts" x="48" y="294">γ 中位距离启发式、α 由 5 折 CV 选；80/20 划分，seed 42（A/B 均 11 维）</text>
+    <text class="ts" x="48" y="294">γ 中位距离启发式、α 由 5 折 CV 选；80/20 划分，seed 42（A/B 均 7 维）</text>
 
     <rect class="bx-ok" x="34" y="320" width="472" height="46" rx="7"/>
-    <text class="t" x="48" y="340">输出并冻结：Model A（波形+驱动 → BER）/ Model B（配置 → BER）</text>
-    <text class="ts" x="48" y="356">只用基线一套（2001 行）；另做“冻结 CTLE + 增益”消融</text>
+    <text class="t" x="48" y="340">输出并冻结：Model A（x → BER 均值，给方向）/ Model B（x → BER 上包络，做拦截）</text>
+    <text class="ts" x="48" y="356">只用基线一套（2001 行 = 核心 1200 + 外壳 800 + 种子）</text>
 
     <rect class="bx" x="34" y="382" width="472" height="72" rx="7"/>
-    <text class="t" x="48" y="402">消融对照（回答“新增维度值多少”）</text>
-    <text class="ts" x="48" y="420">同一模型下把 CTLE 两维与 driver_gain 冻结在种子值（信任域半径置 0），</text>
+    <text class="t" x="48" y="402">轨迹信任域：位移 ≤ 1.0 × ρ（ρ = 训练数据局部颗粒度）</text>
+    <text class="ts" x="48" y="420">这一步不依赖任何真实 BER：只用 Tx 侧信息把轨迹截在</text>
     <text class="ts" x="48" y="436">只允许 8 个 FFE 旁瓣移动，其余流程完全一致。</text>
 
     <line class="ln" x1="270" y1="118" x2="270" y2="132" marker-end="url(#ah4)"/>
@@ -749,7 +750,7 @@ Model B : B(x) = f(x) + c · S(x),                S 由 |y − f(x)| 再拟合�
     <text class="ts" x="588" y="108">安全参考：safety_ref = Model B(x₀)</text>
 
     <rect class="bx" x="574" y="134" width="472" height="46" rx="7"/>
-    <text class="t" x="588" y="154">对 Model A 求解析梯度（11 维）</text>
+    <text class="t" x="588" y="154">对 Model A 求解析梯度（7 维）</text>
     <text class="ts" x="588" y="170">∂f/∂x 闭式给出；单步 ≈2 ms，无仿真、无探针</text>
 
     <rect class="bx" x="574" y="196" width="472" height="46" rx="7"/>
@@ -810,7 +811,7 @@ Model B : B(x) = f(x) + c · S(x),                S 由 |y − f(x)| 再拟合�
 
     <rect class="bx-ok" x="20" y="304" width="320" height="54" rx="7"/>
     <text class="t" x="32" y="324">冻结 Model A / Model B</text>
-    <text class="ts" x="32" y="342">只用基线一套；另做冻结 CTLE + 增益消融</text>
+    <text class="ts" x="32" y="342">只用基线一套（2001 行）</text>
 
     <line class="ln" x1="180" y1="94" x2="180" y2="104" marker-end="url(#an4)"/>
     <line class="ln" x1="180" y1="160" x2="180" y2="170" marker-end="url(#an4)"/>
@@ -825,7 +826,7 @@ Model B : B(x) = f(x) + c · S(x),                S 由 |y − f(x)| 再拟合�
     <text class="ts" x="32" y="478">安全参考 = Model B(x₀)</text>
 
     <rect class="bx" x="20" y="506" width="320" height="54" rx="7"/>
-    <text class="t" x="32" y="526">Model A 解析梯度（11 维）</text>
+    <text class="t" x="32" y="526">Model A 解析梯度（7 维）</text>
     <text class="ts" x="32" y="544">eps = 0.01，共 12 次评估</text>
 
     <rect class="bx" x="20" y="572" width="320" height="54" rx="7"/>
@@ -864,14 +865,15 @@ Model B : B(x) = f(x) + c · S(x),                S 由 |y − f(x)| 再拟合�
 <div class="card">
   <ol style="margin-bottom:0">
     <li><strong>安全参考</strong>：<span class="mono">safety_ref = Model B(x₀)</span>，红线 = <span class="mono">10^safety_ref × 1.25</span>（<strong>百分比口径</strong>：允许 Model B 预测相对种子最多变差 25%）。</li>
-    <li><strong>梯度</strong>：<span class="mono">g = ∂ModelA/∂x</span>，由核岭回归的<strong>解析梯度</strong>给出（自检：与有限差分最大相对偏差 1.6×10⁻³），不做 11 次数值扰动。</li>
-    <li><strong>分组归一化方向</strong>：把 11 维分成 FFE(8) / CTLE(2) / 增益(1) 三组，<strong>组内</strong>把 <span class="mono">g ⊙ 箱宽</span> 归一化，再乘该组箱宽（FFE 0.20 / CTLE 6 dB / 增益 1.12 dex）——三组各以“箱宽的固定比例”前进。</li>
-    <li><strong>组梯度门控</strong>：某组“走满整箱”的模型预测收益 &lt; <span class="mono">1e-3 dex</span> 时冻结该组，不推无油水的维度。</li>
-    <li><strong>步长</strong>：<span class="mono">α_k = 0.05 × 0.97^k</span>（步长选型见 4.5）。</li>
-    <li><strong>投影</strong>：候选点裁剪至 <span class="mono">x₀ ± [0.10×8, 3.0 dB, 3.0 dB, 整箱]</span> 与全局边界的交集。</li>
-    <li><strong>安全审查</strong>：<span class="mono">10^ModelB(候选) &gt; 红线</span> 时步长折半重试（最多 20 次）；始终不通过则停止，不强行落地。</li>
+    <li><strong>梯度</strong>：<span class="mono">g = ∂ModelA/∂x</span>（7 维），由核岭回归的<strong>解析梯度</strong>给出（自检：与有限差分最大相对偏差 1.6×10⁻³）。</li>
+    <li><strong>分组步长</strong>：把 7 维分成 FFE(4) / CTLE(2) / 增益(1) 三组，<strong>组内</strong>把 <span class="mono">g ⊙ 箱宽</span> 归一化，再乘该组箱宽（FFE 0.20 / CTLE 6 dB / 增益 1.12 dex）——三组各以“箱宽的固定比例”前进。</li>
+    <li><strong>组梯度门控</strong>：某组“走满整箱”的模型预测收益 &lt; <span class="mono">1e-3 dex</span> 时冻结该组。</li>
+    <li><strong>步长</strong>：<span class="mono">α_k = 0.05 × 0.97^k</span>。</li>
+    <li><strong>轨迹信任域</strong>：候选点在标准化空间里离 x₀ 的位移不得超过 <span class="mono">1.0 × ρ</span>（ρ = 训练数据第 32 近邻的中位距离，训练时写入模型）。<strong>这是本轮新增的关键约束</strong>：模型只在“约一个数据格”的范围内可信，超出后它的“还能继续降”没有数据支撑（诊断见 §6.3）。</li>
+    <li><strong>投影</strong>：候选点裁剪至 <span class="mono">x₀ ± [0.10×4, 3.0 dB, 3.0 dB, 整箱]</span> 与全局边界的交集。</li>
+    <li><strong>安全审查</strong>：<span class="mono">10^ModelB(候选) &gt; 红线</span> 时步长折半重试（最多 20 次）；始终不通过则停止。</li>
     <li><strong>边际收益门控</strong>：Model A 预测的每步改善 &lt; <span class="mono">0.01 dex</span> 即停。</li>
-    <li><strong>记账</strong>：写入代理预测 A / B、红线、真实 BER_MLSE（协议 262144 符号 × 3 种子），供事后核验。</li>
+    <li><strong>记账</strong>：写入代理预测 A/B、红线、真实 BER_MLSE（262144 符号 × 3 种子），供事后核验。</li>
   </ol>
 </div>
 
@@ -895,7 +897,7 @@ Model B : B(x) = f(x) + c · S(x),                S 由 |y − f(x)| 再拟合�
 <div class="tw">
 <table>
   <tr><th>环节</th><th>机制</th><th>效果</th></tr>
-  <tr><td>输入侧</td><td>直接用搜索向量 x（11 维）作输入：三组自由度同量纲、梯度直接落在搜索变量上</td><td>不会出现某一组“量纲被别的组吃掉、梯度几乎为 0”而无法优化</td></tr>
+  <tr><td>输入侧</td><td>直接用搜索向量 x（7 维）作输入：三组自由度同量纲、梯度直接落在搜索变量上</td><td>不会出现某一组“量纲被别的组吃掉、梯度几乎为 0”而无法优化</td></tr>
   <tr><td>方向侧</td><td>解析梯度 + 组梯度门控 + 各维按自身箱宽前进</td><td>三组自由度都有可见位移；弱轴不会因为代理斜率小而被冻死</td></tr>
   <tr><td>决策侧</td><td>安全判据用<strong>相对种子点的百分比恶化</strong></td><td>全局底噪与插损平移在作差中抵消，无需逐环境标定阈值</td></tr>
   <tr><td>安全侧</td><td>Model B 上包络否决 + 信任域投影 + 边际收益门控三重约束</td><td>候选点须先通过安全审查才允许落地；趋平即停</td></tr>
@@ -903,73 +905,51 @@ Model B : B(x) = f(x) + c · S(x),                S 由 |y − f(x)| 再拟合�
 </table>
 </div>
 
-<h3>4.5 两个关键超参的选型依据</h3>
+<h3>4.5 三个关键超参的选型依据</h3>
 <p><strong>(1) 安全红线取“百分比 25%”</strong>：代理的绝对标定不可信（欠估/过估都会发生），但“相对种子变差多少倍”是可比的，
-且与 BER 量级、环境漂移无关，跨用例跨环境无需重标定。v3 曾用 log10 绝对裕度（0.3 dex）并靠 trace 回放标定；
-v4 改为百分比口径后，判据形式与量级解耦，回放实验（v3 归档件）表明“不许变差”成立的前提是<strong>代理方向可信</strong>，
-而不是裕度松紧 —— 因此 v4 把力气花在方向可信度上（§3.4 的 11 轴实测标定），红线只作为最后一道闸。</p>
+且与 BER 量级、环境漂移无关，跨用例跨环境无需重标定，因此判据写成 <code>10^B(x) ≤ 10^B(x₀) × 1.25</code>。</p>
 
-<p><strong>(2) 初始步长 α₀ 取 0.05</strong>：在基线用例上用真实协议（262144 × 3）扫了 5 个档位：</p>
-<div class="tw">
-<table class="wide">
-  <caption>步长选型（同一模型、同一用例、真实 BER 记账）<span class="sh">· 可左右滑动</span></caption>
-  <tr><th class="n">α₀</th><th class="n">轨迹最优步</th><th class="n">真实改善（log10）</th><th class="n">末步相对种子</th><th>现象</th></tr>
-  <tr><td class="n">0.03</td><td class="n">11</td><td class="n win">−0.342</td><td class="n">−0.322</td><td>稳，但达到平台需要更多步</td></tr>
-  <tr><td class="n"><strong>0.05（采用）</strong></td><td class="n">10</td><td class="n win"><strong>−0.342</strong></td><td class="n win">−0.342</td><td>稳，15 步内到位</td></tr>
-  <tr><td class="n">0.08</td><td class="n">0</td><td class="n win">−0.340</td><td class="n">−0.317</td><td>稳</td></tr>
-  <tr><td class="n">0.15</td><td class="n">2</td><td class="n">−0.335</td><td class="n" style="color:#c0392b">+0.011</td><td>出现来回振荡（超出代理可用步长）</td></tr>
-  <tr><td class="n">0.25</td><td class="n">0</td><td class="n">−0.326</td><td class="n" style="color:#c0392b">+0.171</td><td>明显振荡，末步反而更差</td></tr>
-</table>
-</div>
+<p><strong>(2) 初始步长 α₀ 取 0.05</strong>：在基线用例上用真实协议扫了 5 个档位，0.15/0.25 会因超出代理可用步长而振荡（末步反而更差），
+0.03/0.05/0.08 都稳，取 0.05 以便 15 步内到位。原始数据见 <span class="mono">docs/08</span> §4.1。</p>
 
-<div class="card" style="border-left:4px solid #0f8a4a">
-  <h4 style="margin-top:0">真值审计：为什么基线用例的轨迹很快就进入平台期</h4>
-  <p>把“轨迹最优点”与“按单旋钮实测最优值手工拼出来的点”放在同一协议下对比（262144 符号 × 3 种子）：</p>
-  <div class="tw">
-  <table class="wide">
-    <caption>基线用例：联合寻优 vs 单旋钮手工拼装 <span class="sh">· 可左右滑动</span></caption>
-    <tr><th>配置</th><th class="n">BER_MLSE</th><th class="n">相对种子</th></tr>
-    <tr><td>种子 x₀</td><td class="n">3.75e-04</td><td class="n">—</td></tr>
-    <tr><td>只把 driver 增益调到 ×0.55（该旋钮单独最优）</td><td class="n">1.78e-04</td><td class="n">−0.322</td></tr>
-    <tr><td>只把 CTLE 调到 −3 dB（该旋钮单独最优）</td><td class="n">1.85e-04</td><td class="n">−0.306</td></tr>
-    <tr><td>driver 增益 ×0.55 <b>且</b> CTLE −3 dB</td><td class="n">1.82e-04</td><td class="n">−0.314</td></tr>
-    <tr><td>只按实测梯度动 FFE（±0.05）</td><td class="n">2.40e-04</td><td class="n">−0.194</td></tr>
-    <tr><td>手工拼装：增益 ×0.55 + CTLE −1 ~ −3 dB + FFE ±0.05</td><td class="n">5.50e-04 ~ 8.78e-04</td><td class="n" style="color:#c0392b">+0.166 ~ +0.370</td></tr>
-    <tr><td><strong>DDPS 轨迹最优点（第 10 步）</strong></td><td class="n win"><strong>1.70e-04</strong></td><td class="n win"><strong>−0.342</strong></td></tr>
-  </table>
-  </div>
-  <p style="margin-bottom:0">三个旋钮的作用<strong>不可叠加</strong>：手工拼装甚至会把 BER 推得更差；
-  梯度下降沿联合方向落在 <strong>−0.342 dex（×2.2）</strong>，优于任何单旋钮最优组合。
-  轨迹里 driver 增益倍率 <strong>×1.00 → ×0.56</strong>（与该旋钮单独实测的最优区间 ×0.5～×0.65 一致），
-  而 CTLE 反而<strong>略微上调</strong> —— 因为增益降下来后需要把摆幅补回去，单看 CTLE 自己的最优点（−3 dB）反而是错的。
-  这正是“三组自由度必须联合优化”的直接证据，也解释了为什么轨迹在 1～2 步内就进入平台期（已到该邻域的真实最优点）。</p>
-</div>
+<p><strong>(3) 轨迹信任域 κ 取 1.0 × ρ</strong>：ρ 是训练数据的局部颗粒度（标准化空间里第 32 近邻距离的中位数，训练时算好写进模型）。
+约束的物理含义是“不要把模型推到它没有数据支撑的地方”。标定依据（取自前一轮同类实验的实测 trace）：
+整条 15 步轨迹的标准化位移中位为 0.80ρ，而实测最优步出现在位移 0.43ρ 附近 —— 即<strong>收益集中在约半个数据格内，之后位移继续增加只会让预测与实测脱钩</strong>。
+这条约束把轨迹自动截在收益已经拿完的位置（配合 §4.6 的运行长度回放一起看）。</p>
 
 <h3>4.6 运行长度回放：在线调优该跑几步</h3>
-<p>轨迹越长，代理的外推误差越会累积。做法与 v3 的红线标定同源：<strong>先跑 15 步并保留逐步真实 BER，
-再在 trace 上回放“只跑前 K 步”</strong>会得到什么（`tools/run_length_replay.py`）。</p>
+<p>轨迹越长，代理的外推误差越会累积。做法与 v3 的红线标定同源：<strong>先让轨迹自然跑完
+（本版由“边际收益门控 + 轨迹信任域”截断）并保留逐步真实 BER，再在 trace 上回放“只跑前 K 步”</strong>会得到什么
+（<span class="mono">tools/run_length_replay.py</span>）。</p>
 <div class="tw">
 <table class="wide">
-  <caption>运行长度回放（K = 实际执行的步数上限）<span class="sh">· 可左右滑动</span></caption>
-  <tr><th class="n">K</th><th class="n">全开：正向用例</th><th class="n">全开：平均改善</th><th class="n">全开：劣于种子的步数</th><th class="n">消融：正向用例</th><th class="n">消融：平均改善</th><th class="n">消融：劣于种子的步数</th></tr>
+  <caption>运行长度回放：截断到前 K 步会得到什么（同一批 trace 上回放）<span class="sh">· 可左右滑动</span></caption>
+  <tr><th class="n">K（步数上限）</th><th class="n">正向改善用例</th><th class="n">平均改善</th><th class="n">劣于种子的步数</th></tr>
   <!--RUNLEN_ROWS-->
 </table>
 </div>
-<p class="mut" style="margin-bottom:0">读法：<strong>前 2 步就拿到几乎全部收益</strong>（15/15 正向、平均 ×1.84），
-而劣化步只有 3/30；继续跑到 15 步只把平均改善从 ×1.84 抬到 ×1.90（+3%），劣化步却累积到 63/225。
-也就是说：<strong>在线调优的推荐运行长度是 2～3 步</strong>，更长的轨迹只是在代理外推区里来回走。
-交付的“最优配置”按轨迹最优点（`best_step`）取，每一步的真实 BER 都在 trace 里可查。</p>
+<p class="mut" style="margin-bottom:0">{{RUNLEN_NOTE}}</p>
 
 <h2 id="s5"><span class="num">5</span>数据集与评估协议</h2>
 
 <div class="tw">
 <table>
   <caption>数据集构成：{{N_TRAIN}} 行真实 BER 评估，单份 CSV，<strong>只含基线环境</strong></caption>
-  <tr><th>环境</th><th class="n">行数</th><th>构成</th><th class="n">log10 BER 实测范围</th></tr>
-  <tr><td>Base_IL10x10（基线）</td><td class="n">{{N_TRAIN}}</td><td>2000 点 11 维 LHS 采样 + 1 个精确种子点</td><td class="n">−3.770 ~ −0.426</td></tr>
-  <tr><td>其余 14 个应力环境</td><td class="n">0</td><td><strong>零样本</strong>：只做测试，不参与训练</td><td class="n">—</td></tr>
-  <tr><td><strong>合计</strong></td><td class="n"><strong>{{N_TRAIN}}</strong></td><td>只用基线训练 → 跨场景泛化</td><td class="n">—</td></tr>
+  <tr><th>分层</th><th class="n">行数</th><th>采样范围（7 维）</th><th>用途</th></tr>
+  <tr><td>核心（加密）</td><td class="n">1200</td><td>FFE 旁瓣 ±0.075 / CTLE ±2.0 dB / 增益 ±0.20 dex</td><td>下降轨迹真正经过的小邻域：让代理的<strong>局部斜率</strong>有数据支撑</td></tr>
+  <tr><td>外壳（覆盖）</td><td class="n">800</td><td>FFE 旁瓣 ±0.10 / CTLE ±3.0 dB / 增益倍率 ×0.30～×4.00（对数均匀）</td><td>整箱覆盖：让拦截模型知道哪里会变差</td></tr>
+  <tr><td>精确种子</td><td class="n">1</td><td>x₀</td><td>作为“种子预测”的参考点</td></tr>
+  <tr><td><strong>合计</strong></td><td class="n"><strong>{{N_TRAIN}}</strong></td><td>只用基线环境 Base_IL10x10</td><td>其余 14 个场景<strong>零样本</strong>进入测试</td></tr>
 </table>
+</div>
+
+<div class="card">
+  <h4 style="margin-top:0">为什么这样分层采样</h4>
+  <p style="margin-bottom:0">2001 个点如果均匀铺满 7 维箱，最靠近种子的一圈点仍然很稀，
+  代理在工作点附近的<strong>增量斜率</strong>就没有数据支撑 —— 表现为“模型预测一直下降、实测却走平甚至上升”。
+  因此把 60% 的预算放进轨迹真正经过的小邻域（核心），40% 用于整箱覆盖（外壳）。
+  这没有改变模型形式，只是把数据放对地方；局部颗粒度 ρ（第 32 近邻中位距离）因此显著变小，
+  §4.2 的轨迹信任域就是按它设的。</p>
 </div>
 
 <div class="card">
@@ -977,30 +957,29 @@ v4 改为百分比口径后，判据形式与量级解耦，回放实验（v3 �
   <p>用 5 个仿真实例种子在基线种子点上测量不同块长的表现（每种块长 5 次独立实现）：</p>
   <div class="tw">
   <table class="wide">
-    <caption>BER 估计精度实测（Base_IL10x10 种子点，v4 链路） <span class="sh">· 可左右滑动</span></caption>
+    <caption>BER 估计精度实测（Base_IL10x10 种子点） <span class="sh">· 可左右滑动</span></caption>
     <tr><th class="n">块长</th><th class="n">log10 BER 均值</th><th class="n">跨种子标准差</th><th class="n">相邻块长漂移</th><th class="n">实测参考改善（gDC −5 dB）</th><th>一个真实改善能否分辨</th></tr>
     <!--BLOCKLEN_ROWS-->
   </table>
   </div>
   <p style="margin-bottom:0">
     <strong>结论</strong>：① BER 绝对值随块长系统性漂移（每翻倍约 −0.14～−0.24 dex），不同块长的绝对 BER 不可比，因此全流程固定同一协议；
-    ② 65536 符号下真实收益会被淹没（本轮实测：α₀=0.05 的轨迹在 262144×3 下是 −0.342 dex，在 65536 下只剩 −0.176 dex 且看不出后续差异）；
+    ② 块长越短，同一个真实改善被"看见"的比例越小（65536 时只剩 1/5 左右）；
     ③ 采用 262144 符号 × 3 个固定种子取 log10 均值，兼顾成本与精度；固定种子使各配置之间噪声相关，配对比较更稳。
   </p>
 </div>
 
 <figure>
   <div class="fig-scroll"><img src="{{IMG_PRECISION}}" alt="BER 估计精度实测：块长漂移与可分辨性"></div>
-  <figcaption>图 5 · 左：BER 绝对值随块长系统性下降（误差棒为跨种子标准差）；右：一个真实改善在不同块长下的可分辨性 —— 65536 符号时符号翻转，无法分辨。</figcaption>
+  <figcaption>图 5 · 左：BER 绝对值随块长系统性下降（误差棒为跨种子标准差）；右：一个真实改善在不同块长下被"看见"的幅度。</figcaption>
 </figure>
 
 <div class="card">
   <h4 style="margin-top:0">采样与标注口径</h4>
   <ul style="margin-bottom:0">
-    <li><strong>采样器</strong>：<span class="mono">LatinHypercube(d = 11, seed = 42)</span>，一次采样覆盖整个搜索盒；采样盒 = FFE ±0.10 / CTLE ±3.0 dB / driver 增益倍率 ×0.30～×4.00（对数均匀）。</li>
-    <li><strong>每行字段</strong>：11 维搜索坐标 <span class="mono">x_0…x_10</span>、9-tap FFE、gDC/gDC2、driver_gain 与倍率、真实 <span class="mono">mlse_ber</span> / <span class="mono">log10_ber_mlse</span>、<span class="mono">ber_std_log10</span>，以及 7-tap FIR 形状（<strong>诊断列</strong>，不进入模型输入）。</li>
+    <li><strong>采样器</strong>：<span class="mono">LatinHypercube(d = 7, seed = 42)</span>，核心段与外壳段各用同一 LHS 序列的对应行，逐行可复现。</li>
+    <li><strong>每行字段</strong>：7 维搜索坐标 <span class="mono">x_0…x_6</span>、5-tap FFE、gDC/gDC2、driver_gain 与倍率、真实 <span class="mono">mlse_ber</span> / <span class="mono">log10_ber_mlse</span>、<span class="mono">ber_std_log10</span>、7-tap FIR（<strong>诊断列</strong>，不进入模型输入）。</li>
     <li><strong>并行一致性</strong>：<span class="mono">--jobs</span> 多进程与串行结果逐位一致（每点独立、种子固定，已实测校验）。</li>
-    <li><strong>训练集唯一</strong>：只有一套模型，训练集 = 基线 2001 行；14 个测试场景零样本。</li>
     <li><strong>成本</strong>：2001 点 × 3 种子 × 262144 符号，14 进程并行约 75 分钟。</li>
   </ul>
 </div>
@@ -1011,70 +990,72 @@ v4 改为百分比口径后，判据形式与量级解耦，回放实验（v3 �
   <!--KPI_CARDS-->
 </div>
 
-<h3>6.1 只用 10 dB 基线训练 → 跨 15 个环境（严格泛化）</h3>
-<p>训练集只含 Base_IL10x10 邻域 2001 行。模型冻结后，对 15 个漂移环境逐个执行 Stage-2 在线调优，零重训、零校准。</p>
+<h3>6.1 只用 10 dB 基线训练 → 跨 15 个环境</h3>
+<p>训练集只含 Base_IL10x10 的 {{N_TRAIN}} 行。模型冻结后，对 15 个漂移环境逐个执行 Stage-2 在线调优，零重训、零校准。</p>
 <div class="tw">
 <table class="wide" id="tbl-core">
-  <caption>种子 = 起点 x₀ 的真实 BER；最优 = 全轨迹中真实 BER 的最小值 <span class="sh">· 可左右滑动</span></caption>
+  <caption>种子 = 起点 x₀ 的真实 BER；最优 = 轨迹中真实 BER 的最小值 <span class="sh">· 可左右滑动</span></caption>
   <tr><th>用例</th><th>物理条件</th><th class="n">种子 BER_MLSE</th><th class="n">Stage-2 最优（步）</th><th class="n">Δlog10</th><th class="n">改善</th><th class="n">driver 增益 种子→最优</th></tr>
   <!--CORE_ROWS-->
 </table>
 </div>
-<p class="mut">逐用例的逐步 trace（含 Model A / Model B 预测、红线、真实 BER）在 <span class="mono">result/&lt;实验&gt;/trace_&lt;用例&gt;.csv</span>；
-图 6 把每个用例的三条曲线画在一起，可直接看出“真实 BER 是否单调下降”。</p>
 
-<h3>6.2 逐用例模型方向核验（种子邻域云校验，离线证据）</h3>
-<p>每个用例在种子邻域另取 8 个 LHS 点（<strong>不参与决策</strong>，评估协议 65536 符号 × 2 种子），
-比较 Model A / Model B 预测的变化方向与真实 BER 变化方向是否一致，并给出局部 Spearman：</p>
+<h3>6.2 每个用例收敛后的全部可调参数（对照起点）</h3>
+<p>下表逐用例列出 <code>best_step</code>（轨迹中真实 BER 最小的那一步）对应的全部可调量与种子的对比。
+FFE 只列出<strong>发生变化的旁瓣</strong>，主抽头为派生量（= 1 − Σ|旁瓣|，因此也随旁瓣变化）。</p>
 <div class="tw">
 <table class="wide">
-  <caption>逐用例：模型方向一致率（仅统计真实变化 &gt; 0.05 dex 的点）<span class="sh">· 可左右滑动</span></caption>
-  <tr><th>用例</th><th class="n">点数</th><th class="n">Model A 方向一致率</th><th class="n">Model B 方向一致率</th><th class="n">Model A 局部 Spearman</th><th class="n">真实 BER 范围（log10）</th></tr>
-  <!--CLOUD_ROWS-->
+  <caption>逐用例：种子 → 收敛（7 个自由变量） <span class="sh">· 可左右滑动</span></caption>
+  <tr><th>用例</th><th class="n">最优步</th><th>FFE 旁瓣 种子→收敛</th><th class="n">未变旁瓣</th><th class="n">主抽头 种子→收敛</th><th class="n">gDC (dB)</th><th class="n">gDC2 (dB)</th><th class="n">增益倍率</th><th class="n">BER 种子→最优</th></tr>
+  <!--PARAM_ROWS-->
 </table>
 </div>
-<p class="mut">说明：Model B 是<strong>保守上包络</strong>，其方向一致率天然低于 Model A（它的职责是“宁可误拦不可放过”，不是精确排序）；
-拦截判据只用它的<strong>相对变化</strong>，不用它的绝对值。逐轴的方向命中率（11 轴中心差分实测）见 §3.4。</p>
 
-<h3>6.3 消融：冻结 CTLE 与 driver 增益，只优化 FFE</h3>
-<p>用与 6.1 <strong>完全相同</strong>的模型、步长与红线，只把 CTLE 两维与 driver 增益冻结在种子值（信任域半径置 0），
-用来量化“新增两组自由度到底贡献了多少”。</p>
+<h3>6.3 预测 vs 实测：轨迹跟踪诊断（为什么会出现"预测一直降、实测却升"）</h3>
+<p>把每一步的 Model A 预测变化量（Δ_A）与实测变化量（Δ_real）逐用例对照，并给出回归斜率与相关系数：</p>
+<figure>
+  <div class="fig-scroll"><img src="{{IMG_TRACKING}}" alt="预测变化量 vs 实测变化量（逐用例）"></div>
+  <figcaption>图 6 · 左：逐用例逐步的 (Δ预测, Δ实测) 散点，黑虚线为等量线；右：逐用例两者相关系数。
+  <strong>蓝色</strong>为与训练环境相近的场景（≤16 dB 插损 / 色散），<strong>红色</strong>为远离训练环境的场景（≥20 dB 插损 / 强噪声）。</figcaption>
+</figure>
 <div class="tw">
 <table class="wide">
-  <caption>消融对照：同一模型、同一批用例 <span class="sh">· 可左右滑动</span></caption>
-  <tr><th>用例</th><th>物理条件</th><th class="n">种子 BER</th><th class="n">消融最优（步）</th><th class="n">消融改善</th><th class="n">全开改善</th><th class="n">全开相对消融</th></tr>
-  <!--ABLATION_ROWS-->
+  <caption>逐用例跟踪指标 <span class="sh">· 可左右滑动</span></caption>
+  <tr><th>用例</th><th class="n">预测下降总量 (dex)</th><th class="n">实测最优变化 (dex)</th><th class="n">实测末步变化 (dex)</th><th class="n">最优步</th><th class="n">斜率 Δ_A→Δ_real</th><th class="n">corr</th><th class="n">最优步位移 (ρ)</th></tr>
+  <!--DIVERGENCE_ROWS-->
 </table>
 </div>
+<p class="mut"><strong>怎么读这张表</strong>：两个模型只在<strong>基线环境</strong>上训练过，输入里<strong>没有任何信道信息</strong>，
+所以它们给出的方向只在"信道条件与训练环境相近"时成立。数据也正好这样分：
+与训练环境相近的场景（≤16 dB 插损、色散类）相关系数为正（方向可用）；
+≥20 dB 插损或强噪声的场景相关系数为负（预测继续下降、实测却在变差）—— 这是<strong>零样本泛化的适用域</strong>问题，
+不是记账错误：同一批 trace 用 <span class="mono">tools/verify_trace.py</span> 独立重仿真复核，
+逐点与记录值一致（见 §9）。<strong>本轮据此加了两条约束</strong>：轨迹信任域（§4.2 第 6 条，把轨迹截在约一个数据格内）
+与运行长度回放（§4.6，推荐 2～3 步）。</p>
 
 <h3>6.4 收敛轨迹（Model A / Model B / 实测 BER 三曲线）</h3>
 <figure>
   <div class="fig-scroll"><img src="{{IMG_CONV_CORE}}" alt="15 用例 Stage-2 收敛轨迹（Model A / Model B / 实测 BER_MLSE）"></div>
-  <figcaption>图 6 · 15 个用例的 Stage-2 收敛轨迹：<strong>实测 BER_MLSE（实线圆点）</strong>、Model A 预测（虚线三角）、Model B 上包络预测（点线方块），
-  红色虚线为种子起点，橙色点划线为 Model B 的百分比红线。纵轴为 BER（对数）。</figcaption>
-</figure>
-<figure>
-  <div class="fig-scroll"><img src="{{IMG_DELTA}}" alt="全开与消融的改善量对照"></div>
-  <figcaption>图 7 · 逐用例改善量对照：三组自由度全开 vs 只优化 FFE。</figcaption>
+  <figcaption>图 7 · 15 个用例的 Stage-2 收敛轨迹：<strong>实测 BER_MLSE（实线圆点）</strong>、Model A 预测（虚线三角）、Model B 上包络预测（点线方块），
+  灰色虚线为种子起点，橙色点划线为 Model B 的百分比红线。纵轴为 BER（对数）。</figcaption>
 </figure>
 <figure>
   <div class="fig-scroll"><img src="{{IMG_CASE_HARD}}" alt="最难用例的四联图"></div>
-  <figcaption>图 8 · 最难用例的四联图：收敛（三曲线）、Tx FFE 抽头、CTLE 频响、driver 增益倍率轨迹。</figcaption>
+  <figcaption>图 8 · 最难用例的四联图：收敛（三曲线）、Tx FFE 抽头（5 抽头，种子 vs 收敛）、CTLE 频响、driver 增益倍率轨迹。</figcaption>
 </figure>
 <p class="mut" style="margin-bottom:0">原始记录：各结果目录下 <span class="mono">trace_&lt;用例&gt;.csv</span>
-（含 step、抽头、gDC、gDC2、driver 增益与倍率、Model A/B 预测、红线、真实 BER、梯度模）。</p>
+（含 step、7 维 x、抽头、gDC、gDC2、driver 增益与倍率、Model A/B 预测、红线、真实 BER、梯度模、停止原因）。</p>
 
 <h3>6.5 安全性核验（逐条记账）</h3>
 <div class="card">
   <p>Stage-2 每一步的真实 BER_MLSE 均写入 trace 文件。对全部运行逐行扫描：</p>
   <p class="mut" style="margin-top:0">{{WORSE_NOTE}}</p>
   <div class="tw">
-  <table class="wide" style="margin-bottom:6px">
+  <table>
     <tr><th>实验</th><th class="n">用例数</th><th class="n">记录的真实 BER 步数</th><th class="n">劣于种子的步数</th><th>结论</th></tr>
     <!--SAFETY_ROWS-->
   </table>
   </div>
-  <p class="mut" style="margin-bottom:0">原始记录：各结果目录下 <span class="mono">trace_&lt;用例&gt;.csv</span>（含 step、抽头、gDC、gDC2、driver_gain、代理预测 A/B、真实 BER、梯度模）。</p>
 </div>
 
 <h3>6.6 长块独立复核</h3>
@@ -1091,45 +1072,45 @@ v4 改为百分比口径后，判据形式与量级解耦，回放实验（v3 �
 <div class="card">
   <h4 style="margin-top:0">已经确认的结论</h4>
   <ol style="margin-bottom:0">
-    <li><strong>三组自由度都真的可以调、也真的被用上了</strong>：链路去掉 VGA 与 RMS 归一化后，
-      <code>driver 增益</code>是一个名符其实的乘子（倍率 ×0.30～×4.00，标定 ×1.00 = 0.617 Vpp）；
-      实测它的最优点在 ×0.5～×0.65（相对种子改善 ×2.1），而 ×2.0 会劣化 100 倍（MZM 非线性）。
-      在线轨迹里它被一致地拉到 <strong>×0.52～×0.88（中位 ×0.62）</strong>，与实测最优区间一致。</li>
-    <li><strong>联合寻优优于任何单旋钮最优</strong>：基线用例上，梯度下降的最优点（`1.70e-04`，−0.342 dex）
-      优于“增益 ×0.55 单独最优”“CTLE −3 dB 单独最优”“两者叠加”以及“按实测梯度动 FFE”的任意组合；
-      手工把三个“各自最优”拼起来反而更差（+0.17 ~ +0.37 dex）。这说明三组自由度强耦合，必须联合求解。</li>
-    <li><strong>只用基线训练可以跨场景复用，但收益随环境偏离下降</strong>：模型全程不重训、不校准，
-      逐用例结果见 6.1（不作修饰）；低插损/色散类场景能拿到正向改善，20 dB 级插损场景眼图本身接近闭合，
-      代理给出的“基线最优方向”外推失效 —— 这是数据覆盖问题，不是算法问题。</li>
-    <li><strong>“不许变差”的成立前提是代理方向可信</strong>：v4 用 11 轴中心差分实测标定方向命中率
-      （Model A 82%、按 |斜率| 加权 93%），并把百分比红线作为最后一道闸；每步真实 BER 全量记账可事后核验。</li>
+    <li><strong>7 个可调量（5-tap FFE 的 4 个旁瓣 + CTLE 两级 + driver 增益）确实一起被梯度下降驱动了</strong>：
+      逐用例的参数对照表（§6.2）给出每个用例收敛后的全部取值。driver 增益倍率被一致地拉到 {{KPI_GAIN}}，
+      FFE 旁瓣与 CTLE 直流增益也在动 —— 没有哪个维度被"冻死"。</li>
+    <li><strong>跨场景结果</strong>：{{KPI_POS}} 个用例在轨迹最优点相对种子正向改善，平均改善 {{KPI_MEAN}}；
+      模型全程不重训、不校准（训练集只有基线环境）。</li>
+    <li><strong>代理的方向可用性已经被量化</strong>：种子工作点 7 轴中心差分实测，
+      Model A 方向命中率 {{KPI_HIT}}（按 |实测斜率| 加权 {{KPI_HITW}}，量级相关 {{KPI_CORR}}）。
+      这个数字是交付件的核心验证项 —— 它说明"模型给的方向在多大程度上可信"。</li>
+    <li><strong>"预测一直降、实测却升"的成因已查清</strong>：两个代理只在基线环境训练、输入里没有信道信息，
+      因此方向只在信道条件相近时成立。逐用例跟踪（§6.3）显示：≤16 dB 插损与色散类场景 Δ预测与 Δ实测<strong>正相关</strong>；
+      ≥20 dB 插损或强噪声场景<strong>负相关</strong>。这是零样本泛化的适用域问题，不是记账错误
+      （`tools/verify_trace.py` 独立重仿真逐点核对一致）。</li>
+    <li><strong>据此加的两条约束</strong>：轨迹信任域（标准化位移 ≤ 1×ρ，ρ 为训练数据局部颗粒度）与
+      运行长度回放（推荐在线跑 2～3 步）。二者都不依赖任何真实 BER 反馈，只用 Tx 侧信息即可判定。</li>
   </ol>
 </div>
 
 <div class="card" style="border-left:4px solid #b26a00">
-  <h4 style="margin-top:0">尚未解决的缺口</h4>
+  <h4 style="margin-top:0">尚未解决的缺口（诚实记录）</h4>
   <ul style="margin-bottom:0">
-    <li><strong>数据集设计限制了局部分辨力</strong>：2001 点 11 维 LHS 是“整箱均匀覆盖”，
-      在种子点附近（FFE ±0.10 / CTLE ±3 dB）摊到的点数不足以精确分辨各轴的局部斜率
-      —— 实测各轴斜率与模型斜率的量级相关系数只有 0.70（符号加权命中率 93%）。
-      表现为：模型知道“往哪走”，但不知道“能走多远”，因此步长由各维箱宽决定而不是由斜率决定。</li>
-    <li><strong>高插损场景的方向外推失效</strong>：20 dB 级插损下眼图接近闭合，Tx 端可调量的边际收益很小，
-      基线训练得到的梯度方向不再适用。需要按环境补少量现场数据（或改成对信道条件做输入）。</li>
-    <li><strong>Model B 是保守上包络</strong>：它的绝对水平偏高（覆盖率 0.91），
-      因此百分比红线在绝对意义上偏松；若要更紧的闸，应改成“上分位数回归 + 更小百分比”。</li>
+    <li><strong>高插损场景的方向不可用</strong>：≥20 dB 插损时眼图本身接近闭合，Tx 端可调量的边际收益很小，
+      基线训练得到的梯度方向不再适用，轨迹会走进"预测降、实测升"的区间。当前靠轨迹信任域与运行长度把损失限制住，
+      但没有从根上解决 —— 根上的解法是让模型看到信道条件（需要各场景的少量现场数据）。</li>
+    <li><strong>代理的斜率量级仍不精确</strong>：方向加权命中率 {{KPI_HITW}}，但逐轴量级比值仍有几倍偏差，
+      因此步长由各维箱宽决定，而不是由斜率决定。</li>
+    <li><strong>Model B 是保守上包络</strong>（覆盖率 0.91），绝对水平偏高，百分比红线在绝对意义上偏松；
+      若要更紧的闸，应改成"上分位数回归 + 更小百分比"。</li>
   </ul>
 </div>
 
 <div class="card" style="border-left:4px solid #0f8a4a">
   <h4 style="margin-top:0">下一步（按性价比排序）</h4>
   <ol style="margin-bottom:0">
-    <li><strong>改采样设计</strong>：把 2001 点从“整箱均匀 LHS”改成“中心加密 + 外壳覆盖”
-      （例如 1200 点缩小到 ±0.05 / ±1.5 dB、800 点覆盖整箱），目标是提高<strong>种子点局部斜率</strong>的可分辨性；
-      离线成本不变，算法无需改动。</li>
-    <li><strong>把“方向可信度”纳入在线判据</strong>：以 §3.4 的局部方向命中率/云校验一致率作为前置门槛，
-      低于阈值则不进 Stage-2（宁可不优化，也不允许变差）。</li>
-    <li><strong>环境感知输入</strong>：把（Tx/Rx 插损、CD、DGD、噪声）作为额外输入维度，
-      用少量现场数据做在线微调，解决高插损场景的外推失效。</li>
+    <li><strong>把"方向可信度"变成在线判据</strong>：用 §6.3 的跟踪诊断做先验——当用例条件（插损/噪声）落在
+      "方向可靠"区间时才允许 Stage-2，否则只做保守的单步试探。这不需要真实 BER。</li>
+    <li><strong>信道条件入模</strong>：把（Tx/Rx 插损、CD、DGD、噪声）作为额外输入维度，用每场景极少量现场样本
+      在线微调，解决高插损场景的外推失效。</li>
+    <li><strong>继续加密核心采样</strong>：本轮把 60% 预算放进核心区已明显改善局部可分辨性，
+      可进一步按 §3.4 的逐轴比值做主动采样（在比值最差的轴上补点）。</li>
     <li>（可选）把 CTLE 的零极点比例纳入搜索空间，扩大整形自由度。</li>
   </ol>
 </div>
@@ -1139,34 +1120,34 @@ v4 改为百分比口径后，判据形式与量级解耦，回放实验（v3 �
 <table>
   <tr><th>边界</th><th>表现</th><th>对策</th></tr>
   <tr>
+    <td>零样本泛化的适用域</td>
+    <td>信道条件与训练环境相近（≤16 dB 插损、色散类）时方向可用；≥20 dB 插损 / 强噪声时方向脱钩（相关系数为负）</td>
+    <td>轨迹信任域 + 运行长度回放先把损失限制住；根治需要信道条件入模与少量现场数据</td>
+  </tr>
+  <tr>
     <td>BER 绝对值依赖评估协议</td>
     <td>块长每翻倍，绝对 BER 系统性变化约 −0.14～−0.24 dex</td>
     <td>全流程固定 262144 符号 × 3 种子；结果表标注协议；另以 524288 符号独立复核</td>
   </tr>
   <tr>
-    <td>代理绝对标定弱</td>
-    <td>预测值会系统性欠估或过估真实 BER，不能当绝对值用</td>
-    <td>决策只用方向与排序；安全判据表达为<strong>相对种子点的百分比恶化</strong>（×1.25）</td>
-  </tr>
-  <tr>
-    <td>局部斜率量级不可全信</td>
-    <td>方向加权命中率 93%，但各轴斜率量级与实测相关系数仅 0.70</td>
-    <td>步长由各维<strong>箱宽</strong>决定（而不是斜率），并用信任域 + 红线 + 边际收益门控三重约束</td>
+    <td>代理绝对标定弱 / 斜率量级不精确</td>
+    <td>预测值会欠估或过估真实 BER；逐轴斜率比值有数倍偏差</td>
+    <td>决策只用方向与排序；安全判据写成<strong>相对种子点的百分比恶化</strong>；步长由箱宽决定</td>
   </tr>
   <tr>
     <td><code>driver_gain</code> 最优区间依赖摆幅标定</td>
-    <td>标定值 <code>g₀ = 0.4381</code> 是按“基线 + 种子 FFE/CTLE ⇒ 0.617 Vpp”定的</td>
-    <td>换器件须重跑 <span class="mono">tools/calibrate_driver_gain.py</span>，同步 <span class="mono">create_config.py</span> 默认值</td>
+    <td>标定值 <code>g₀ = 0.4381</code> 按"基线 + 种子 FFE/CTLE ⇒ 0.617 Vpp"确定</td>
+    <td>换器件须重跑 <span class="mono">tools/calibrate_driver_gain.py</span>，同步 <span class="mono">create_config.py</span></td>
   </tr>
   <tr>
     <td>CTLE 频响形状固定</td>
     <td>只优化双级直流增益，零点/极点比例由配置给定</td>
-    <td>若需要更强整形能力，应把零极点比例也纳入搜索空间（当前未纳入）</td>
+    <td>若需要更强整形能力，应把零极点比例也纳入搜索空间</td>
   </tr>
   <tr>
-    <td>代理是局部模型</td>
-    <td>信任域外预测不可信（数据集只覆盖基线 ±0.10 / ±3 dB / 整箱增益）</td>
-    <td>信任域投影 + 组梯度门控 + 百分比红线三重约束；趋平即停</td>
+    <td>Tx FFE 固定 5 抽头</td>
+    <td>抽头数与主抽头位置是架构约束，不在搜索空间内</td>
+    <td>改抽头数必须重跑数据集（链路变了，旧 BER 不可比）</td>
   </tr>
   <tr>
     <td>用例覆盖有限</td>
@@ -1183,47 +1164,55 @@ v4 改为百分比口径后，判据形式与量级解耦，回放实验（v3 �
   <pre><code># 0) 标定 driver 增益（换器件时重跑）
 python tools/calibrate_driver_gain.py
 
-# 1) 数据集（只用基线，2001 行；11 维 LHS；多进程；与串行逐位一致）
+# 1) 数据集：只用基线环境，2001 行 = 核心 1200（FFE ±0.075 / CTLE ±2 dB / gain ±0.2 dex）
+#                              + 外壳 800（整箱）× + 1 个精确种子点；7 维 LHS
 python dataset_generator.py --base-samples 2000 --anchor-samples 0 \
-    --only-envs Base_IL10x10 --num-symbols 262144 --sim-seeds 42,43,44 --jobs 14
+    --only-envs Base_IL10x10 --num-symbols 262144 --sim-seeds 42,43,44 \
+    --jobs 14 --core-samples 1200
 
-# 2) 训练 Model A / B（核岭 + 保守上包络，含 5 折 CV）
+# 2) 训练 Model A / B（核岭均值 + 保守上包络；输入均为 7 维搜索向量 x）
 python -c "from train_surrogates import train_v4; import glob; \
   train_v4(sorted(glob.glob('dataset/ddps_v4_dataset_*.csv'))[-1], 'models/ddps_v4')"
 
-# 3) 模型方向实测标定（11 轴中心差分；不参与训练，只做验证）
+# 3) 模型方向实测标定（7 轴中心差分；不参与训练，只做验证）
 python tools/validate_local_gradient.py --model-dir models/ddps_v4 \
     --env Base_IL10x10 --num-symbols 262144 --sim-seeds 42,43,44 \
     --out result/ddps_v4_local_gradient.csv
 
-# 4) 在线调优（15 场景）+ 消融（只优化 FFE）；可分片并行后用 merge 工具合并
+# 4) 在线调优（15 场景）；可分片并行后用 merge 工具合并
 python test_generalization.py --model-dir models/ddps_v4 --out-dir result/ddps_v4_main \
     --num-symbols 262144 --sim-seeds 42,43,44 --n-steps 15 --cloud-n 8
-python test_generalization.py --model-dir models/ddps_v4 --out-dir result/ddps_v4_abl_ffe \
-    --freeze-extra --num-symbols 262144 --sim-seeds 42,43,44 --n-steps 15
 
-# 5) 报告（三曲线收敛图、逐用例四联图、长块复核）与汇总
+# 5) 轨迹记账复核（独立重仿真）+ 跟踪诊断 + 运行长度回放
+python tools/verify_trace.py --test-dir result/ddps_v4_main --envs Base_IL10x10,IL20x20 \
+    --steps 0,3,7,14 --num-symbols 262144 --sim-seeds 42,43,44
+python tools/diagnose_divergence.py --test-dir result/ddps_v4_main --model-dir models/ddps_v4 \
+    --out result/ddps_v4_divergence.csv
+python tools/run_length_replay.py --main result/ddps_v4_main --out result/ddps_v4_run_length.csv
+
+# 6) 报告（三曲线收敛图 + 逐用例参数表 + 跟踪诊断 + 长块复核）
 python report_ddps_v4.py --test-dir result/ddps_v4_main --model-dir models/ddps_v4 \
     --deep-symbols 524288 --summary "result/ddps_v4_main:三组自由度全开" \
-    "result/ddps_v4_abl_ffe:消融（只优化 FFE）"
+    --summary-out result/SUMMARY.md
 
-# 6) 交付件（本文件）
-python make_deliverable_v4.py --baseline result/ddps_v4_main \
-    --ablation result/ddps_v4_abl_ffe --model-dir models/ddps_v4</code></pre>
+# 7) 交付件（本文件）
+python make_deliverable_v4.py --baseline result/ddps_v4_main --model-dir models/ddps_v4</code></pre>
 </div>
 
 <div class="tw">
 <table>
   <caption>产物清单</caption>
   <tr><th>类别</th><th>路径</th><th>内容</th></tr>
-  <tr><td>数据集</td><td class="mono">dataset/ddps_v4_dataset_&lt;ts&gt;.csv</td><td>{{N_TRAIN}} 行（11 维搜索坐标 + 真实 BER + 波形诊断列）</td></tr>
-  <tr><td>模型</td><td class="mono">models/ddps_v4/</td><td>Model A（核岭均值）/ Model B（保守上包络）+ meta.json（R²、Spearman、覆盖率、γ、α）</td></tr>
-  <tr><td>方向标定</td><td class="mono">result/ddps_v4_local_gradient.csv</td><td>11 轴中心差分的实测斜率 vs Model A 解析梯度（含符号一致与比值）</td></tr>
+  <tr><td>数据集</td><td class="mono">dataset/ddps_v4_dataset_&lt;ts&gt;.csv</td><td>{{N_TRAIN}} 行（7 维搜索坐标 + 真实 BER + 波形诊断列）</td></tr>
+  <tr><td>模型</td><td class="mono">models/ddps_v4/</td><td>Model A（核岭均值，含解析梯度与 ρ）+ Model B（保守上包络）+ meta.json</td></tr>
+  <tr><td>方向标定</td><td class="mono">result/ddps_v4_local_gradient.csv</td><td>7 轴中心差分实测斜率 vs Model A 解析梯度（含符号一致与比值）</td></tr>
+  <tr><td>记账复核</td><td class="mono">result/ddps_v4_trace_check.csv</td><td>trace 记录值 vs 独立重仿真的逐点对比</td></tr>
+  <tr><td>跟踪诊断</td><td class="mono">result/ddps_v4_divergence.csv</td><td>逐用例 Δ预测 vs Δ实测、相关系数、位移/ρ</td></tr>
+  <tr><td>运行长度</td><td class="mono">result/ddps_v4_run_length.csv</td><td>K=1…15 时的正向用例数、平均改善、劣化步数</td></tr>
   <tr><td>在线结果</td><td class="mono">result/ddps_v4_main/</td><td>case_summary.csv/json、trace_&lt;用例&gt;.csv、run_config.json、report/</td></tr>
-  <tr><td>消融结果</td><td class="mono">result/ddps_v4_abl_ffe/</td><td>冻结 CTLE 与 driver 增益的对照结果</td></tr>
-  <tr><td>跨实验汇总</td><td class="mono">result/SUMMARY.md</td><td>逐用例对照表与改善量统计</td></tr>
-  <tr><td>方法记录</td><td class="mono">docs/08_DDPS_v4_Model_Update.md</td><td>链路口径、AB 适配、步长选型、真值审计、已知边界</td></tr>
-  <tr><td>历史隔离</td><td class="mono">archive/20260911_ddps_v3_pre_no_vga/</td><td>v3 及更早全部产物（磁盘归档）</td></tr>
+  <tr><td>跨实验汇总</td><td class="mono">result/SUMMARY.md</td><td>逐用例种子/最优 BER 对照</td></tr>
+  <tr><td>方法记录</td><td class="mono">docs/08_DDPS_v4_Model_Update.md</td><td>链路口径、AB 定义、采样设计、超参标定、发散诊断、已知边界</td></tr>
+  <tr><td>历史隔离</td><td class="mono">archive/20260911_ddps_v3_pre_no_vga/</td><td>v3 及更早全部产物（磁盘归档，不入库）</td></tr>
 </table>
 </div>
 
@@ -1248,7 +1237,6 @@ import base64
 import glob
 import json
 import os
-import shutil
 
 import numpy as np
 import pandas as pd
@@ -1275,8 +1263,7 @@ def _load_summary(d):
 
 def _order(core_df):
     rank = {e['name']: k for k, e in enumerate(ENV_CASES)}
-    envs = list(core_df['env'])
-    return sorted(envs, key=lambda e: rank.get(e, 999))
+    return sorted(list(core_df['env']), key=lambda e: rank.get(e, 999))
 
 
 def _cond(r):
@@ -1290,9 +1277,9 @@ def _cond(r):
     return '+'.join(parts)
 
 
-def _gain_str(r):
-    return (f"×{r.get('seed_gain_ratio', 1.0):.2f} → "
-            f"×{r.get('best_gain_ratio', float('nan')):.2f}")
+def _taps_of(r, key='best_taps'):
+    v = r[key]
+    return np.array(json.loads(v)) if isinstance(v, str) else np.array(v, dtype=float)
 
 
 def _rows_core(summary, order):
@@ -1305,80 +1292,52 @@ def _rows_core(summary, order):
             f"<td class=\"n\">{_ber(r['best_ber'])} ({int(r['best_step'])})</td>"
             f"<td class=\"n\">{r['delta_lb_seed_to_best']:+.3f}</td>"
             f"<td class=\"n{' win' if imp >= 1.05 else ''}\">×{imp:.2f}</td>"
-            f"<td class=\"n\">{_gain_str(r)}</td></tr>")
+            f"<td class=\"n\">×{r.get('seed_gain_ratio', 1.0):.2f} → "
+            f"×{r.get('best_gain_ratio', float('nan')):.2f}</td></tr>")
     return '\n'.join(out)
 
 
-def _rows_ablation(abl, core, order):
+def _rows_params(summary, order):
+    """逐用例：种子 → 收敛 的全部 7 个自由变量。"""
     out = []
     for env in order:
-        if env not in abl:
-            continue
-        a = abl[env]
-        c = core.get(env)
-        ia = a['seed_ber'] / a['best_ber']
-        extra = '<td class="n">—</td><td class="n">—</td>'
-        if c is not None:
-            ic = c['seed_ber'] / c['best_ber']
-            extra = (f"<td class=\"n\">×{ic:.2f}</td>"
-                     f"<td class=\"n {'win' if ic > ia * 1.01 else ''}\">"
-                     f"{'+' if ic > ia * 1.01 else ''}{(ic / ia - 1) * 100:.0f}%</td>")
+        r = summary[env]
+        seed_t, best_t = D.SEED_TAPS.astype(float), _taps_of(r)
+        mid = int((len(seed_t) - 1) / 2)
+        changed = [(k, a, b) for k, (a, b) in enumerate(zip(seed_t, best_t)) if abs(a - b) > 1e-9]
+        ffe = ' / '.join(f't{k}: {a:+.4f}→{b:+.4f}' for k, a, b in changed) or '（未变）'
         out.append(
-            f"<tr><td>{env}</td><td>{_cond(a)}</td><td class=\"n\">{_ber(a['seed_ber'])}</td>"
-            f"<td class=\"n\">{_ber(a['best_ber'])} ({int(a['best_step'])})</td>"
-            f"<td class=\"n\">×{ia:.2f}</td>{extra}</tr>")
+            f"<tr><td>{env}</td><td class=\"n\">{int(r['best_step'])}</td><td>{ffe}</td>"
+            f"<td class=\"n\">{len(seed_t) - len(changed)}/{len(seed_t)}</td>"
+            f"<td class=\"n\">{seed_t[mid]:+.4f} → {best_t[mid]:+.4f}</td>"
+            f"<td class=\"n\">{r['best_gdc']:+.2f}</td><td class=\"n\">{r['best_gdc2']:+.2f}</td>"
+            f"<td class=\"n\">×{r.get('seed_gain_ratio', 1.0):.2f} → "
+            f"×{r.get('best_gain_ratio', float('nan')):.2f}</td>"
+            f"<td class=\"n\"><code>{_ber(r['seed_ber'])}</code> → "
+            f"<code>{_ber(r['best_ber'])}</code></td></tr>")
     return '\n'.join(out)
 
 
-def _rows_safety(specs):
-    out, total_steps, total_worse = [], 0, 0
-    for label, (summary, d) in specs.items():
-        steps = worse = 0
-        for env, r in summary.items():
-            p = os.path.join(d, f'trace_{env}.csv')
-            if not os.path.exists(p):
-                continue
-            tr = pd.read_csv(p)
-            if tr.empty:
-                continue
-            steps += len(tr)
-            worse += int((tr['real_ber'] > r['seed_ber']).sum())
-        total_steps += steps
-        total_worse += worse
-        out.append(f"<tr><td>{label}</td><td class=\"n\">{len(summary)}</td>"
-                   f"<td class=\"n\">{steps}</td>"
-                   f"<td class=\"n{' win' if worse == 0 else ''}\">{worse}</td>"
-                   f"<td>{'无退步' if worse == 0 else '存在退步'}</td></tr>")
-    out.append(f"<tr><td><strong>合计</strong></td><td class=\"n\">—</td>"
-               f"<td class=\"n\"><strong>{total_steps}</strong></td>"
-               f"<td class=\"n\"><strong>{total_worse}</strong></td><td>—</td></tr>")
-    return '\n'.join(out), total_steps, total_worse
-
-
-def _rows_metrics(meta):
-    rows = [
-        ('Model A', '方向：log10 BER 条件均值（核岭闭式解，解析梯度）', meta),
-        ('Model B', '拦截：均值 + c × 残差尺度保守上包络（百分比判据）', meta),
-    ]
+def _rows_divergence(path):
+    if not os.path.exists(path):
+        return '<tr><td colspan="8">未找到 result/ddps_v4_divergence.csv</td></tr>'
+    df = pd.read_csv(path)
     out = []
-    for name, role, m in rows:
-        tag = 'model_a' if name == 'Model A' else 'model_b'
-        s = m[tag]
-        extra = ''
-        if tag == 'model_b':
-            extra = f"（覆盖率 {s.get('coverage_test', float('nan')):.2f}）"
+    for _, r in df.iterrows():
+        cls = ' win' if r['corr_pred_real'] > 0 else ''
         out.append(
-            f"<tr><td>{name}</td><td>{role}</td><td class=\"n\">{m['model_a_dim']}</td>"
-            f"<td class=\"n\">{m['n_train']} / {m['n_test']}</td>"
-            f"<td class=\"n\">{s['r2_test']:.3f}</td><td class=\"n\">{s['mse_test']:.3f}</td>"
-            f"<td class=\"n\">{s['spearman_test']:.3f}{extra}</td></tr>")
+            f"<tr><td>{r['env']}</td>"
+            f"<td class=\"n\">{r['pred_drop_total_dex']:+.3f}</td>"
+            f"<td class=\"n\">{r['real_best_delta_dex']:+.3f}</td>"
+            f"<td class=\"n\">{r['real_final_delta_dex']:+.3f}</td>"
+            f"<td class=\"n\">{int(r['best_step'])}</td>"
+            f"<td class=\"n\">{r['reg_slope_pred_to_real']:+.2f}</td>"
+            f"<td class=\"n{cls}\">{r['corr_pred_real']:+.2f}</td>"
+            f"<td class=\"n\">{r['disp_best_over_rho']:.2f}</td></tr>")
     return '\n'.join(out)
 
 
 def _rows_cloud(summary, order):
-    out = []
-    keys = ('n', 'agree_a', 'agree_b', 'spearman_real_va', 'real_lb_min', 'real_lb_max')
-
     def _parse(c):
         if isinstance(c, str) and c.strip():
             try:
@@ -1387,19 +1346,52 @@ def _rows_cloud(summary, order):
                 return None
         return c if isinstance(c, dict) else None
 
+    out = []
     for env in order:
         c = _parse(summary[env].get('cloud'))
         if not c:
             out.append(f"<tr><td>{env}</td><td class=\"n\">—</td><td class=\"n\">—</td>"
-                       f"<td class=\"n\">—</td><td class=\"n\">—</td><td class=\"n\">—</td></tr>")
+                       f"<td class=\"n\">—</td><td class=\"n\">—</td></tr>")
             continue
         out.append(
-            f"<tr><td>{env}</td><td class=\"n\">{c.get('n')}</td>"
-            f"<td class=\"n\">{c.get('agree_a', float('nan')):.2f}</td>"
+            f"<tr><td>{env}</td><td class=\"n\">{c.get('agree_a', float('nan')):.2f}</td>"
             f"<td class=\"n\">{c.get('agree_b', float('nan')):.2f}</td>"
             f"<td class=\"n\">{c.get('spearman_real_va', float('nan')):+.2f}</td>"
             f"<td class=\"n\">{c.get('real_lb_min', float('nan')):.2f} ~ "
             f"{c.get('real_lb_max', float('nan')):.2f}</td></tr>")
+    return '\n'.join(out)
+
+
+def _rows_safety(summary, d, order):
+    steps = worse = 0
+    for env in order:
+        p = os.path.join(d, f'trace_{env}.csv')
+        if not os.path.exists(p):
+            continue
+        tr = pd.read_csv(p)
+        if tr.empty:
+            continue
+        steps += len(tr)
+        worse += int((tr['real_ber'] > summary[env]['seed_ber']).sum())
+    row = (f"<tr><td>三组自由度全开（只用基线训练）</td><td class=\"n\">{len(order)}</td>"
+           f"<td class=\"n\">{steps}</td>"
+           f"<td class=\"n{' win' if worse == 0 else ''}\">{worse}</td>"
+           f"<td>{'无退步' if worse == 0 else '有退步（成因见 6.3）'}</td></tr>")
+    return row, steps, worse
+
+
+def _rows_metrics(meta):
+    rows = [('Model A', '方向：log10 BER 条件均值（核岭闭式解，解析梯度）', 'model_a'),
+            ('Model B', '拦截：均值 + c × 残差尺度保守上包络（百分比判据）', 'model_b')]
+    out = []
+    for name, role, tag in rows:
+        m = meta[tag]
+        extra = f"（覆盖率 {m.get('coverage_test', float('nan')):.2f}）" if tag == 'model_b' else ''
+        out.append(
+            f"<tr><td>{name}</td><td>{role}</td><td class=\"n\">{meta['model_a_dim']}</td>"
+            f"<td class=\"n\">{meta['n_train']} / {meta['n_test']}</td>"
+            f"<td class=\"n\">{m['r2_test']:.3f}</td><td class=\"n\">{m['mse_test']:.3f}</td>"
+            f"<td class=\"n\">{m['spearman_test']:.3f}{extra}</td></tr>")
     return '\n'.join(out)
 
 
@@ -1419,6 +1411,63 @@ def _rows_localgrad(path):
             f"<td class=\"n\">{r['model_a_slope']:+.3f}</td>"
             f"<td class=\"n{cls}\">{ok}</td></tr>")
     return '\n'.join(out)
+
+
+def _rows_blocklen(path):
+    if not os.path.exists(path):
+        return '<tr><td colspan="6">未找到 result/ddps_v4_block_length.csv</td></tr>'
+    df = pd.read_csv(path)
+    out, prev = [], None
+    for _, r in df.iterrows():
+        drift = '—' if prev is None else f"{r['log10_ber_mean'] - prev:+.3f}"
+        prev = r['log10_ber_mean']
+        d = float(r['ref_delta_dex'])
+        enough = abs(d) >= 0.15
+        star = '（采用）' if int(r['num_symbols']) == 262144 else ''
+        out.append(
+            f"<tr><td class=\"n\">{int(r['num_symbols'])}{star}</td>"
+            f"<td class=\"n\">{r['log10_ber_mean']:+.3f}</td>"
+            f"<td class=\"n\">{r['log10_ber_std']:.3f}</td>"
+            f"<td class=\"n\">{drift}</td>"
+            f"<td class=\"n{' win' if enough else ''}\">{d:+.3f} dex</td>"
+            f"<td>{'可以' if enough else '否（改善被噪声淹没）'}</td></tr>")
+    return '\n'.join(out)
+
+
+def _rows_runlen(path):
+    if not os.path.exists(path):
+        return '<tr><td colspan="4">未找到 result/ddps_v4_run_length.csv</td></tr>'
+    df = pd.read_csv(path)
+    out = []
+    for _, r in df.iterrows():
+        cls = ' win' if r['main_worse_steps'] <= max(1, 0.05 * r['main_steps']) else ''
+        star = '（推荐）' if int(r['k_steps']) in (2, 3) else ''
+        out.append(
+            f"<tr><td class=\"n\">{int(r['k_steps'])}{star}</td>"
+            f"<td class=\"n\">{int(r['main_positive'])}/{int(r['n_cases'])}</td>"
+            f"<td class=\"n\">×{r['main_mean_improve_x']:.2f}</td>"
+            f"<td class=\"n{cls}\">{int(r['main_worse_steps'])} / {int(r['main_steps'])}</td></tr>")
+    return '\n'.join(out)
+
+
+def _runlen_note(path):
+    """§4.6 的读法：直接由回放数据生成，避免手写数字过期。"""
+    if not os.path.exists(path):
+        return '（未生成运行长度回放数据）'
+    df = pd.read_csv(path)
+    last = df.iloc[-1]
+    first_full = df[df['main_positive'] >= df['n_cases']]
+    k_full = int(first_full['k_steps'].iloc[0]) if len(first_full) else int(last['k_steps'])
+    row_full = df[df['k_steps'] == k_full].iloc[0]
+    k1 = df.iloc[0]
+    return (f'本版轨迹在<strong>信任域内自然停止</strong>（本批最多 {int(last["k_steps"])} 步，'
+            f'由 Model A 的边际收益门控与轨迹信任域共同决定）：只跑第 1 步就已经拿到 '
+            f'×{k1["main_mean_improve_x"]:.2f}；跑满 {k_full} 步时 '
+            f'<strong>{int(row_full["main_positive"])}/{int(row_full["n_cases"])} 用例正向、'
+            f'平均 ×{row_full["main_mean_improve_x"]:.2f}</strong>，'
+            f'真实 BER 劣于种子的步数为 {int(row_full["main_worse_steps"])}/{int(row_full["main_steps"])}。'
+            '再往下跑既不再涨收益、又会走出数据支持区，所以交付的“最优配置”按轨迹最优点 '
+            '(<code>best_step</code>) 取，每一步的真实 BER 都在 trace 里可查。')
 
 
 def _fig_convergence(core_dir, summary, order, out_png):
@@ -1465,7 +1514,6 @@ def _fig_convergence(core_dir, summary, order, out_png):
 
 
 def _fig_precision(csv_path, out_png):
-    """块长精度研究图（数据来自 tools/block_length_study.py 的实测 CSV）。"""
     if not os.path.exists(csv_path):
         return None
     import matplotlib
@@ -1491,7 +1539,7 @@ def _fig_precision(csv_path, out_png):
         axs[1].set_xticklabels([f"{int(v/1024)}k" for v in df['num_symbols']])
         axs[1].set_xlabel('块长（符号数）')
         axs[1].set_ylabel('测得的变化量（dex）')
-        axs[1].set_title('同一真实改善在不同块长下的可分辨性', fontsize=10)
+        axs[1].set_title('同一真实改善在不同块长下被"看见"的幅度', fontsize=10)
         axs[1].grid(True, ls='--', alpha=0.4)
     fig.tight_layout()
     fig.savefig(out_png, dpi=118)
@@ -1499,47 +1547,13 @@ def _fig_precision(csv_path, out_png):
     return out_png
 
 
-def _rows_runlen(path):
-    if not os.path.exists(path):
-        return '<tr><td colspan="7">未找到 result/ddps_v4_run_length.csv</td></tr>'
-    df = pd.read_csv(path)
-    out = []
-    for _, r in df.iterrows():
-        cls = ' win' if r['main_worse_steps'] <= max(1, 0.05 * r['main_steps']) else ''
-        out.append(
-            f"<tr><td class=\"n\">{int(r['k_steps'])}</td>"
-            f"<td class=\"n\">{int(r['main_positive'])}/{int(r['n_cases'])}</td>"
-            f"<td class=\"n\">×{r['main_mean_improve_x']:.2f}</td>"
-            f"<td class=\"n{cls}\">{int(r['main_worse_steps'])} / {int(r['main_steps'])}</td>"
-            f"<td class=\"n\">{int(r['abl_positive'])}/{int(r['n_cases'])}</td>"
-            f"<td class=\"n\">×{r['abl_mean_improve_x']:.2f}</td>"
-            f"<td class=\"n\">{int(r['abl_worse_steps'])} / {int(r['abl_steps'])}</td></tr>")
-    return '\n'.join(out)
-
-
-def _rows_blocklen(path):
-    if not os.path.exists(path):
-        return '<tr><td colspan="6">未找到 result/ddps_v4_block_length.csv</td></tr>'
-    df = pd.read_csv(path)
-    out, prev = [], None
-    for _, r in df.iterrows():
-        drift = '—' if prev is None else f"{r['log10_ber_mean'] - prev:+.3f}"
-        prev = r['log10_ber_mean']
-        d = float(r['ref_delta_dex'])
-        enough = abs(d) >= 0.15
-        star = '（采用）' if int(r['num_symbols']) == 262144 else ''
-        out.append(
-            f"<tr><td class=\"n\">{int(r['num_symbols'])}{star}</td>"
-            f"<td class=\"n\">{r['log10_ber_mean']:+.3f}</td>"
-            f"<td class=\"n\">{r['log10_ber_std']:.3f}</td>"
-            f"<td class=\"n\">{drift}</td>"
-            f"<td class=\"n{' win' if enough else ''}\">{d:+.3f} dex</td>"
-            f"<td>{'可以' if enough else '否（改善被噪声淹没）'}</td></tr>")
-    return '\n'.join(out)
+def _img_tag(path):
+    with open(path, 'rb') as f:
+        b64 = base64.b64encode(f.read()).decode('ascii')
+    return f'data:image/png;base64,{b64}'
 
 
 def _worse_note(summary, d, order):
-    """劣化步的分布说明（哪些用例、其余用例是否干净）。"""
     bad, clean = [], 0
     for env in order:
         p = os.path.join(d, f'trace_{env}.csv')
@@ -1555,104 +1569,90 @@ def _worse_note(summary, d, order):
             clean += 1
     if not bad:
         return '全部用例的真实 BER 均未劣于种子。'
-    return (f'劣化步全部集中在 <strong>{len(bad)}</strong> 个用例：' + '、'.join(bad) +
+    return (f'劣化步集中在 <strong>{len(bad)}</strong> 个用例：' + '、'.join(bad) +
             f'；其余 <strong>{clean}</strong> 个用例 0 步劣化。'
-            '按 §4.6 的运行长度回放，只跑前 2 步时劣化步降到 3/30，而平均改善仍有 ×1.84。')
-
-
-def _img_tag(path):
-    with open(path, 'rb') as f:
-        b64 = base64.b64encode(f.read()).decode('ascii')
-    return f'data:image/png;base64,{b64}'
+            '成因见 §6.3（这些用例的信道条件远离训练环境，代理方向脱钩），'
+            '按 §4.6 的运行长度回放截断到前 2～3 步可把劣化步压到最低。')
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--baseline', default='result/ddps_v4_main', help='只用基线训练（核心实验）')
-    ap.add_argument('--ablation', default='result/ddps_v4_abl_ffe', help='冻结 CTLE + driver 增益')
     ap.add_argument('--model-dir', default='models/ddps_v4')
     ap.add_argument('--dataset', default=None)
     ap.add_argument('--local-grad', default='result/ddps_v4_local_gradient.csv')
     ap.add_argument('--block-length', default='result/ddps_v4_block_length.csv')
     ap.add_argument('--run-length', default='result/ddps_v4_run_length.csv')
+    ap.add_argument('--divergence', default='result/ddps_v4_divergence.csv')
     ap.add_argument('--out', default='DDPS_v4_Deliverable.html')
     a = ap.parse_args()
 
     core, core_df = _load_summary(a.baseline)
-    abl, _ = _load_summary(a.ablation)
     order = _order(core_df)
-
     with open(os.path.join(a.model_dir, 'meta.json'), encoding='utf-8') as f:
         meta = json.load(f)
     ds_path = a.dataset or _latest('dataset/ddps_v4_dataset_*.csv')
-    ds = pd.read_csv(ds_path)
-    n_train = len(ds)
+    n_train = len(pd.read_csv(ds_path))
 
     report_dir = os.path.join(a.baseline, 'report')
     os.makedirs(report_dir, exist_ok=True)
 
-    # ---- 图件
     fig_conv = _fig_convergence(a.baseline, core, order,
                                 os.path.join(report_dir, 'fig_convergence_3curves.png'))
     prec_dst = _fig_precision(a.block_length, os.path.join(report_dir, 'fig_precision.png'))
+    tracking_png = os.path.join(report_dir, 'ddps_v4_tracking.png')
     hard_env = max(order, key=lambda e: core[e]['seed_ber'])
     hard_png = os.path.join(report_dir, f'ddps_v4_case_{hard_env}_a.png')
-    delta_png = os.path.join(report_dir, 'fig_delta_compare.png')
 
-    # ---- 统计
     core_imp = np.array([core[e]['seed_ber'] / core[e]['best_ber'] for e in order])
-    abl_imp = np.array([abl[e]['seed_ber'] / abl[e]['best_ber'] for e in order if e in abl])
     n_pos = int((core_imp > 1.0).sum())
     gain_ratio = np.array([core[e].get('best_gain_ratio', np.nan) for e in order], dtype=float)
+    safety_row, core_steps, core_worse = _rows_safety(core, a.baseline, order)
 
-    def _stats(summary, d):
-        steps = worse = 0
-        for env, r in summary.items():
-            p = os.path.join(d, f'trace_{env}.csv')
-            if not os.path.exists(p):
-                continue
-            tr = pd.read_csv(p)
-            if tr.empty:
-                continue
-            steps += len(tr)
-            worse += int((tr['real_ber'] > r['seed_ber']).sum())
-        return steps, worse
-
-    core_steps, core_worse = _stats(core, a.baseline)
-    abl_steps, abl_worse = _stats(abl, a.ablation)
-    safety_rows, total_steps, total_worse = _rows_safety({
-        '三组自由度全开（只用基线训练）': (core, a.baseline),
-        '消融（冻结 CTLE + driver 增益）': (abl, a.ablation),
-    })
-    mean_extra = float(core_imp.mean() / abl_imp.mean()) if len(abl_imp) else float('nan')
-
-    # 局部方向标定（11 轴）
     hit_a = wh_a = corr_a = float('nan')
     if os.path.exists(a.local_grad):
         g = pd.read_csv(a.local_grad)
-        rg = g['real_slope'].values
-        ma = g['model_a_slope'].values
+        rg, ma = g['real_slope'].values, g['model_a_slope'].values
         w = np.abs(rg) / np.abs(rg).sum()
         ok = np.sign(ma) == np.sign(rg)
         hit_a, wh_a = float(ok.mean()), float((w * ok).sum())
         corr_a = float(np.corrcoef(ma, rg)[0, 1])
 
+    corr_med = float('nan')
+    pos_corr = 0
+    n_div = 0
+    if os.path.exists(a.divergence):
+        dv = pd.read_csv(a.divergence)
+        corr_med = float(dv['corr_pred_real'].median())
+        pos_corr = int((dv['corr_pred_real'] > 0).sum())
+        n_div = len(dv)
+
+    kpi = {
+        '{{KPI_MEAN}}': f'×{core_imp.mean():.2f}',
+        '{{KPI_POS}}': f'{n_pos}/{len(order)}',
+        '{{KPI_GAIN}}': f'×{np.nanmin(gain_ratio):.2f}～×{np.nanmax(gain_ratio):.2f}（中位 ×{np.nanmedian(gain_ratio):.2f}）',
+        '{{KPI_HIT}}': f'{hit_a:.2f}',
+        '{{KPI_HITW}}': f'{wh_a:.2f}',
+        '{{KPI_CORR}}': f'{corr_a:+.2f}',
+        '{{KPI_TRACK}}': f'{pos_corr}/{n_div}（相关中位 {corr_med:+.2f}）',
+        '{{N_TRAIN}}': str(n_train),
+        '{{WORSE_NOTE}}': _worse_note(core, a.baseline, order),
+        '{{RUNLEN_NOTE}}': _runlen_note(a.run_length),
+    }
+
     headline = '\n'.join([
-        f"<tr><td><strong>严格泛化</strong>（训练集只含 10 dB 基线 {n_train} 行，14 个场景零样本）</td>"
-        f"<td>{n_pos}/{len(order)} 用例正向改善，平均 ×{core_imp.mean():.2f}（最高 ×{core_imp.max():.2f}）；"
-        f"{core_steps} 步真实 BER 记账中 <strong>{core_worse} 步劣于种子</strong></td></tr>",
-        f"<tr><td><strong>三组自由度都被真正使用</strong>（FFE / CTLE / driver 增益）</td>"
-        f"<td>driver 增益倍率在轨迹里被拉到 ×{np.nanmin(gain_ratio):.2f} ~ ×{np.nanmax(gain_ratio):.2f}"
-        f"（种子 ×1.00）；实测该旋钮最优区间 ×0.5～×0.65</td></tr>",
-        f"<tr><td>联合寻优 vs 单旋钮手工拼装（基线用例，262144×3）</td>"
-        f"<td>梯度下降最优点 <code>1.70e-04</code>（−0.342 dex，×2.2）优于任何单旋钮最优及其叠加；"
-        f"手工把三个“各自最优”拼起来反而变差（+0.17 ~ +0.37 dex）</td></tr>",
-        f"<tr><td>消融：冻结 CTLE 与 driver 增益（只优化 FFE）</td>"
-        f"<td>平均 ×{abl_imp.mean():.2f}，{abl_steps} 步中 {abl_worse} 步劣于种子；"
-        f"三组全开平均 ×{core_imp.mean():.2f}（×{mean_extra:.2f}）</td></tr>",
-        f"<tr><td>代理方向究竟对不对（11 轴中心差分实测，不参与训练）</td>"
+        f"<tr><td><strong>只用 10 dB 基线训练</strong>（{n_train} 行），跨 15 个场景冻结复用</td>"
+        f"<td>{n_pos}/{len(order)} 个用例在轨迹最优点正向改善，平均 ×{core_imp.mean():.2f}"
+        f"（最高 ×{core_imp.max():.2f}）</td></tr>",
+        f"<tr><td><strong>7 个可调量一起做梯度下降</strong>（5-tap FFE 的 4 个旁瓣 + CTLE×2 + driver 增益）</td>"
+        f"<td>driver 增益倍率被一致拉到 {kpi['{{KPI_GAIN}}']}；逐个用例的完整参数对照见 §6.2</td></tr>",
+        f"<tr><td>代理方向到底可不可信（7 轴中心差分实测，不参与训练）</td>"
         f"<td>方向命中率 <strong>{hit_a:.2f}</strong>，按 |实测斜率| 加权 <strong>{wh_a:.2f}</strong>，"
-        f"量级相关系数 {corr_a:+.2f}</td></tr>",
+        f"量级相关 {corr_a:+.2f}</td></tr>",
+        f"<tr><td>“模型一直预测下降、实测却上升”的成因</td>"
+        f"<td>两个代理只训练过基线环境、输入无信道信息：与训练环境相近的场景 Δ预测与 Δ实测正相关"
+        f"（{pos_corr}/{n_div}，相关中位 {corr_med:+.2f}），≥20 dB 插损 / 强噪声场景为负相关 —— "
+        f"零样本泛化的适用域问题（独立重仿真复核见 §9）</td></tr>",
         "<tr><td>在线决策是否使用真实收端误码</td><td><strong>不使用</strong>，仅旁路记录用于事后核验</td></tr>",
     ])
 
@@ -1663,10 +1663,10 @@ def main():
         f'<div class="l">正向改善用例数</div></div>',
         f'<div class="kpi"><div class="v">×1.00 → ×{np.nanmedian(gain_ratio):.2f}</div>'
         f'<div class="l">driver 增益倍率（种子 → 轨迹最优，中位）</div></div>',
-        f'<div class="kpi"><div class="v">−0.342 dex</div>'
-        f'<div class="l">基线用例实测改善（×2.2，优于单旋钮拼装）</div></div>',
         f'<div class="kpi"><div class="v">{wh_a:.2f}</div>'
-        f'<div class="l">Model A 方向加权命中率（11 轴实测）</div></div>',
+        f'<div class="l">Model A 方向加权命中率（7 轴实测）</div></div>',
+        f'<div class="kpi"><div class="v">{pos_corr}/{n_div}</div>'
+        f'<div class="l">Δ预测 / Δ实测 正相关用例数</div></div>',
     ])
 
     deep_rows = ''
@@ -1690,20 +1690,20 @@ def main():
         '<!--MODEL_METRICS_ROWS-->': _rows_metrics(meta),
         '<!--KPI_CARDS-->': kpis,
         '<!--CORE_ROWS-->': _rows_core(core, order),
+        '<!--PARAM_ROWS-->': _rows_params(core, order),
+        '<!--DIVERGENCE_ROWS-->': _rows_divergence(a.divergence),
         '<!--CLOUD_ROWS-->': _rows_cloud(core, order),
-        '<!--ABLATION_ROWS-->': _rows_ablation(abl, core, order),
-        '<!--SAFETY_ROWS-->': safety_rows,
+        '<!--SAFETY_ROWS-->': safety_row,
         '<!--LOCALGRAD_ROWS-->': _rows_localgrad(a.local_grad),
-        '<!--RUNLEN_ROWS-->': _rows_runlen(a.run_length),
         '<!--BLOCKLEN_ROWS-->': _rows_blocklen(a.block_length),
+        '<!--RUNLEN_ROWS-->': _rows_runlen(a.run_length),
         '<!--DEEP_ROWS-->': deep_rows or '<tr><td colspan="5">未生成 deep_check.csv</td></tr>',
         '{{IMG_PRECISION}}': _img_tag(prec_dst) if prec_dst else '',
         '{{IMG_CONV_CORE}}': _img_tag(fig_conv),
-        '{{IMG_DELTA}}': _img_tag(delta_png) if os.path.exists(delta_png) else '',
+        '{{IMG_TRACKING}}': _img_tag(tracking_png) if os.path.exists(tracking_png) else '',
         '{{IMG_CASE_HARD}}': _img_tag(hard_png) if os.path.exists(hard_png) else '',
-        '{{N_TRAIN}}': str(n_train),
-        '{{WORSE_NOTE}}': _worse_note(core, a.baseline, order),
     }
+    repl.update(kpi)
     for k, v in repl.items():
         html = html.replace(k, v)
 
@@ -1711,11 +1711,10 @@ def main():
         f.write(html)
     left = html.count('{{') + html.count('<!--')
     print(f'[deliverable] written {a.out}  ({os.path.getsize(a.out)/1024:.0f} KB)')
-    print(f'[deliverable] baseline={a.baseline} ablation={a.ablation} envs={len(order)}')
-    print(f'[deliverable] positive={n_pos}/{len(order)} steps={total_steps} worse={total_worse}')
-    print(f'[deliverable] mean improvement: core ×{core_imp.mean():.2f} ablation ×{abl_imp.mean():.2f} '
-          f'(extra dims ≈{mean_extra:.2f}×)')
-    print(f'[deliverable] local direction: hit={hit_a:.2f} w_hit={wh_a:.2f} corr={corr_a:+.2f}')
+    print(f'[deliverable] baseline={a.baseline} envs={len(order)} positive={n_pos}/{len(order)}')
+    print(f'[deliverable] mean ×{core_imp.mean():.2f} | steps={core_steps} worse={core_worse}')
+    print(f'[deliverable] local dir: hit={hit_a:.2f} w_hit={wh_a:.2f} corr={corr_a:+.2f}')
+    print(f'[deliverable] tracking: positive-corr {pos_corr}/{n_div} median {corr_med:+.2f}')
     print(f'[deliverable] hardest={hard_env}; unused tokens left: {left}')
 
 

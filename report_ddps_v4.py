@@ -157,12 +157,12 @@ def figure_case(test_dir, env_name, report_dir, baud_rate):
     axs[0, 0].legend(fontsize=7.5)
 
     ax = axs[0, 1]
-    idx = np.arange(9)
+    idx = np.arange(len(best_taps))
     ax.bar(idx - 0.2, D.SEED_TAPS, width=0.4, label='种子', color='#8fa3ba')
     ax.bar(idx + 0.2, best_taps, width=0.4, label='最优', color=C_REAL)
     ax.set_xticks(idx)
-    ax.set_xticklabels([f't{i}' for i in range(9)], fontsize=8)
-    ax.set_title('Tx FFE 9-tap（t4 为主抽头，派生）', fontsize=10)
+    ax.set_xticklabels([f't{i}' for i in range(len(best_taps))], fontsize=8)
+    ax.set_title(f'Tx FFE {len(best_taps)}-tap（t{int((len(best_taps)-1)/2)} 为主抽头，派生）', fontsize=10)
     ax.grid(True, axis='y', ls='--', alpha=0.5)
     ax.legend(fontsize=8)
 
@@ -304,6 +304,86 @@ def deep_check(test_dir, report_dir, deep_symbols, sim_seeds, only_envs=None):
     return out
 
 
+def _params_of(row):
+    """(种子, 收敛) 的完整参数对：4 个 FFE 旁瓣 + 派生主抽头 + gDC + gDC2 + 增益倍率。"""
+    def _taps(r, key):
+        v = r[key]
+        return np.array(json.loads(v)) if isinstance(v, str) else np.array(v, dtype=float)
+    seed_t = D.SEED_TAPS.astype(float)
+    best_t = _taps(row, 'best_taps')
+    return seed_t, best_t
+
+
+def _rows_params(summ):
+    """逐用例"种子 → 收敛"的全参数对照表（甲方要求：每个用例最后一列出来）。"""
+    out = []
+    for _, r in summ.iterrows():
+        seed_t, best_t = _params_of(r)
+        n_tap = len(seed_t)
+        c_seed, c_best = seed_t[int((n_tap - 1) / 2)], best_t[int((n_tap - 1) / 2)]
+        ffe = ' / '.join(f'{a:+.4f}→{b:+.4f}' for a, b in zip(seed_t, best_t) if abs(a - b) > 1e-9)
+        unchanged = sum(1 for a, b in zip(seed_t, best_t) if abs(a - b) <= 1e-9)
+        gain_s = float(r.get('seed_gain_ratio', 1.0))
+        gain_b = float(r.get('best_gain_ratio', float('nan')))
+        out.append(
+            f"| {r['env']} | {r['best_step']} | {ffe or '（无变化）'} "
+            f"| {unchanged}/{n_tap} | {c_seed:+.4f} → {c_best:+.4f} "
+            f"| {r['best_gdc']:+.2f} | {r['best_gdc2']:+.2f} "
+            f"| ×{gain_s:.2f} → ×{gain_b:.2f} "
+            f"| `{r['seed_ber']:.3e}` → `{r['best_ber']:.3e}` |")
+    return '\n'.join(out)
+
+
+def figure_tracking(test_dir, report_dir):
+    """预测变化量 vs 实测变化量（逐用例逐步散点）：直接回答“预测一直降、实测却升”是什么问题。"""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans']
+    plt.rcParams['axes.unicode_minus'] = False
+    summ = _summary(test_dir)
+    fig, axs = plt.subplots(1, 2, figsize=(13.2, 4.6))
+    corrs = {}
+    for _, r in summ.iterrows():
+        tr = _trace(test_dir, r['env'])
+        if tr is None or tr.empty:
+            continue
+        seed_lb = float(np.log10(r['seed_ber']))
+        dA = tr['pred_a'].values - tr['pred_a'].iloc[0]
+        dR = tr['real_lb'].values - seed_lb
+        low_il = ('20x' not in r['env']) and ('Comb_IL20' not in r['env']) and \
+                 ('HighNoise_IL16' not in r['env'])
+        axs[0].plot(dA, dR, marker='o', ms=3.4, lw=0.9, alpha=0.85,
+                    color=('#0b63ce' if low_il else '#c0392b'))
+        corrs[r['env']] = (float(np.corrcoef(dA, dR)[0, 1])
+                           if np.std(dA) > 1e-9 and np.std(dR) > 1e-9 else np.nan)
+    lim = axs[0].get_xlim()
+    axs[0].axhline(0, color='k', lw=0.8, ls=':')
+    axs[0].axvline(0, color='k', lw=0.8, ls=':')
+    axs[0].plot(lim, [-v for v in lim], color='k', lw=0.9, ls='--', label='y = −x（预测与实测等量）')
+    axs[0].set_xlabel('Model A 预测的 log10 BER 变化量（dex）')
+    axs[0].set_ylabel('实测 log10 BER 变化量（dex）')
+    axs[0].set_title('蓝=与训练环境相近（≤16 dB IL / CD）；红=远离训练环境（≥20 dB IL / 强噪声）', fontsize=9)
+    axs[0].grid(True, ls='--', alpha=0.4)
+    axs[0].legend(fontsize=8)
+
+    names = list(corrs)
+    vals = [corrs[k] for k in names]
+    cols = ['#c0392b' if v < 0 else '#0b63ce' for v in vals]
+    axs[1].barh(np.arange(len(names)), vals, color=cols)
+    axs[1].set_yticks(np.arange(len(names)))
+    axs[1].set_yticklabels(names, fontsize=7.5)
+    axs[1].axvline(0, color='k', lw=0.8)
+    axs[1].set_xlabel('corr(ΔModel A, Δ实测)')
+    axs[1].set_title('逐用例：预测变化与实测变化的相关性（<0 = 方向脱钩）', fontsize=10)
+    axs[1].grid(True, axis='x', ls='--', alpha=0.4)
+    fig.tight_layout()
+    out = os.path.join(report_dir, 'ddps_v4_tracking.png')
+    fig.savefig(out, dpi=118)
+    plt.close(fig)
+    return out
+
+
 def _worse_count(test_dir, env, seed_ber):
     tr = _trace(test_dir, env)
     if tr is None or tr.empty:
@@ -337,6 +417,33 @@ def write_report(test_dir, model_dir, report_dir, protocol):
                  f'×{r.get("best_gain", D.SEED_GAIN)/D.DRIVER_GAIN_NOMINAL:.2f} | {n} | {w} |')
     L.append(f'\n> 合计：记录 {tot_steps} 步，其中真实 BER 劣于种子的 **{tot_worse}** 步。'
              f'平均改善 ×{float((summ["seed_ber"]/summ["best_ber"]).mean()):.2f}。\n')
+
+    L.append('## 逐用例：收敛后的全部可调参数 vs 起点\n')
+    L.append('`best_step` 为轨迹中真实 BER 最小的那一步；FFE 只列出**发生变化的旁瓣**（其余保持不变），'
+             '主抽头为派生量（= 1 − Σ|旁瓣|）。\n')
+    L.append('| 用例 | 最优步 | FFE 旁瓣 种子→收敛 | 未变旁瓣数 | 主抽头 种子→收敛 | gDC (dB) | gDC2 (dB) | 增益倍率 | BER 种子→最优 |')
+    L.append('| --- | --- | --- | --- | --- | --- | --- | --- | --- |')
+    L.append(_rows_params(summ))
+    L.append('')
+
+    div = os.path.join(os.path.dirname(test_dir.rstrip('/\\')), 'ddps_v4_divergence.csv')
+    if not os.path.exists(div):
+        div = 'result/ddps_v4_divergence.csv'
+    if os.path.exists(div):
+        L.append('## 预测 vs 实测：轨迹跟踪诊断\n')
+        L.append('每一步的 Model A 预测变化量（Δ_A）与实测变化量（Δ_real）逐用例对照。'
+                 '`corr_pred_real < 0` 表示该用例上模型"越预测越好、实测越走越差"，即方向脱钩。\n')
+        g = pd.read_csv(div)
+        L.append('| 用例 | 预测下降总量 (dex) | 实测最优变化 (dex) | 实测末步变化 (dex) | 最优步 | 斜率 Δ_A→Δ_real | corr | 最优步位移 (ρ) |')
+        L.append('| --- | --- | --- | --- | --- | --- | --- | --- |')
+        for _, r in g.iterrows():
+            L.append(f"| {r['env']} | {r['pred_drop_total_dex']:+.3f} | {r['real_best_delta_dex']:+.3f} "
+                     f"| {r['real_final_delta_dex']:+.3f} | {int(r['best_step'])} "
+                     f"| {r['reg_slope_pred_to_real']:+.2f} | {r['corr_pred_real']:+.2f} "
+                     f"| {r['disp_best_over_rho']:.2f} |")
+        L.append(f"\n> 预测下降总量 {g['pred_drop_total_dex'].sum():+.2f} dex vs 实测最优改善 "
+                 f"{g['real_best_delta_dex'].sum():+.2f} dex；相关中位 {g['corr_pred_real'].median():+.2f}，"
+                 f"正向用例 {int((g['corr_pred_real'] > 0).sum())}/{len(g)}。\n")
 
     if 'cloud' in summ.columns and summ['cloud'].notna().any():
         L.append('## 种子邻域云校验（离线证据，不参与决策）\n')
@@ -512,6 +619,7 @@ if __name__ == '__main__':
             except Exception as ex:
                 print(f'  (node view skipped for {e}: {ex})')
     figure_overview(a.test_dir, report_dir)
+    print(figure_tracking(a.test_dir, report_dir))
 
     protocol = '262144 符号/点 × 仿真种子 (42,43,44) 取 log10 均值'
     if os.path.exists(os.path.join(a.test_dir, 'run_config.json')):

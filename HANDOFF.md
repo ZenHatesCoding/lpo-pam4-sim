@@ -11,12 +11,12 @@ DDPS 已按甲方口径重做为 **v4**：
 - **链路**：`FFE → DAC → Tx 电插损 → 1mV 噪声 → CTLE → Driver(可调增益) → Driver 带限 → MZM`。
   **没有 VGA、没有任何 RMS 归一化** —— 入 MZM 摆幅就是"前端电平 × 增益"，因此增益是名副其实的自由度。
 - **三组自由度全部可微**：FFE（8 旁瓣）/ CTLE（gDC, gDC2）/ Driver 增益（倍率 ×0.30~×4.00，对数参数化），
-  共 11 维，一起交给梯度下降。关键在于 **Model A/B 的输入就是搜索向量 x 本身**（三组同量纲），
+  共 7 维，一起交给梯度下降。关键在于 **Model A/B 的输入就是搜索向量 x 本身**（三组同量纲），
   梯度由核岭回归的**解析导数**给出，不存在"某一维量纲被吃掉、梯度恒为 0"的问题。
 - **Driver 增益标定**：`tools/calibrate_driver_gain.py` 实测 `DRIVER_GAIN_NOMINAL = 0.4381`，
   使基线播种配置的 MZM 摆幅 = 0.617 Vpp；`create_config.py` 默认值与之一致。
 - **拦截判据**：Model B 按 **预测变差百分比**（≤ +25%）放行/否决，不是绝对 BER、也不是 log10 绝对裕度。
-- **数据**：**只用基线环境（IL10x10）** 采样 2000 点（11 维 LHS）训练；其余 14 个场景零样本。
+- **数据**：**只用基线环境（IL10x10）** 采样 2000 点（7 维 LHS：核心 1200 加密 + 外壳 800 覆盖）训练；其余 14 个场景零样本。
 - **评估协议**：262144 符号/点 × 3 仿真实例种子取 log10 均值（块长漂移实测见 docs/08）。
 
 v3 及更早产物已归档到 `archive/20260911_ddps_v3_pre_no_vga/` 与
@@ -24,8 +24,8 @@ v3 及更早产物已归档到 `archive/20260911_ddps_v3_pre_no_vga/` 与
 
 ## 二、非协商约束（甲方底线，别碰）
 
-1. **11 维搜索向量 x 的定义是固定约束**（`ddps_optimizer._taps_to_x` / `_x_to_taps_ctle`）：
-   `x = [8 个 FFE 旁瓣, gDC, gDC2, u_gain]`。7-tap 发端 FIR 探针（`tx_channel_extract`）保留为
+1. **7 维搜索向量 x 的定义是固定约束**（`ddps_optimizer._taps_to_x` / `_x_to_taps_ctle`）：
+   `x = [4 个 FFE 旁瓣（5-tap FFE）, gDC, gDC2, u_gain]`。7-tap 发端 FIR 探针（`tx_channel_extract`）保留为
    数据集的**诊断列**与链路一致性工具，但**不再是模型输入**（原因见 docs/08 §3.1）。
 2. **两阶段底线**：Stage 1（离线标定）可崩、可拿真实端到端 BER；Stage 2（在线调优）
    **不能崩、只能拿发端指标**（真实收端 BER 只记录验证、绝不回传方向决策）。
@@ -74,13 +74,13 @@ DAC(ZOH, ENOB) → Tx 电插损(S4P, Tx IL) → +1 mV 前端噪声 → Tx 模拟
 ### 4.2 v4 的硬性约束（违反就会让三组自由度退化）
 
 1. **不要给 Tx 前端加 VGA/RMS 归一化**（v3 曾这么做，导致增益的作用被抵消）。
-2. **模型输入必须是搜索变量本身**：不要再插入一层“波形特征”当输入——七抽头绝对 FIR 对 11 维配置
+2. **模型输入必须是搜索变量本身**：不要再插入一层“波形特征”当输入——七抽头绝对 FIR 对 7 维配置
    是多对一的，实测二阶基下留出集 R² 只有 0.29（搜索向量 0.56、核方法 0.62）。
 3. **driver_gain 必须与 `create_config.py` 的标定值一致**；换器件后重跑
    `tools/calibrate_driver_gain.py`，否则整个搜索箱会整体偏移。
 4. **拦截判据用百分比（`MAX_DEGRADE_FRAC = 0.25`）**，不要退回绝对 BER 阈值。
 5. **步长是"分组归一化 + 各维箱宽"**（`STEP_SPAN`、`GROUP_GATE`、`GD_LR=0.05`、`ALPHA_DECAY=0.97`）。
-   不要退回"11 维整体归一化"——那样振幅大的 FFE 维会独吞步长，增益维 15 步只走 ~0.004 dex。
+   不要退回"整体归一化"——那样振幅大的 FFE 维会独吞步长，增益维 15 步只走 ~0.004 dex。
    步长档位与真值审计见 docs/08 §4.5。
 
 ### 4.3 v3 修的坑（仍然有效，勿回退）
@@ -102,11 +102,11 @@ DAC(ZOH, ENOB) → Tx 电插损(S4P, Tx IL) → +1 mV 前端噪声 → Tx 模拟
 # 0) 标定 Driver 增益
 python tools/calibrate_driver_gain.py
 
-# 1) 数据集：只用基线环境，2000 点，11 维 LHS
+# 1) 数据集：只用基线环境，2000 点，7 维 LHS（核心 1200 + 外壳 800）
 python dataset_generator.py --base-samples 2000 --anchor-samples 0 \
     --only-envs Base_IL10x10 --num-symbols 262144 --sim-seeds 42,43,44 --jobs 14
 
-# 2) 训练 Model A / B（核岭均值 + 保守上包络；输入均为 11 维搜索向量 x）
+# 2) 训练 Model A / B（核岭均值 + 保守上包络；输入均为 7 维搜索向量 x）
 python -c "from train_surrogates import train_v4; import glob; \
   train_v4(sorted(glob.glob('dataset/ddps_v4_dataset_*.csv'))[-1], 'models/ddps_v4')"
 
@@ -115,31 +115,28 @@ python tools/validate_local_gradient.py --model-dir models/ddps_v4 \
     --env Base_IL10x10 --num-symbols 262144 --sim-seeds 42,43,44 \
     --out result/ddps_v4_local_gradient.csv
 
-# 4) 在线调优（15 场景）+ 消融（冻结 CTLE 与增益）；可分片并行后合并
+# 4) 在线调优（15 场景）；可分片并行后合并
 python test_generalization.py --model-dir models/ddps_v4 --out-dir result/ddps_v4_main \
     --num-symbols 262144 --sim-seeds 42,43,44 --n-steps 15 --cloud-n 8
-python test_generalization.py --model-dir models/ddps_v4 \
-    --out-dir result/ddps_v4_abl_ffe --freeze-extra \
-    --num-symbols 262144 --sim-seeds 42,43,44 --n-steps 15
 python tools/merge_test_parts.py --out result/ddps_v4_main result/_parts/main_a result/_parts/main_b result/_parts/main_c
 
 # 5) 报告（含三曲线收敛图 Model A / Model B / 实测 BER）与汇总
 python report_ddps_v4.py --test-dir result/ddps_v4_main --model-dir models/ddps_v4 \
     --deep-symbols 524288 --summary "result/ddps_v4_main:三组自由度全开" \
-    "result/ddps_v4_abl_ffe:消融（只优化 FFE）"
+    --summary-out result/SUMMARY.md
 
 # 6) 交付件（从产物自动生成，数字不手工转录）
-python make_deliverable_v4.py --baseline result/ddps_v4_main \
-    --ablation result/ddps_v4_abl_ffe --model-dir models/ddps_v4
+python make_deliverable_v4.py --baseline result/ddps_v4_main --model-dir models/ddps_v4
 ```
 
 ## 六、当前产物索引
 
-- 数据集：`dataset/ddps_v4_dataset_<ts>.csv`（2001 行，全部来自基线环境；含 gain_u / gain_ratio / drive_rms）
+- 数据集：`dataset/ddps_v4_dataset_<ts>.csv`（2001 行 = 核心 1200 + 外壳 800 + 种子，只含基线环境）
 - 模型：`models/ddps_v4/`（model_a.pkl / model_b.pkl / meta.json）
 - 方向标定：`result/ddps_v4_local_gradient.csv`（11 轴实测斜率 vs 模型解析梯度）
 - 结果：`result/ddps_v4_main/`（case_summary、trace_<用例>.csv、run_config.json、report/）
-  + `result/ddps_v4_abl_ffe/`
+- 诊断：`result/ddps_v4_local_gradient.csv`（7 轴方向实测）、`result/ddps_v4_divergence.csv`（Δ预测 vs Δ实测）、
+  `result/ddps_v4_trace_check.csv`（独立重仿真复核）、`result/ddps_v4_run_length.csv`
 - 报告：`result/ddps_v4_main/report/ddps_v4_convergence.png`（**三曲线核心图**）、
   `ddps_v4_report.md`、逐用例 `_a/_b`、`ddps_v4_overview.png`、`deep_check.csv`
 - 汇总：`result/SUMMARY.md`

@@ -34,6 +34,8 @@
   "merged_from": [
     "result/_parts/main_a",
     "result/_parts/main_b",
-    "result/_parts/main_c"
+    "result/_parts/main_c",
+    "result/_parts/main_d",
+    "result/_parts/main_e"
   ]
 }

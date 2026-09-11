@@ -406,7 +406,7 @@ def train_v3(dataset_csv, model_dir="models", label_col=None, verbose=True,
 # 特征的 R² 仅 0.29，而 11 维配置 / 核方法可到 0.62 —— 用配置空间既省参数又让三组
 # 自由度的梯度同量纲可比（旧版"增益维梯度几乎为 0"的根因之一）。
 # ============================================================================
-V4_X_COLS = [f'x_{i}' for i in range(11)]
+V4_X_COLS = [f'x_{i}' for i in range(7)]        # 4 个 5-tap FFE 旁瓣 + gDC + gDC2 + u_gain
 
 
 class WhiteBoxKernelRidge:
@@ -517,6 +517,20 @@ def _cv_kernel_alpha(X, y, gammas, alphas, folds=5, seed=0):
     return best
 
 
+def _local_spacing(Z, k=32, sub=900, seed=1):
+    """标准化空间里“第 k 近邻距离”的中位数 —— 数据自身的局部颗粒度 ρ。
+
+    用途：Stage-2 用它做**轨迹信任域**——模型只在走过约一个数据格的范围内可信，
+    再往外它给出的“还能继续降”没有数据支撑（诊断见 result/ddps_v4_divergence.csv）。
+    """
+    rs = np.random.RandomState(seed)
+    idxs = rs.choice(len(Z), min(sub, len(Z)), replace=False)
+    d = np.sqrt(((Z[idxs][:, None, :] - Z[None, :, :]) ** 2).sum(-1))
+    d.sort(axis=1)
+    kk = min(k, d.shape[1] - 1)
+    return float(np.median(d[:, kk]))
+
+
 def train_v4(dataset_csv, model_dir="models", label_col=None, verbose=True,
              test_size=0.2, seed=42, env_filter="Base_IL10x10"):
     """DDPS v4：训练 A（方向，核岭均值）/ B（拦截，均值 + 残差尺度包络）。
@@ -532,7 +546,9 @@ def train_v4(dataset_csv, model_dir="models", label_col=None, verbose=True,
     if env_filter and 'env' in df.columns:
         df = df[df['env'] == env_filter].reset_index(drop=True)
 
-    X = df[V4_X_COLS].values.astype(float)
+    xcols = sorted([c for c in df.columns if c.startswith('x_')],
+                   key=lambda c: int(c.split('_')[1]))
+    X = df[xcols].values.astype(float)
     y = df[label_col].values.astype(float)
     tr, te = _train_test_split_idx(len(df), test_size, seed)
 
@@ -541,6 +557,7 @@ def train_v4(dataset_csv, model_dir="models", label_col=None, verbose=True,
     g_best, a_best, cv = _cv_kernel_alpha(X[tr], y[tr], gammas, alphas)
 
     model_a = WhiteBoxKernelRidge(gamma=g_best, alpha=a_best).fit(X[tr], y[tr])
+    rho = _local_spacing((X[tr] - model_a.mu) / model_a.sd)
     resid = np.abs(y[tr] - model_a.predict(X[tr]))
     model_s = WhiteBoxKernelRidge(gamma=g_best, alpha=max(a_best, 0.1)).fit(X[tr], resid)
     # 覆盖率标定：在测试集上取满足 >=85% 覆盖的最小 c
@@ -552,6 +569,8 @@ def train_v4(dataset_csv, model_dir="models", label_col=None, verbose=True,
             break
         c_cal, cov_cal = c, cov
     model_b = WhiteBoxEnvelope(model_a, model_s, c_cal)
+    model_a.local_spacing_ = rho
+    model_b.local_spacing_ = rho
 
     pa = model_a.predict(X[te])
     pb = model_b.predict(X[te])
@@ -559,12 +578,13 @@ def train_v4(dataset_csv, model_dir="models", label_col=None, verbose=True,
         'dataset_csv': dataset_csv, 'label_col': label_col, 'pipeline': 'ddps_v4',
         'n_rows': int(len(df)), 'n_train': int(len(tr)), 'n_test': int(len(te)),
         'env_filter': env_filter,
-        'model_a_features': V4_X_COLS, 'model_b_features': V4_X_COLS,
-        'model_a_dim': len(V4_X_COLS), 'model_b_dim': len(V4_X_COLS),
+        'model_a_features': xcols, 'model_b_features': xcols,
+        'model_a_dim': len(xcols), 'model_b_dim': len(xcols),
         'model_a_type': 'WhiteBoxKernelRidge(RBF, closed form)',
         'model_b_type': 'WhiteBoxEnvelope(mean + c*residual-scale ridge)',
         'gamma': float(model_a.gamma), 'alpha': float(model_a.alpha),
         'cv_mse': float(cv), 'envelope_c': float(c_cal), 'envelope_coverage_test': float(cov_cal),
+        'local_spacing_sigma': float(rho),
         'model_a': {
             'r2_test': _r2_score(y[te], pa), 'mse_test': _mse(y[te], pa),
             'spearman_test': _spearman(y[te], pa), 'pred_std_test': float(np.std(pa)),

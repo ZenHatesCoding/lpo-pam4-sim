@@ -36,8 +36,24 @@ from utils_config import load_config
 from main import run_sim
 from tx_channel_extract import extract_tx_features
 
-BASE_SPREAD_FFE = D.TRUST_FFE      # ±0.10
+BASE_SPREAD_FFE = D.TRUST_FFE      # ±0.10（外壳：整个信任域）
 BASE_SPREAD_CTLE = D.TRUST_CTLE    # ±3.0 dB
+
+# ---------------------------------------------------------------------------
+# 采样设计：**核心加密 + 外壳覆盖**
+#
+# 病根（见 result/ddps_v4_divergence.csv 的诊断）：2001 个点在 11 维箱里均匀铺开时，
+# 局部数据间距 ρ（第 32 近邻的中位距离）达 2.8σ，而整条下降轨迹只走了 0.8ρ
+# —— 轨迹落在**同一个数据格**里，代理的"增量斜率"没有数据支撑，
+# 于是出现"预测一直下降、实测却走平甚至上升"（逐用例 Δ预测 vs Δ实测相关中位 −0.44）。
+#
+# 对策：把 60% 的样本预算放进下降轨迹真正经过的小邻域（核心），40% 覆盖整箱（外壳）。
+# 这不会改变模型形式，只是把数据放对地方。
+# ---------------------------------------------------------------------------
+CORE_SAMPLES = 1200
+CORE_SPREAD_FFE = 0.075            # 核心：FFE ±0.075
+CORE_SPREAD_CTLE = 2.0             # 核心：CTLE ±2.0 dB
+CORE_GAIN_HALF = 0.20              # 核心：增益 ±0.20 dex（外壳为整箱 ×0.30~×4.00）
 # driver_gain 不做"围绕种子的微调"，而是按倍率在整箱内对数均匀采样（见 _sample_point）
 GAIN_RATIO_LO = 10.0 ** D.GAIN_LOG10_MIN
 GAIN_RATIO_HI = 10.0 ** D.GAIN_LOG10_MAX
@@ -47,18 +63,27 @@ def _taps_without_center(taps, ffe_pre):
     return np.concatenate([taps[:ffe_pre], taps[ffe_pre + 1:]])
 
 
-def _sample_point(u, seed_pre_post, ffe_pre):
-    """u: 11D LHS [0,1]^11 -> (pre_post_raw, gdc, gdc2, gain)。
+def _sample_point(u, seed_pre_post, ffe_pre, spread_ffe=None, spread_ctle=None,
+                  gain_half=None):
+    """u: 7D LHS [0,1]^7 -> (pre_post_raw, gdc, gdc2, gain)。
 
-    FFE / CTLE 在种子点的信任域内采样；driver_gain 按倍率**在整个设计箱内对数均匀采样**
+    spread_ffe / spread_ctle / gain_half 为 None 时用外壳范围（整箱）。
+
+    FFE / CTLE 在种子点的信任域内采样；driver_gain 按倍率在**整个设计箱内对数均匀采样**
     （它不是"围绕种子的微调"，而是需要覆盖 10~20 dB 插损补偿需求的独立设计变量）。
     """
-    pre_post = seed_pre_post + (u[:8] * 2 - 1.0) * BASE_SPREAD_FFE
-    gdc = float(np.clip(D.SEED_GDC + (u[8] * 2 - 1.0) * BASE_SPREAD_CTLE,
+    sf = BASE_SPREAD_FFE if spread_ffe is None else float(spread_ffe)
+    sc = BASE_SPREAD_CTLE if spread_ctle is None else float(spread_ctle)
+    pre_post = seed_pre_post + (u[:D.N_SIDE] * 2 - 1.0) * sf
+    gdc = float(np.clip(D.SEED_GDC + (u[D.N_SIDE] * 2 - 1.0) * sc,
                         D.CTLE_GDC_MIN, D.CTLE_GDC_MAX))
-    gdc2 = float(np.clip(D.SEED_GDC2 + (u[9] * 2 - 1.0) * BASE_SPREAD_CTLE,
+    gdc2 = float(np.clip(D.SEED_GDC2 + (u[D.N_SIDE + 1] * 2 - 1.0) * sc,
                          D.CTLE_GDC2_MIN, D.CTLE_GDC2_MAX))
-    u_gain = float(D.GAIN_LOG10_MIN + u[10] * (D.GAIN_LOG10_MAX - D.GAIN_LOG10_MIN))
+    if gain_half is None:
+        u_gain = float(D.GAIN_LOG10_MIN + u[D.N_SIDE + 2]
+                       * (D.GAIN_LOG10_MAX - D.GAIN_LOG10_MIN))
+    else:
+        u_gain = float(D.SEED_GAIN_U + (u[D.N_SIDE + 2] * 2 - 1.0) * float(gain_half))
     gain = D.gain_from_u(u_gain)
     return pre_post, gdc, gdc2, gain
 
@@ -81,7 +106,7 @@ def _eval_ber(cfg, taps, sim_seeds):
 
 def _worker_task(args):
     (i, env_name, cfg_dict, num_symbols, ffe_pre, seed_pre_post, u, is_seed,
-     sim_seeds) = args
+     sim_seeds, spread) = args
     import copy
     cfg = copy.deepcopy(cfg_dict)
     cfg['system']['num_symbols'] = int(num_symbols)
@@ -91,9 +116,9 @@ def _worker_task(args):
         u_gain = D.SEED_GAIN_U
         taps = D.SEED_TAPS.copy()
     else:
-        pre_post, gdc, gdc2, gain = _sample_point(u, seed_pre_post, ffe_pre)
+        pre_post, gdc, gdc2, gain = _sample_point(u, seed_pre_post, ffe_pre, *spread)
         u_gain = D.u_from_gain(gain)
-        taps = D.construct_9tap(pre_post, ffe_pre)
+        taps = D.construct_taps(pre_post, ffe_pre)
 
     x_eff = np.concatenate([_taps_without_center(taps, ffe_pre), [gdc, gdc2, u_gain]])
 
@@ -127,9 +152,9 @@ def _worker_task(args):
         'gain_ratio': float(gain / D.DRIVER_GAIN_NOMINAL),
         'drive_rms': float(drive_rms),
     }
-    for j in range(11):
+    for j in range(len(x_eff)):
         row[f'x_{j}'] = float(x_eff[j])
-    for j in range(9):
+    for j in range(len(taps)):
         row[f'ffe_tap_{j}'] = float(taps[j])
     for j in range(7):
         row[f'tx_fir_{j}'] = float(tx_fir[j])
@@ -138,7 +163,7 @@ def _worker_task(args):
 
 def generate_dataset(base_env=BASE_ENV, base_samples=320, anchor_samples=60,
                      num_symbols=131072, seed=42, sim_seeds=(42,), output_dir="dataset",
-                     jobs=1, include_envs=None):
+                     jobs=1, include_envs=None, core_samples=CORE_SAMPLES):
     """生成环境锚定邻域数据集（v3）。
 
     base_env: 密集采样的基准环境名（默认 Base_IL10x10）
@@ -157,10 +182,8 @@ def generate_dataset(base_env=BASE_ENV, base_samples=320, anchor_samples=60,
     base_cfg['system']['enable_eye_plot'] = False
     base_cfg['system']['enable_spectrum_plot'] = False
 
-    ffe_pre = int(base_cfg['tx'].get('ffe_pre', 4))
-    seed_pre_post = np.zeros(8)
-    seed_pre_post[:ffe_pre] = D.SEED_TAPS[:ffe_pre]
-    seed_pre_post[ffe_pre:] = D.SEED_TAPS[ffe_pre + 1:]
+    ffe_pre = int(base_cfg['tx'].get('ffe_pre', D.FFE_PRE))
+    seed_pre_post = np.concatenate([D.SEED_TAPS[:ffe_pre], D.SEED_TAPS[ffe_pre + 1:]])
 
     sim_seeds = tuple(int(s) for s in sim_seeds)
 
@@ -180,13 +203,21 @@ def generate_dataset(base_env=BASE_ENV, base_samples=320, anchor_samples=60,
         # 环境专用种子：确保各环境锚点互不相同且可复现
         sampler = qmc.LatinHypercube(d=D.N_DIM, seed=int(seed) + env_idx * 7)
         sp = sampler.random(n=n)
+        n_core = min(int(core_samples), n) if env['name'] == base_env else 0
+        core_spread = (CORE_SPREAD_FFE, CORE_SPREAD_CTLE, CORE_GAIN_HALF)
+        shell_spread = (None, None, None)
         for i in range(n):
+            spread = core_spread if i < n_core else shell_spread
             tasks.append((f"{env['name']}:{i}", env['name'], cfg_env,
-                          num_symbols, ffe_pre, seed_pre_post, sp[i], False, sim_seeds))
+                          num_symbols, ffe_pre, seed_pre_post, sp[i], False, sim_seeds,
+                          spread))
         # 每个环境额外放一个精确种子行
         tasks.append((f"{env['name']}:seed", env['name'], cfg_env,
-                      num_symbols, ffe_pre, seed_pre_post, None, True, sim_seeds))
-        print(f"    env {env['name']:24s} -> {n} pts (+1 seed)")
+                      num_symbols, ffe_pre, seed_pre_post, None, True, sim_seeds,
+                      (None, None, None)))
+        print(f"    env {env['name']:24s} -> {n} pts (+1 seed)"
+              + (f"  [核心 {n_core} 点：FFE ±{CORE_SPREAD_FFE} / CTLE ±{CORE_SPREAD_CTLE} dB"
+                 f" / gain ±{CORE_GAIN_HALF} dex；其余 {n - n_core} 点覆盖整箱]" if n_core else ""))
 
     print(f"[dataset v4] total {len(tasks)} evaluations ...")
     if jobs and jobs > 1:
@@ -232,9 +263,12 @@ if __name__ == "__main__":
     p.add_argument('--out-dir', type=str, default='dataset')
     p.add_argument('--only-envs', type=str, default=None,
                    help='仅生成指定环境（逗号分隔），用于快速验证')
+    p.add_argument('--core-samples', type=int, default=CORE_SAMPLES,
+                   help='基线环境下投入“核心加密”的样本数（其余覆盖整箱，0=纯整箱均匀）')
     a = p.parse_args()
     sim_seeds = tuple(int(s) for s in str(a.sim_seeds).split(',') if s.strip())
     only = tuple(s.strip() for s in a.only_envs.split(',')) if a.only_envs else None
     generate_dataset(base_samples=a.base_samples, anchor_samples=a.anchor_samples,
                      num_symbols=a.num_symbols, seed=a.seed, sim_seeds=sim_seeds,
-                     output_dir=a.out_dir, jobs=a.jobs, include_envs=only)
+                     output_dir=a.out_dir, jobs=a.jobs, include_envs=only,
+                     core_samples=a.core_samples)
