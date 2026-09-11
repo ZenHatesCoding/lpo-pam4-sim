@@ -38,7 +38,9 @@ from tx_channel_extract import extract_tx_features
 
 BASE_SPREAD_FFE = D.TRUST_FFE      # ±0.10
 BASE_SPREAD_CTLE = D.TRUST_CTLE    # ±3.0 dB
-BASE_SPREAD_GAIN = D.TRUST_GAIN    # ±0.5
+# driver_gain 不做"围绕种子的微调"，而是按倍率在整箱内对数均匀采样（见 _sample_point）
+GAIN_RATIO_LO = 10.0 ** D.GAIN_LOG10_MIN
+GAIN_RATIO_HI = 10.0 ** D.GAIN_LOG10_MAX
 
 
 def _taps_without_center(taps, ffe_pre):
@@ -46,14 +48,18 @@ def _taps_without_center(taps, ffe_pre):
 
 
 def _sample_point(u, seed_pre_post, ffe_pre):
-    """u: 11D LHS [0,1]^11 -> (pre_post_raw, gdc, gdc2, gain)。"""
+    """u: 11D LHS [0,1]^11 -> (pre_post_raw, gdc, gdc2, gain)。
+
+    FFE / CTLE 在种子点的信任域内采样；driver_gain 按倍率**在整个设计箱内对数均匀采样**
+    （它不是"围绕种子的微调"，而是需要覆盖 10~20 dB 插损补偿需求的独立设计变量）。
+    """
     pre_post = seed_pre_post + (u[:8] * 2 - 1.0) * BASE_SPREAD_FFE
     gdc = float(np.clip(D.SEED_GDC + (u[8] * 2 - 1.0) * BASE_SPREAD_CTLE,
                         D.CTLE_GDC_MIN, D.CTLE_GDC_MAX))
     gdc2 = float(np.clip(D.SEED_GDC2 + (u[9] * 2 - 1.0) * BASE_SPREAD_CTLE,
                          D.CTLE_GDC2_MIN, D.CTLE_GDC2_MAX))
-    gain = float(np.clip(D.SEED_GAIN + (u[10] * 2 - 1.0) * BASE_SPREAD_GAIN,
-                         D.GAIN_MIN, D.GAIN_MAX))
+    u_gain = float(D.GAIN_LOG10_MIN + u[10] * (D.GAIN_LOG10_MAX - D.GAIN_LOG10_MIN))
+    gain = D.gain_from_u(u_gain)
     return pre_post, gdc, gdc2, gain
 
 
@@ -82,12 +88,14 @@ def _worker_task(args):
 
     if is_seed:
         gdc, gdc2, gain = D.SEED_GDC, D.SEED_GDC2, D.SEED_GAIN
+        u_gain = D.SEED_GAIN_U
         taps = D.SEED_TAPS.copy()
     else:
         pre_post, gdc, gdc2, gain = _sample_point(u, seed_pre_post, ffe_pre)
+        u_gain = D.u_from_gain(gain)
         taps = D.construct_9tap(pre_post, ffe_pre)
 
-    x_eff = np.concatenate([_taps_without_center(taps, ffe_pre), [gdc, gdc2, gain]])
+    x_eff = np.concatenate([_taps_without_center(taps, ffe_pre), [gdc, gdc2, u_gain]])
 
     cfg['tx']['ctle_g_dc_db'] = float(gdc)
     cfg['tx']['ctle_g_dc2_db'] = float(gdc2)
@@ -95,9 +103,9 @@ def _worker_task(args):
 
     mean_lb, std_lb, n_seeds = _eval_ber(cfg, taps, sim_seeds)
     try:
-        fir_shape, drive_rms = extract_tx_features(cfg, custom_tx_taps=taps, num_taps=7)
+        tx_fir, drive_rms = extract_tx_features(cfg, custom_tx_taps=taps, num_taps=7)
     except Exception:
-        fir_shape, drive_rms = np.zeros(7), 0.0
+        tx_fir, drive_rms = np.zeros(7), 0.0
 
     env = next((e for e in ENV_CASES if e['name'] == env_name), None)
     row = {
@@ -114,14 +122,17 @@ def _worker_task(args):
         'log10_ber_mlse': float(mean_lb),
         'ber_std_log10': float(std_lb),
         'ctle_dc': float(gdc), 'ctle_dc2': float(gdc2),
-        'driver_gain': float(gain), 'drive_rms': float(drive_rms),
+        'driver_gain': float(gain),
+        'gain_u': float(u_gain),
+        'gain_ratio': float(gain / D.DRIVER_GAIN_NOMINAL),
+        'drive_rms': float(drive_rms),
     }
     for j in range(11):
         row[f'x_{j}'] = float(x_eff[j])
     for j in range(9):
         row[f'ffe_tap_{j}'] = float(taps[j])
     for j in range(7):
-        row[f'tx_fir_{j}'] = float(fir_shape[j])
+        row[f'tx_fir_{j}'] = float(tx_fir[j])
     return row
 
 
@@ -153,10 +164,10 @@ def generate_dataset(base_env=BASE_ENV, base_samples=320, anchor_samples=60,
 
     sim_seeds = tuple(int(s) for s in sim_seeds)
 
-    print(f"[dataset v3] env-anchored neighborhood sampling | dims={D.N_DIM} | "
+    print(f"[dataset v4] env-anchored neighborhood sampling | dims={D.N_DIM} | "
           f"num_symbols={num_symbols} | sim_seeds={sim_seeds} | jobs={jobs}")
     print(f"  spread: FFE ±{BASE_SPREAD_FFE} / CTLE ±{BASE_SPREAD_CTLE} dB / "
-          f"gain ±{BASE_SPREAD_GAIN}  (= Stage-2 信任域)")
+          f"driver_gain 倍率 ×{GAIN_RATIO_LO:.2f}..×{GAIN_RATIO_HI:.2f}（对数均匀，整箱）")
 
     tasks = []
     for env_idx, env in enumerate(ENV_CASES):
@@ -177,7 +188,7 @@ def generate_dataset(base_env=BASE_ENV, base_samples=320, anchor_samples=60,
                       num_symbols, ffe_pre, seed_pre_post, None, True, sim_seeds))
         print(f"    env {env['name']:24s} -> {n} pts (+1 seed)")
 
-    print(f"[dataset v3] total {len(tasks)} evaluations ...")
+    print(f"[dataset v4] total {len(tasks)} evaluations ...")
     if jobs and jobs > 1:
         import multiprocessing as mp
         rows = []
@@ -195,10 +206,10 @@ def generate_dataset(base_env=BASE_ENV, base_samples=320, anchor_samples=60,
 
     df = pd.DataFrame(rows)
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-    out_file = os.path.join(output_dir, f"ddps_v3_dataset_{ts}.csv")
+    out_file = os.path.join(output_dir, f"ddps_v4_dataset_{ts}.csv")
     df.to_csv(out_file, index=False)
 
-    print(f"[dataset v3] saved to {out_file}")
+    print(f"[dataset v4] saved to {out_file}")
     print(f"  n={len(df)} | envs={df['env'].nunique()} | "
           f"log10_ber_mlse in [{df['log10_ber_mlse'].min():.3f}, "
           f"{df['log10_ber_mlse'].max():.3f}] | "

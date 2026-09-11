@@ -2,7 +2,7 @@ import numpy as np
 import os
 from tx_dsp import pam4_map, tx_dsp_chain
 from channel_imdd import (apply_ctle, dac_zoh, lowpass_filter, apply_s4p_filter,
-                          tx_frontend_lti, VGA_OUT_RMS_NOMINAL, DRIVER_GAIN_NOMINAL)
+                          tx_frontend_lti, DRIVER_GAIN_NOMINAL, DRIVE_RMS_NOMINAL)
 try:
     import skrf as rf
 except ImportError:
@@ -168,18 +168,25 @@ def extract_tx_s21(config, custom_tx_taps=None, num_taps=7):
 
 
 def extract_tx_features(config, custom_tx_taps=None, num_taps=7):
-    """Model A 的输入特征 = (fir_shape, drive_rms)。
+    """Model A 的输入 = **(绝对标定的) num_taps 个 T 间隔抽头**（单位 V），另返回驱动 RMS 供诊断。
 
-    - fir_shape: num_taps 个等效 T 间隔抽头，按峰值归一化（主游标 = 1），只描述波形形状；
-      对纯增益尺度不变，数值条件好。
-    - drive_rms: 该配置下 MZM 输入端的真实驱动 RMS（V），显式携带 driver_gain 与
-      CTLE 直流增益决定的驱动幅度 —— 这是 MZM 非线性 / OMA 的决定性物理量。
+    为什么必须绝对标定（v4 关键）：
+      driver_gain 在因果上就是"Tx 链的标量乘子"。若把 FIR 做峰值归一化，波形**形状**对增益不变，
+      于是 Model A 对 driver_gain 的偏导数恒为 0，梯度下降根本无法移动这一维（这正是上一版
+      需要额外塞一个 drive_rms 特征的原因）。改成绝对量纲后，7 个抽头同时携带：
+        · FFE 抽头 → 波形形状
+        · CTLE 直流增益/峰化 → 抽头间的相对关系与整体幅度
+        · driver_gain → 整体幅度
+      三类信息都进了 Model A 的输入，因此 FFE / CTLE / driver_gain 三组自由度都能拿到非零梯度。
+
+    返回 (fir_absolute, drive_rms)。
+
+    数值约定：FIR 以标称驱动 RMS（DRIVE_RMS_NOMINAL = 0.617Vpp 对应的 RMS）为单位，
+    便于回归条件数，同时不损失增益信息（增益倍率仍是特征上的乘法因子）。
     """
     custom_taps = _resolve_taps(config, custom_tx_taps)
     fir = extract_tx_s21(config, custom_tx_taps=custom_taps, num_taps=num_taps)
-    peak = float(np.max(np.abs(fir)))
-    shape = fir / peak if peak > 1e-12 else fir
-    return shape, _drive_rms(config, custom_taps)
+    return fir / DRIVE_RMS_NOMINAL, _drive_rms(config, custom_taps)
 
 
 if __name__ == "__main__":

@@ -1,55 +1,63 @@
-# DDPS v3 任务交接说明
+# DDPS v4 任务交接说明
 
-> 给接手的 Agent。先读 [07. DDPS v3 模型修正与评估协议](docs/07_DDPS_v3_Model_Update.md) +
+> 给接手的 Agent。先读 [08. DDPS v4 模型与算法口径](docs/08_DDPS_v4_Model_Update.md) +
 > [04. DDPS 寻优架构](docs/04_DDPS_Optimization.md)，再动手。
 > 重点看「非协商约束」与「踩过的坑（已修，别回退）」。
 
 ## 一、一句话现状
 
-DDPS 已完成 **v3**：修正了 Tx 链两处建模问题（CTLE 位置、`driver_gain` 死参数），搜索空间扩到 11 维，
-用例扩到 15 个（含非对称 Tx/Rx 插损与器件噪声），评估协议升级为 262144 符号 × 3 个仿真实例种子，
-安全红线按 11 维空间重新标定（0.6 → 0.3）。
+DDPS 已按甲方口径重做为 **v4**：
 
-**当前状态（诚实版）**：
+- **链路**：`FFE → DAC → Tx 电插损 → 1mV 噪声 → CTLE → Driver(可调增益) → Driver 带限 → MZM`。
+  **没有 VGA、没有任何 RMS 归一化** —— 入 MZM 摆幅就是"前端电平 × 增益"，因此增益是名副其实的自由度。
+- **三组自由度全部可微**：FFE（8 旁瓣）/ CTLE（gDC, gDC2）/ Driver 增益（倍率 ×0.30~×4.00，对数参数化），
+  共 11 维，一起交给梯度下降。关键在于 **Model A/B 的输入就是搜索向量 x 本身**（三组同量纲），
+  梯度由核岭回归的**解析导数**给出，不存在"某一维量纲被吃掉、梯度恒为 0"的问题。
+- **Driver 增益标定**：`tools/calibrate_driver_gain.py` 实测 `DRIVER_GAIN_NOMINAL = 0.4381`，
+  使基线播种配置的 MZM 摆幅 = 0.617 Vpp；`create_config.py` 默认值与之一致。
+- **拦截判据**：Model B 按 **预测变差百分比**（≤ +25%）放行/否决，不是绝对 BER、也不是 log10 绝对裕度。
+- **数据**：**只用基线环境（IL10x10）** 采样 2000 点（11 维 LHS）训练；其余 14 个场景零样本。
+- **评估协议**：262144 符号/点 × 3 仿真实例种子取 log10 均值（块长漂移实测见 docs/08）。
 
-- ✅ **物理自由度确实有杠杆**（与代理无关的实测）：CTLE `gDC = −5 dB` 相对种子 ×1.78；
-  `driver_gain = 1.0` 相对标定值 2.0 为 ×1.85，而 3.0 劣化约 30 倍。
-- ✅ **含锚点配置（1175 行训练）已通过安全性核验**：15/15 用例正向、平均 ×3.13（最高 ×6.33），
-  68 步真实 BER **0 步劣于种子**；`driver_gain` 被一致拉到 ≈1.976。
-- ⚠️ **严格泛化配置（只用 321 行基线训练）当前不可交付**：平均仅 ×1.66，225 步中 **60 步劣于种子**。
-  诊断：11 维空间下基线数据不足 → 代理局部排序不可靠（Model A 留出集 Spearman 仅 0.349，
-  云校验局部 Spearman 低至 −0.357）。**回放证明收紧红线无效**（裕度取 0 仍有 52 步劣化）。
-- 🔧 **下一步（最优先）**：基线采样 321 → 640～960 点（离线约 +18 min，算法不改），再评估严格泛化。
-
-v2 及更早产物已归档到 `archive/20260910_ddps_v2_pre_ctle_reorder/`（磁盘，不入库）；
-红线标定用的 margin = 0.6 trace 在 `archive/20260910_ddps_v3_margin060_calibration/`。当前分支 `physical-model`。
+v3 及更早产物已归档到 `archive/20260911_ddps_v3_pre_no_vga/` 与
+`archive/20260910_ddps_v2_pre_ctle_reorder/`（磁盘，不入库）。当前分支 `physical-model`。
 
 ## 二、非协商约束（甲方底线，别碰）
 
-1. **7-tap 发端 FIR 探针是固定约束**（`tx_channel_extract.extract_tx_s21(num_taps=7)`）。
-   不要加抽头、不要换"更丰富发端特征"——那等于改题目。
+1. **11 维搜索向量 x 的定义是固定约束**（`ddps_optimizer._taps_to_x` / `_x_to_taps_ctle`）：
+   `x = [8 个 FFE 旁瓣, gDC, gDC2, u_gain]`。7-tap 发端 FIR 探针（`tx_channel_extract`）保留为
+   数据集的**诊断列**与链路一致性工具，但**不再是模型输入**（原因见 docs/08 §3.1）。
 2. **两阶段底线**：Stage 1（离线标定）可崩、可拿真实端到端 BER；Stage 2（在线调优）
    **不能崩、只能拿发端指标**（真实收端 BER 只记录验证、绝不回传方向决策）。
 3. **100% 白盒**：训练/推理/梯度手写（numpy 最多）；无 sklearn/scipy.optimize 黑盒。
 4. **统一 BER_MLSE 口径**：全链路指标 = MLSE(memory=1, Burg 白化) 判决输出（Gray 映射）。
 5. **评估协议必须全流程一致**：262144 符号/点 × 仿真种子 (42,43,44) 取 log10 均值。
    BER 绝对值随块长系统性漂移（每翻倍约 −0.15～−0.25 dex），**不同协议的绝对 BER 不可比**。
-6. **文档全中文**（README/docs），图内文字可英文。
+6. **训练数据只用基线环境**：不再"按场景分别训练"。唯一训练集是 IL10x10 的采样点
+   （v4 为 2000 点），其余场景必须零样本参与测试，否则泛化结论作废。
+7. **拦截只能用相对量**：Model B 的判据是"预测 BER 相对种子变差 ≤ MAX_DEGRADE_FRAC（25%）"。
+   绝对 BER 的阈值/红线一律无效（代理绝对标定不可信）。
+8. **三组自由度必须都能被梯度下降驱动**：FFE / CTLE / Driver 增益。若某维梯度恒为 0，
+   说明特征设计或链路结构把它抵消了，必须先修特征，而不是绕过它。
+   v4 的保证方式：输入直接取搜索向量 x（§3.1），并用 `tools/validate_local_gradient.py`
+   在真实链路上逐轴实测方向命中率（不参与训练）。
+9. **文档全中文**（README/docs），图内文字可英文。
 
-## 三、链路顺序（v3 修正后的唯一正确顺序）
+## 三、链路顺序（v4 唯一正确顺序）
 
 ```
 DAC(ZOH, ENOB) → Tx 电插损(S4P, Tx IL) → +1 mV 前端噪声 → Tx 模拟 CTLE(gDC,gDC2)
-             → VGA(归一化到固定 vga_out_rms) → Driver 真增益(driver_gain) → Driver 带限
-             → MZM → 光纤(CD/DGD) → PIN(+散粒/热噪) → TIA → Rx PCB(Rx IL) → ADC → Rx DSP
+             → Driver(真实增益 g, 可调) → Driver 带限(40 GHz) → MZM
+             → 光纤(CD/DGD) → PIN → TIA → Rx 电插损(S4P, Rx IL) → ADC → Rx DSP
 ```
 
-实现集中在 `channel_imdd.tx_frontend_lti()`，**物理探针 `tx_channel_extract` 与真实链路共用它**，
-因此改链路顺序只需改这一处。
+- 实现集中在 `channel_imdd.tx_frontend_lti()`；**物理探针 `tx_channel_extract` 与真实链路共用它**，
+  改链路顺序只需改这一处。
+- **禁止再加 VGA / RMS 归一化**：任何"后级把幅度归一化掉"的结构都会让 driver_gain 失去意义。
 
 ## 四、踩过的坑（已修，勿回退/勿重犯）
 
-### 4.1 v1/v2 的钱坑（仍然有效）
+### 4.4 v1/v2 的老坑（仍然有效）
 
 1. **LHS 采样器维度与索引必须一致**：`LatinHypercube(d=9)` 却取 `sp[i,9]` → 首样本 IndexError →
    Stage-1 邻域数据从未生成，模型退化。v3 为 `d=N_DIM=11`。
@@ -63,7 +71,19 @@ DAC(ZOH, ENOB) → Tx 电插损(S4P, Tx IL) → +1 mV 前端噪声 → Tx 模拟
    **改这个常数前必须重跑标定回放**（否则会重新引入"优化后变差"）。
 5. **模型 pickle 用模块路径**（`train_surrogates`），加载用 `load_models()`。
 
-### 4.2 v3 新修的坑（v2 的两个建模错误）
+### 4.2 v4 的硬性约束（违反就会让三组自由度退化）
+
+1. **不要给 Tx 前端加 VGA/RMS 归一化**（v3 曾这么做，导致增益的作用被抵消）。
+2. **模型输入必须是搜索变量本身**：不要再插入一层“波形特征”当输入——七抽头绝对 FIR 对 11 维配置
+   是多对一的，实测二阶基下留出集 R² 只有 0.29（搜索向量 0.56、核方法 0.62）。
+3. **driver_gain 必须与 `create_config.py` 的标定值一致**；换器件后重跑
+   `tools/calibrate_driver_gain.py`，否则整个搜索箱会整体偏移。
+4. **拦截判据用百分比（`MAX_DEGRADE_FRAC = 0.25`）**，不要退回绝对 BER 阈值。
+5. **步长是"分组归一化 + 各维箱宽"**（`STEP_SPAN`、`GROUP_GATE`、`GD_LR=0.05`、`ALPHA_DECAY=0.97`）。
+   不要退回"11 维整体归一化"——那样振幅大的 FFE 维会独吞步长，增益维 15 步只走 ~0.004 dex。
+   步长档位与真值审计见 docs/08 §4.5。
+
+### 4.3 v3 修的坑（仍然有效，勿回退）
 
 6. **CTLE 位置**：v2 把 CTLE 放在 Tx 电插损**之前**，其增益被后续 VGA 归一化与信道衰减吸收，
    实测几乎无杠杆（"CTLE 优化半天没收益"的根因）。v3 移到**电插损之后、Driver 之前**。
@@ -76,48 +96,66 @@ DAC(ZOH, ENOB) → Tx 电插损(S4P, Tx IL) → +1 mV 前端噪声 → Tx 模拟
    只看形状 ⇒ 对 driver_gain 梯度恒为 0。v3 给 Model A 增加"MZM 绝对驱动 RMS"特征（8 维）。
    若以后再加"纯增益型"维度，必须以显式标量特征或绝对标定波形呈现，否则该维不可优化。
 
-## 五、v3 标准流程（复现命令）
+## 五、v4 标准流程（复现命令）
 
 ```bash
-# 1) 数据集（1175 行；11 维 LHS；多进程；与串行逐位一致）
-python dataset_generator.py --base-samples 320 --anchor-samples 60 \
-    --num-symbols 262144 --sim-seeds 42,43,44 --jobs 14
+# 0) 标定 Driver 增益
+python tools/calibrate_driver_gain.py
 
-# 2) 训练两套模型：带锚点（上限参考）与只用基线（严格泛化）
-python -c "from train_surrogates import train_v3; import glob; \
-  train_v3(sorted(glob.glob('dataset/ddps_v3_dataset_*.csv'))[-1], 'models/ddps_v3')"
-python run_ddps_v3_control.py --dataset dataset/ddps_v3_dataset_<ts>.csv \
-    --base-env Base_IL10x10 --model-dir models/ddps_v3_control \
-    --test-out result/ddps_v3_control --num-symbols 262144 --sim-seeds 42,43,44
+# 1) 数据集：只用基线环境，2000 点，11 维 LHS
+python dataset_generator.py --base-samples 2000 --anchor-samples 0 \
+    --only-envs Base_IL10x10 --num-symbols 262144 --sim-seeds 42,43,44 --jobs 14
 
-# 3) 在线调优泛化测试（核心 / 消融）
-python test_generalization.py --model-dir models/ddps_v3 --out-dir result/ddps_v3_<ts> \
+# 2) 训练 Model A / B（核岭均值 + 保守上包络；输入均为 11 维搜索向量 x）
+python -c "from train_surrogates import train_v4; import glob; \
+  train_v4(sorted(glob.glob('dataset/ddps_v4_dataset_*.csv'))[-1], 'models/ddps_v4')"
+
+# 3) 模型方向实测标定（11 轴中心差分；不参与训练）
+python tools/validate_local_gradient.py --model-dir models/ddps_v4 \
+    --env Base_IL10x10 --num-symbols 262144 --sim-seeds 42,43,44 \
+    --out result/ddps_v4_local_gradient.csv
+
+# 4) 在线调优（15 场景）+ 消融（冻结 CTLE 与增益）；可分片并行后合并
+python test_generalization.py --model-dir models/ddps_v4 --out-dir result/ddps_v4_main \
     --num-symbols 262144 --sim-seeds 42,43,44 --n-steps 15 --cloud-n 8
-python test_generalization.py --model-dir models/ddps_v3_control \
-    --out-dir result/ddps_v3_control_ffe_only --freeze-extra \
+python test_generalization.py --model-dir models/ddps_v4 \
+    --out-dir result/ddps_v4_abl_ffe --freeze-extra \
     --num-symbols 262144 --sim-seeds 42,43,44 --n-steps 15
+python tools/merge_test_parts.py --out result/ddps_v4_main result/_parts/main_a result/_parts/main_b result/_parts/main_c
 
-# 4) 报告与跨实验汇总
-python report_ddps_v3.py --test-dir result/ddps_v3_<ts> --model-dir models/ddps_v3 \
-    --deep-symbols 524288 --summary "result/ddps_v3_control:只用基线" \
-    "result/ddps_v3_<ts>:带锚点" "result/ddps_v3_control_ffe_only:消融(冻结 CTLE+增益)"
+# 5) 报告（含三曲线收敛图 Model A / Model B / 实测 BER）与汇总
+python report_ddps_v4.py --test-dir result/ddps_v4_main --model-dir models/ddps_v4 \
+    --deep-symbols 524288 --summary "result/ddps_v4_main:三组自由度全开" \
+    "result/ddps_v4_abl_ffe:消融（只优化 FFE）"
+
+# 6) 交付件（从产物自动生成，数字不手工转录）
+python make_deliverable_v4.py --baseline result/ddps_v4_main \
+    --ablation result/ddps_v4_abl_ffe --model-dir models/ddps_v4
 ```
 
 ## 六、当前产物索引
 
-- 数据集：`dataset/ddps_v3_dataset_<ts>.csv`（含 `driver_gain` / `drive_rms` / `ber_std_log10`）
-- 模型：`models/ddps_v3/`（带锚点）、`models/ddps_v3_control/`（只用基线），均含 `meta.json`
-- 结果：`result/ddps_v3_<ts>/`、`result/ddps_v3_control/`、`result/ddps_v3_control_ffe_only/`
-  （`case_summary.csv/json`、`trace_<用例>.csv`、`run_config.json`、`report/`）
-- 汇总：`result/SUMMARY.md`（跨实验对照）
-- 对外交付件：`DDPS_v3_Deliverable.html`
-- 旧版本归档：`archive/20260910_ddps_v2_pre_ctle_reorder/`（含 README 说明为何不可比）
+- 数据集：`dataset/ddps_v4_dataset_<ts>.csv`（2001 行，全部来自基线环境；含 gain_u / gain_ratio / drive_rms）
+- 模型：`models/ddps_v4/`（model_a.pkl / model_b.pkl / meta.json）
+- 方向标定：`result/ddps_v4_local_gradient.csv`（11 轴实测斜率 vs 模型解析梯度）
+- 结果：`result/ddps_v4_main/`（case_summary、trace_<用例>.csv、run_config.json、report/）
+  + `result/ddps_v4_abl_ffe/`
+- 报告：`result/ddps_v4_main/report/ddps_v4_convergence.png`（**三曲线核心图**）、
+  `ddps_v4_report.md`、逐用例 `_a/_b`、`ddps_v4_overview.png`、`deep_check.csv`
+- 汇总：`result/SUMMARY.md`
+- 交付件：`DDPS_v4_Deliverable.html`（由 `make_deliverable_v4.py` 生成）
+- 方法记录：`docs/08_DDPS_v4_Model_Update.md`
+- 旧版本归档：`archive/20260911_ddps_v3_pre_no_vga/`、`archive/20260910_ddps_v2_pre_ctle_reorder/`、
+  `archive/20260911_ddps_v4_probe_polyRidge/`（v4 第一轮"波形探针 + 二阶 Ridge"的模型与结果）
 
 ## 七、已知边界（诚实记录，勿包装成成功）
 
-1. Model A/B 的**绝对标定弱**（欠/过估真实 BER），只用其排序/方向；绝对阈值需另行校准。
-2. **`driver_gain` 最优值依赖标定摆幅**：`vga_out_rms` 按 "gain=2.0 ⇒ 0.617 Vpp" 定，
+1. Model A/B 的**绝对标定弱**（欠/过估真实 BER），只用其排序/方向；拦截判据因此用百分比。
+2. **`driver_gain` 最优值依赖标定摆幅**：标定值 0.4381 按 "基线 + 种子 FFE/CTLE ⇒ 0.617 Vpp" 定，
    器件标定变化会让最优增益区间整体平移。
 3. **CTLE 频响形状固定**：只优化双级直流增益，零点/极点比例不在搜索空间内。
 4. **BER 随块长漂移**：报告必须注明协议；跨协议比较无意义。
-5. 种子邻域内"优于种子"的点很少，Stage-2 的增益主要来自信任域内较大步幅的移动。
+5. **局部斜率量级不可全信**：11 轴方向加权命中率 0.93，但各轴斜率量级与实测相关系数只有 0.70；
+   因此步长由各维**箱宽**决定，而不是由斜率决定（docs/08 §4.5）。
+6. **基线用例的轨迹很快进入平台期是"已到最优"**：真值审计显示梯度下降最优点（−0.342 dex）
+   优于任何单旋钮最优组合，手工拼装三个"各自最优"反而更差（docs/08 §4.5）。

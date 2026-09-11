@@ -10,19 +10,32 @@ except ImportError:
 _s4p_cache = {}
 
 # ---------------------------------------------------------------------------
-# Tx front-end calibration constants.
+# Tx front-end calibration constants (v4: NO VGA, NO RMS fixing).
 #
-# The SJTU-derived calibration is: the MZM must be driven at driver_vpp = 0.617 V (PAM4
-# Vpp), i.e. an RMS of 0.617 * 0.3726, and the nominal driver gain is 2.0. The VGA is a
-# swing-control stage *upstream* of the driver: it normalises the module-input signal to a
-# FIXED level that does NOT depend on the driver gain. This is what makes driver_gain a real
-# degree of freedom (it changes the actual MZM drive amplitude, hence the optical OMA versus
-# MZM-linearity trade-off) instead of a cancelled-out no-op.
+# Chain: Tx electrical IL -> +1 mV noise -> Tx CTLE -> Driver(gain) -> Driver BW -> MZM.
+# The MZM drive amplitude is therefore simply "front-end level x driver_gain"; nothing
+# downstream re-normalises it away, which is what makes driver_gain a genuine degree of
+# freedom (more gain = more OMA but a more nonlinear MZM).
+#
+# DRIVER_GAIN_NOMINAL is calibrated so that, in the baseline environment (Tx/Rx IL = 10 dB)
+# with the seed FFE/CTLE, the MZM is driven at exactly driver_vpp = 0.617 V (PAM4 Vpp),
+# i.e. an RMS of 0.617 * 0.3726 -- continuing the SJTU calibration.
 # ---------------------------------------------------------------------------
 DRIVER_VPP_NOMINAL = 0.617
 PAM4_RMS_FACTOR = 0.3726
-DRIVER_GAIN_NOMINAL = 2.0
-VGA_OUT_RMS_NOMINAL = DRIVER_VPP_NOMINAL * PAM4_RMS_FACTOR / DRIVER_GAIN_NOMINAL   # 0.11497 V
+# 由 tools/calibrate_driver_gain.py 实测标定（基线 IL=10dB + 种子 FFE/CTLE ⇒ MZM 摆幅 0.617Vpp）。
+# 注意：该绝对值小于 1 只是因为本仿真器的 DAC 满量程约定较大；对外统一按
+# **相对标定值的倍率** driver_gain_ratio = g / DRIVER_GAIN_NOMINAL 表述（搜索箱 ×0.30 ~ ×4.0），
+# 与具体满量程约定无关。
+DRIVER_GAIN_NOMINAL = 0.4381
+
+# 驱动波形的"标称 RMS"（= 0.617 Vpp 对应的 RMS）。物理探针输出的 7-tap FIR 以该值为单位，
+# 于是特征在种子点处为 O(1)，而增益倍率仍以乘法因子体现在特征幅度上（不损失任何增益信息）。
+DRIVE_RMS_NOMINAL = DRIVER_VPP_NOMINAL * PAM4_RMS_FACTOR      # 0.2299 V
+
+# driver_gain 的搜索箱（以标定值为中心的倍率区间，覆盖 10~20 dB 插损的补偿需求）
+GAIN_LOG10_MIN = -0.52              # 倍率 = 10^-0.52 ≈ 0.30
+GAIN_LOG10_MAX = 0.60               # 倍率 = 10^+0.60 ≈ 4.00
 
 
 def wgn(rng, sigma, n):
@@ -177,14 +190,17 @@ def apply_s4p_filter(x, fs, config_ch, target_il_key, nyquist):
 def tx_frontend_lti(x, config, baud_rate, fs_analog, nyquist, rng=None):
     """Tx 模拟前端（线性时不变部分），顺序与物理链路严格一致：
 
-        Tx 电插损(S4P/解析) -> [1 mV 前端噪声] -> Tx 模拟 CTLE -> VGA(AGC) -> Driver 真增益 -> Driver 带限
+        Tx 电插损(S4P/解析) -> [1 mV 前端噪声] -> Tx 模拟 CTLE -> Driver 增益(可调) -> Driver 带限
 
-    要点：
-    - Tx 模拟 CTLE 位于电插损之后、Driver 之前（post-channel 均衡）。
-    - VGA 紧跟在 CTLE 之后，把信号归一化到固定 RMS（vga_out_rms）：这样 CTLE 主要负责
-      **频谱整形**（其直流增益被 VGA 吸收），而驱动摆幅只由 driver_gain 决定 ——
-      两个搜索维度在物理上互不冗余。
-    - driver_gain 是真实、独立的自由度（决定 MZM 驱动幅度，即 OMA 与 MZM 线性度的折中）。
+    设计约定（v4，按甲方口径简化）：
+    - **没有 VGA、没有任何 RMS 归一化**：进入 MZM 的摆幅 = 前端电平 × driver_gain，
+      由物理自然决定。这样 driver_gain 是名副其实的自由度（增大 → OMA 变大但 MZM 更非线性；
+      减小 → 反过来），既不会被后面一级归一化抵消，也不需要"固定 RMS"这种额外约定。
+    - Tx 模拟 CTLE 位于电插损之后、Driver 之前（post-channel 均衡），负责频谱整形。
+      它的直流增益会随 driver_gain 一起改变驱动幅度 —— 这是真实链路的行为，
+      三个自由度在物理上彼此耦合，交给梯度下降联合求解即可。
+    - driver_gain 的标定值 `DRIVER_GAIN_NOMINAL` 定义为：**在基线环境（Tx/Rx IL = 10 dB）
+      与种子 FFE/CTLE 下，恰好把 MZM 摆幅标定到 0.617 Vpp**（延续 SJTU 的标定口径）。
     - 该函数被 channel_imdd.apply_channel 与 tx_channel_extract 物理探针共用，
       保证"真实链路"与"探针"永不漂移。
     """
@@ -205,13 +221,11 @@ def tx_frontend_lti(x, config, baud_rate, fs_analog, nyquist, rng=None):
     else:
         x = lowpass_filter(x, fc_pcb, fs_analog, order=1)
 
-    # 2) 模块输入端的 1 mV 前端噪声（在 VGA/Driver 增益之前，故随补偿增益一起被放大）
+    # 2) 模块输入端的 1 mV 前端噪声（在 Driver 增益之前，故随增益一起被放大）
     if rng is not None:
         x = x + rng.normal(0, config_ch.get('host_tx_noise_rms', 0.001), len(x))
 
-    # 3) Tx 模拟 CTLE（电插损之后、Driver 之前）。放在 VGA 之前，使其主要作用是
-    #    "频谱整形/峰化"而不是"改摆幅"：直流增益会被后面的 VGA 归一化掉，
-    #    因此 CTLE 与 driver_gain 两个维度在物理上互不冗余。
+    # 3) Tx 模拟 CTLE（电插损之后、Driver 之前）：post-channel 频谱整形
     if config_tx.get('use_ctle', False):
         f_b = baud_rate
         f_z = f_b / config_tx.get('ctle_fz_ratio', 2.5)
@@ -222,15 +236,7 @@ def tx_frontend_lti(x, config, baud_rate, fs_analog, nyquist, rng=None):
                        config_tx.get('ctle_g_dc_db', 0.0),
                        config_tx.get('ctle_g_dc2_db', 0.0), f_lf)
 
-    # 4) VGA：归一化到固定模块输入 RMS（与 driver_gain 解耦）。
-    #    放在 CTLE 之后 => 驱动摆幅由 driver_gain 单独决定，CTLE 只改变波形形状。
-    x = x - np.mean(x)
-    current_rms = np.std(x)
-    vga_out_rms = config_ch.get('vga_out_rms', VGA_OUT_RMS_NOMINAL)
-    if current_rms > 1e-12:
-        x = x * (vga_out_rms / current_rms)
-
-    # 5) Driver：真实线性增益（可调搜索维度）+ 自身带限
+    # 4) Driver：可调真实增益（直接乘上去，后面没有任何归一化把它抵消）+ 自身带限
     x = x * config_ch.get('driver_gain', DRIVER_GAIN_NOMINAL)
     x = lowpass_filter(x, config_ch.get('driver_bw', config_ch.get('mzm_bw', 40e9)),
                        fs_analog, order=4)

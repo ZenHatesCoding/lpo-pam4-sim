@@ -28,13 +28,12 @@ from ddps_cases import ENV_CASES, apply_env_to_config
 
 
 def local_validity_cloud(cfg, model_a, model_b, n=16, seed=11, spread_ffe=None,
-                         spread_ctle=None, spread_gain=None):
+                         spread_ctle=None):
     """在 seed 邻域做 LHS 云采样，衡量"真实 BER 排序/方向 vs 模型预测"的一致性。
     仅作离线证据记录，绝不回传给 Stage-2 决策。"""
     ffe_pre = int(cfg['tx'].get('ffe_pre', 4))
     spread_ffe = spread_ffe or D.TRUST_FFE
     spread_ctle = spread_ctle or D.TRUST_CTLE
-    spread_gain = spread_gain or D.TRUST_GAIN
     seed_pre_post = np.zeros(8)
     seed_pre_post[:ffe_pre] = D.SEED_TAPS[:ffe_pre]
     seed_pre_post[ffe_pre:] = D.SEED_TAPS[ffe_pre + 1:]
@@ -42,7 +41,7 @@ def local_validity_cloud(cfg, model_a, model_b, n=16, seed=11, spread_ffe=None,
     seed_lb, seed_ber = D._physical_eval(cfg, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2,
                                          D.SEED_GAIN)
     pa_seed = D._predict_a(model_a, cfg, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, D.SEED_GAIN)
-    pb_seed = D._predict_b(model_b, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, D.SEED_GAIN)
+    pb_seed = D._predict_b(model_b, cfg, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, D.SEED_GAIN)
 
     sampler = qmc.LatinHypercube(d=D.N_DIM, seed=seed)
     sp = sampler.random(n=n)
@@ -53,13 +52,13 @@ def local_validity_cloud(cfg, model_a, model_b, n=16, seed=11, spread_ffe=None,
                             D.CTLE_GDC_MIN, D.CTLE_GDC_MAX))
         gdc2 = float(np.clip(D.SEED_GDC2 + (sp[i, 9] * 2 - 1.0) * spread_ctle,
                              D.CTLE_GDC2_MIN, D.CTLE_GDC2_MAX))
-        gain = float(np.clip(D.SEED_GAIN + (sp[i, 10] * 2 - 1.0) * spread_gain,
-                             D.GAIN_MIN, D.GAIN_MAX))
+        u_gain = float(D.GAIN_LOG10_MIN + sp[i, 10] * (D.GAIN_LOG10_MAX - D.GAIN_LOG10_MIN))
+        gain = D.gain_from_u(u_gain)
         taps = D.construct_9tap(pre_post, ffe_pre)
         lb, _ = D._physical_eval(cfg, taps.copy(), gdc, gdc2, gain)
         real.append(lb)
         pa.append(D._predict_a(model_a, cfg, taps.copy(), gdc, gdc2, gain))
-        pb.append(D._predict_b(model_b, taps.copy(), gdc, gdc2, gain))
+        pb.append(D._predict_b(model_b, cfg, taps.copy(), gdc, gdc2, gain))
     real = np.array(real); pa = np.array(pa); pb = np.array(pb)
 
     d_real = real - seed_lb
@@ -88,11 +87,11 @@ def run_case(cfg, model_a, model_b, env, n_steps=25, cloud_n=0, freeze_extra=Fal
     """
     ffe_pre = int(cfg['tx'].get('ffe_pre', 4))
     x0 = D._taps_to_x(D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, D.SEED_GAIN, ffe_pre)
-    safety_ref = D._predict_b(model_b, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, D.SEED_GAIN)
+    safety_ref = D._predict_b(model_b, cfg, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, D.SEED_GAIN)
     seed_lb, seed_ber = D._physical_eval(cfg, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2,
                                          D.SEED_GAIN)
     pa_seed = D._predict_a(model_a, cfg, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, D.SEED_GAIN)
-    pb_seed = D._predict_b(model_b, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, D.SEED_GAIN)
+    pb_seed = D._predict_b(model_b, cfg, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, D.SEED_GAIN)
 
     trace = D._stage2_descent(cfg, model_a, model_b, x0, ffe_pre, n_steps,
                               safety_ref, D.GD_LR, np.random.RandomState(42),
@@ -105,6 +104,9 @@ def run_case(cfg, model_a, model_b, env, n_steps=25, cloud_n=0, freeze_extra=Fal
                 'step': t['step'], 'x': np.asarray(t['x']).tolist(),
                 'taps': np.round(np.asarray(t['taps']), 6).tolist(),
                 'gdc': t['gdc'], 'gdc2': t['gdc2'], 'gain': t['gain'],
+                'gain_ratio': t['gain'] / D.DRIVER_GAIN_NOMINAL,
+                'pred_b_ber': t.get('pred_b_ber'), 'allowed_ber': t.get('allowed_ber'),
+                'stop_reason': t.get('stop_reason', ''),
                 'pred_a': t['pred_a'], 'pred_b': t['pred_b'],
                 'real_lb': t['real_logber'], 'real_ber': t['real_mlse'],
                 'grad_norm': t['grad_norm'],
@@ -154,8 +156,26 @@ def run_case(cfg, model_a, model_b, env, n_steps=25, cloud_n=0, freeze_extra=Fal
                 spearmanr([r['pred_b'] for r in rows], real_lb_t).correlation),
             'best_taps': rows[ibest]['taps'], 'best_gdc': rows[ibest]['gdc'],
             'best_gdc2': rows[ibest]['gdc2'], 'best_gain': rows[ibest]['gain'],
-            'seed_gain': float(D.SEED_GAIN),
+            'best_gain_ratio': rows[ibest]['gain'] / D.DRIVER_GAIN_NOMINAL,
+            'seed_gain': float(D.SEED_GAIN), 'seed_gain_ratio': 1.0,
+            'stop_reason': rows[-1].get('stop_reason', ''),
             'early_stop': len(rows) < n_steps,
+        })
+    else:
+        # 没有任何一步被接受（例如梯度门控在第 0 步就触发）：用种子值补齐字段，
+        # 保证下游报告/汇总不会因缺列而崩。
+        result.update({
+            'best_lb': float(seed_lb), 'best_ber': float(seed_ber), 'best_step': -1,
+            'final_lb': float(seed_lb), 'final_ber': float(seed_ber),
+            'max_lb': float(seed_lb),
+            'delta_lb_seed_to_best': 0.0, 'delta_lb_seed_to_final': 0.0,
+            'trace_spearman_preda_real': float('nan'),
+            'trace_spearman_predb_real': float('nan'),
+            'best_taps': D.SEED_TAPS.tolist(), 'best_gdc': float(D.SEED_GDC),
+            'best_gdc2': float(D.SEED_GDC2), 'best_gain': float(D.SEED_GAIN),
+            'best_gain_ratio': 1.0,
+            'seed_gain': float(D.SEED_GAIN), 'seed_gain_ratio': 1.0,
+            'stop_reason': 'no_step_accepted', 'early_stop': True,
         })
     result['cloud'] = cloud
     return result, rows

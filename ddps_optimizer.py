@@ -37,31 +37,52 @@ CTLE_GDC_MIN = -5.0
 CTLE_GDC_MAX = 5.0
 CTLE_GDC2_MIN = -5.0
 CTLE_GDC2_MAX = 5.0
-GAIN_MIN = 1.0                # driver_gain 全局边界（v3 新增可调维度）
-GAIN_MAX = 3.0
 PEAK_SUM_LIMIT = 0.8          # sum(|pre_post|) <= 0.8 -> 主抽头 >= 0.2
-SAFETY_MARGIN = 0.3           # Model B 安全裕度：允许相对种子点恶化 0.3 个 log10
-                              # v3 标定（11 维空间，262144×3 协议）：在完整 trace 上回放不同裕度——
-                              #   0.6 → 164 步中 51 步真实 BER 劣于种子（最多 +0.48 dex），不可接受；
-                              #   0.4 → 0 步劣化，平均改善 ×3.42；0.3 → 0 步劣化，×3.13；
-                              #   0.2 → 0 步劣化，×2.94。
-                              # 取 0.3：既消除劣化，又对轨迹间波动留有余量（只损失约 11% 平均增益）。
-TRUST_FFE = 0.10              # Stage 2 信任域半径（FFE，相对起点）：防代理外推越界
-TRUST_CTLE = 3.0              # Stage 2 信任域半径（CTLE, dB）
-TRUST_GAIN = 0.5              # Stage 2 信任域半径（driver_gain）
-GD_LR = 0.02                  # Stage 2 归一化梯度下降初始步长（随 step 以 0.92 衰减）
-GRAD_GATE = 0.05              # Stage 2 梯度门控：|g| 低于该值视为代理曲面趋平
-                              # （外推区/无效区），停止下降而非沿拟合噪声乱走
 
 # ---------------------------------------------------------------------------
-# v3 搜索空间：x = [8 个 FFE 旁瓣, gDC, gDC2, driver_gain]  —— 10D -> 11D
-#   * CTLE 移到 Tx 电插损之后、Driver 之前，成为真正的 post-channel 均衡自由度
-#   * driver_gain 由固定常数变为可调维度（决定 MZM 驱动幅度：OMA 与线性度的折中）
-# 主抽头仍由归一化恒等式 1 - Σ|旁瓣| 派生，不是自由变量。
+# Model B 拦截判据：**按"变差的百分比"**（不是绝对 BER，也不是 log10 绝对裕度）
+#
+#   allowed_ber = ber_seed_pred * (1 + MAX_DEGRADE_FRAC)
+#   等价于 log10 空间：pred_b <= pred_b_seed + log10(1 + MAX_DEGRADE_FRAC)
+#
+# 为什么用百分比：代理的绝对标定不可信（欠/过估），但"相对种子变差多少倍"是可比的；
+# 百分比阈值天然与 BER 量级无关，跨用例、跨环境都不用重新标定。
+# 阈值由 trace 回放标定（见 docs/08）。
+# ---------------------------------------------------------------------------
+MAX_DEGRADE_FRAC = 0.25       # 允许 Model B 预测相对种子最多变差 25%
+
+TRUST_FFE = 0.10              # Stage 2 信任域半径（FFE，相对起点）：防代理外推越界
+TRUST_CTLE = 3.0              # Stage 2 信任域半径（CTLE, dB）
+                              # driver_gain 不设"半径"，直接在整个搜索箱内寻优（见下）
+GD_LR = 0.05                  # Stage 2 初始步长（相对各维箱宽的比例，随 step 以 ALPHA_DECAY 衰减）
+ALPHA_DECAY = 0.97            # 步长衰减：越走越稳（末期用于收敛落点）
+GROUP_GATE = 1e-3             # 组梯度门控：某组"每走满整箱"的预测收益低于该值（dex）就冻结该组，
+                              # 不沿拟合噪声推动无油水的自由度
+MIN_GAIN_DEX = 0.01           # 边际改善门控：Model A 预测每步改善 < 0.01 个 log10 即停
+
+# ---------------------------------------------------------------------------
+# v4 搜索空间：x = [8 个 FFE 旁瓣, gDC, gDC2, u_gain]   （11 维）
+#
+#   * FFE 旁瓣：8 维自由变量（主抽头 = 1 - Σ|旁瓣| 派生）
+#   * CTLE：gDC / gDC2 两个直流增益（post-channel 频谱整形）
+#   * driver_gain：按 **log10 相对标定值的倍率** 参数化，u = log10(g / g0)
+#     —— 对数参数化让"增益步长"与增益量级无关（10~20 dB 插损补偿需要 ~3 倍增益范围）。
+#   三组自由度都会被 Model A 的梯度下降直接优化。
 # ---------------------------------------------------------------------------
 N_DIM = 11
-# 各维预条件缩放（归一化梯度下降时使用）：FFE 量纲 ±0.3、CTLE ±5 dB、gain ±1。
-PRECOND = np.array([1.0] * 8 + [20.0, 20.0, 4.0])
+from channel_imdd import GAIN_LOG10_MIN, GAIN_LOG10_MAX, DRIVER_GAIN_NOMINAL   # noqa: E402
+
+# 各维"满箱宽度"：步长按各维自身箱宽的固定比例走 —— 三组自由度的步长各自与其箱宽成比例，
+# 因此不会因为 Model A 对某一组的斜率天然偏大/偏小而被"吃掉"（旧版把 11 维梯度整体归一化，
+# 结果振幅大的 FFE 维独吞步长，增益/CTLE 几乎不动）。
+#   FFE  ：箱宽 = 2 × 信任域半径 = 0.20
+#   CTLE ：箱宽 = 2 × 信任域半径 = 6.0 dB
+#   gain ：箱宽 = 整个设计箱 = GAIN_LOG10_MAX - GAIN_LOG10_MIN
+STEP_SPAN = np.array([2.0 * TRUST_FFE] * 8 + [2.0 * TRUST_CTLE] * 2
+                     + [GAIN_LOG10_MAX - GAIN_LOG10_MIN])
+# 三组自由度（用于分组归一化步长 + 分组梯度门控）
+GROUP_SLICES = (slice(0, 8), slice(8, 10), slice(10, 11))
+GROUP_NAMES = ('FFE', 'CTLE', 'driver_gain')
 
 # 评估协议：仿真种子序列。多 seed 时对 log10 BER 取均值，抑制"单一实现"造成的
 # BER 估计噪声（比只加长块长更可控，且能同时给出点内标准差）。
@@ -78,9 +99,22 @@ def set_sim_seeds(seeds):
 SEED_TAPS = np.array([0.0, 0.0, -0.034, -0.2987, 0.6091, 0.0, 0.0582, 0.0, 0.0])
 SEED_GDC = 0.0
 SEED_GDC2 = 0.0
-SEED_GAIN = 2.0               # 标定值：gain=2.0 时 MZM 摆幅 = driver_vpp(0.617V)
-FFE_SPREAD = 0.05             # Stage 1 邻域采样幅值（旧 v1 参数，v3 由 TRUST_FFE 决定）
+SEED_GAIN_U = 0.0             # u = log10(gain / DRIVER_GAIN_NOMINAL)，种子即标定值（0.0）
+SEED_GAIN = DRIVER_GAIN_NOMINAL * (10.0 ** SEED_GAIN_U)
+GAIN_MIN = DRIVER_GAIN_NOMINAL * (10.0 ** GAIN_LOG10_MIN)   # 便于阅读/打印的实际增益下界
+GAIN_MAX = DRIVER_GAIN_NOMINAL * (10.0 ** GAIN_LOG10_MAX)   # 实际增益上界
+FFE_SPREAD = 0.05             # Stage 1 邻域采样幅值（旧 v1 参数，v4 由 TRUST_FFE 决定）
 CTLE_SPREAD = 1.0
+
+
+def gain_from_u(u):
+    """u = log10(g / g0) -> 实际线性增益。"""
+    return float(DRIVER_GAIN_NOMINAL * (10.0 ** float(u)))
+
+
+def u_from_gain(gain):
+    """实际线性增益 -> u = log10(g / g0)。"""
+    return float(np.log10(max(float(gain), 1e-12) / DRIVER_GAIN_NOMINAL))
 
 
 def construct_9tap(pre_post, ffe_pre):
@@ -95,21 +129,22 @@ def construct_9tap(pre_post, ffe_pre):
 
 
 def _x_to_taps_ctle(x, ffe_pre):
-    """x -> (9-tap FFE, gDC, gDC2, driver_gain)"""
-    return construct_9tap(x[:8], ffe_pre), x[8], x[9], x[10]
+    """x -> (9-tap FFE, gDC, gDC2, driver_gain[线性])  —— 增益维按 log10 倍率解码。"""
+    return construct_9tap(x[:8], ffe_pre), x[8], x[9], gain_from_u(x[10])
 
 def _taps_to_x(taps, gdc, gdc2, gain, ffe_pre):
+    """(9-tap FFE, gDC, gDC2, driver_gain[线性]) -> x（增益维编码为 log10 倍率）。"""
     pre_post = np.zeros(8)
     pre_post[:ffe_pre] = taps[:ffe_pre]
     pre_post[ffe_pre:] = taps[ffe_pre + 1:]
-    return np.concatenate([pre_post, [gdc, gdc2, gain]])
+    return np.concatenate([pre_post, [gdc, gdc2, u_from_gain(gain)]])
 
 
 def _bounds():
     b = [(-FFE_BOUND, FFE_BOUND)] * 8
     b.append((CTLE_GDC_MIN, CTLE_GDC_MAX))
     b.append((CTLE_GDC2_MIN, CTLE_GDC2_MAX))
-    b.append((GAIN_MIN, GAIN_MAX))
+    b.append((GAIN_LOG10_MIN, GAIN_LOG10_MAX))
     return np.array(b)
 
 
@@ -141,7 +176,7 @@ def _physical_eval(config, taps, gdc, gdc2, gain):
 
 def _make_row(sample_id, taps, gdc, gdc2, gain, logber, mlse_ber, tx_fir, drive_rms):
     row = {'sample_id': sample_id, 'ctle_dc': gdc, 'ctle_dc2': gdc2,
-           'driver_gain': gain, 'drive_rms': drive_rms,
+           'driver_gain': gain, 'gain_u': u_from_gain(gain), 'drive_rms': drive_rms,
            'mlse_ber': mlse_ber, 'log10_ber': logber}
     for j in range(9):
         row[f'ffe_tap_{j}'] = taps[j]
@@ -150,24 +185,57 @@ def _make_row(sample_id, taps, gdc, gdc2, gain, logber, mlse_ber, tx_fir, drive_
     return row
 
 
-def _predict_a(model_a, config, taps, gdc, gdc2, gain, ucb_kappa=0.0):
-    """Model A 预测：输入 = [7-tap FIR 形状, MZM 驱动 RMS]。
+def _ffe_pre(config):
+    return int(config['tx'].get('ffe_pre', 4))
 
-    drive_rms 特征是必需的：driver_gain 在纯线性 Tx 链里只是标量乘子，FIR 形状对整体
-    尺度不变；若 Model A 只看 FIR 形状，它对 driver_gain 的梯度恒为 0，寻优无法移动该维。
-    """
-    _apply_x_to_config(config, gdc, gdc2, gain)
-    fir_shape, drive_rms = extract_tx_features(config, custom_tx_taps=taps, num_taps=7)
-    feats = np.concatenate([fir_shape, [drive_rms]])
-    if hasattr(model_a, 'predict_with_std'):
-        mu, sigma = model_a.predict_with_std([feats])
+
+def _predict_a_x(model_a, x, ucb_kappa=0.0):
+    """Model A（方向模型）对搜索向量 x 的直接预测（log10 BER）。"""
+    x = np.asarray(x, dtype=float).reshape(1, -1)
+    if ucb_kappa and hasattr(model_a, 'predict_with_std'):
+        mu, sigma = model_a.predict_with_std(x)
         return float(mu[0] + ucb_kappa * sigma[0])
-    return float(model_a.predict([feats])[0])
+    return float(np.asarray(model_a.predict(x)).ravel()[0])
 
 
-def _predict_b(model_b, taps, gdc, gdc2, gain):
-    full_cfg = list(taps) + [gdc, gdc2, gain]
-    return float(model_b.predict([full_cfg])[0])
+def _predict_a(model_a, config, taps, gdc, gdc2, gain, ucb_kappa=0.0):
+    """Model A 预测（按物理量调用）：内部换算成搜索向量 x 再预测。
+
+        x = [8 个 FFE 旁瓣, gDC, gDC2, u_gain = log10(gain / DRIVER_GAIN_NOMINAL)]
+
+    v4 修订：Model A 与 Model B 共用**搜索向量本身**作为输入（不再经过 Tx 端波形探针）。
+    理由（详见 docs/08 与 train_surrogates.train_v4）：
+      1. 三组自由度（FFE / CTLE / driver_gain）在 x 上天然同量纲，梯度直接落在搜索变量上，
+         不会出现"某一组量纲被其它组吃掉"的问题；
+      2. 波形探针是线性冲激响应，而真实链路在整形级之前还有 DAC ENOB 量化这类幅度相关
+         非线性，探针与真实链路并不严格等价；且 7 抽头绝对 FIR 对 11 维配置是多对一压缩。
+    """
+    return _predict_a_x(model_a, _taps_to_x(np.asarray(taps, dtype=float), gdc, gdc2, gain,
+                                            _ffe_pre(config)), ucb_kappa)
+
+
+def _predict_b_x(model_b, x):
+    """Model B（拦截模型）对搜索向量 x 的直接预测（log10 BER 的保守上包络）。"""
+    return float(np.asarray(model_b.predict(np.asarray(x, dtype=float).reshape(1, -1))).ravel()[0])
+
+
+def _pred_b_ber(model_b, x):
+    """Model B 预测的 BER（用于百分比拦截判据）。"""
+    return 10.0 ** _predict_b_x(model_b, x)
+
+
+def _predict_b(model_b, config, taps, gdc, gdc2, gain):
+    """Model B 预测（按物理量调用）。"""
+    return _predict_b_x(model_b, _taps_to_x(np.asarray(taps, dtype=float), gdc, gdc2, gain,
+                                            _ffe_pre(config)))
+
+
+def _grad_a(model_a, x):
+    """Model A 对 x 的梯度（解析优先；模型无解析梯度时退回有限差分）。"""
+    x = np.asarray(x, dtype=float)
+    if hasattr(model_a, 'grad'):
+        return np.asarray(model_a.grad(x.reshape(1, -1))[0], dtype=float)
+    return _numerical_gradient(lambda z: _predict_a_x(model_a, z), x, eps=0.01)
 
 
 # ============================================================
@@ -210,10 +278,10 @@ def _stage1_train(df, model_dir):
 # Stage 2：约束梯度下降（不回传真实 MLSE_BER）
 # ============================================================
 
-def _make_objective_a(config, model_a, ffe_pre, ucb_kappa=0.0):
+def _make_objective_a(model_a, ucb_kappa=0.0):
+    """Model A 目标函数（输入直接是搜索向量 x）。保留该包装便于自检/画剖面。"""
     def objective(x):
-        taps = construct_9tap(x[:8], ffe_pre)
-        return _predict_a(model_a, config, taps, x[8], x[9], x[10], ucb_kappa)
+        return _predict_a_x(model_a, x, ucb_kappa)
     return objective
 
 
@@ -233,65 +301,96 @@ def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_ref, 
                     ucb_kappa=0.0, freeze_extra=False):
     """手写投影梯度下降（白盒、逐步可见）：
 
-        x_{k+1} = clip( x_k - alpha * PRECOND * g/|g| , 信任域 )
+        x_{k+1} = clip( x_k - alpha_k * STEP_SPAN * dir , 搜索箱 )
 
-    - 目标：Model A 的负梯度方向（有限差分求得）；ucb_kappa>0 时用 GPR 的 UCB 护栏。
-    - 安全：Model B 否决“相对种子点显著恶化”的步子（校准无关的相对红线）。
+    设计要点（v4 修订）：
+    - 目标：Model A（搜索向量 x → log10 BER 条件均值）的负梯度，**解析求导**；
+      FFE / CTLE / driver_gain 三组自由度一起被优化。
+    - 步长按**组内归一化**：每组先在组内把梯度方向归一化，再乘以该组自己的箱宽
+      （FFE 0.20 / CTLE 6 dB / gain 1.12 dex），三组各以"箱宽的固定比例"前进。
+      这样不会因为 Model A 对某一组的斜率天然偏大就独吞步长（旧版整体归一化时，
+      增益维每步只走 ~0.004 dex，15 步几乎不动，等于"增益不可调"）。
+    - 组梯度门控：某组"走满整箱"的预测收益 < GROUP_GATE 就冻结该组。
+    - 拦截：Model B 按 **变差百分比** 否决候选点 —— 预测 BER 相对种子点预测值
+      变差超过 MAX_DEGRADE_FRAC 就折半步长重试。
+    - 停止：边际改善门控（Model A 预测每步改善 < MIN_GAIN_DEX）。
     - freeze_extra=True：把 CTLE 两维与 driver_gain 冻结在种子值（消融对照）。
-    - 只记录真实 BER，不回传。
+    - 只记录真实 BER，不回传决策。
     """
-    objective_a = _make_objective_a(config, model_a, ffe_pre, ucb_kappa)
-
-    # 信任域边界（相对 x0 收紧，并裁剪到全局边界）
+    # 搜索箱：FFE / CTLE 相对种子收紧（防代理外推），driver_gain 允许走满整个设计箱
     gbounds = _bounds()
-    radius = np.array([TRUST_FFE] * 8 + [TRUST_CTLE, TRUST_CTLE, TRUST_GAIN])
+    gain_radius = max(abs(GAIN_LOG10_MIN), abs(GAIN_LOG10_MAX))
+    radius = np.array([TRUST_FFE] * 8 + [TRUST_CTLE, TRUST_CTLE, gain_radius])
+    span = STEP_SPAN.copy()
     if freeze_extra:
         radius[8:] = 0.0          # 消融：只优化 FFE
+        span[8:] = 0.0
     x0 = np.array(x0, dtype=float)
     tr_bounds = np.stack([
         np.maximum(gbounds[:, 0], x0 - radius),
         np.minimum(gbounds[:, 1], x0 + radius),
     ], axis=1)
 
-    safety_limit = safety_ref + SAFETY_MARGIN
+    # 拦截红线（百分比口径）：允许的 BER = 种子点预测值 × (1 + MAX_DEGRADE_FRAC)
+    seed_pred_ber = 10.0 ** safety_ref
+    allowed_ber = seed_pred_ber * (1.0 + MAX_DEGRADE_FRAC)
 
     trace = []
     x = x0.copy()
+    pred_a_prev = None
 
     for step in range(n_steps):
-        # 1. 数值梯度 + 归一化下降方向
-        g = _numerical_gradient(objective_a, x, eps=0.01)
-        gn = np.linalg.norm(g)
-        # 梯度门控：代理曲面趋平(外推/无效区)时停止，不沿拟合噪声乱走。
-        # 旧版在此处会以 |g|~1e-4 的"噪声方向"继续下降，导致真实 BER 反向爬升。
-        if gn < GRAD_GATE:
-            print(f"[Stage 2] stop: |grad|={gn:.2e} < gate {GRAD_GATE} "
-                  f"(Model A surface flat at step {step})")
+        # 1. 解析梯度 -> 逐组归一化方向（组内保留相对大小；组间各按自己的箱宽前进）
+        g = _grad_a(model_a, x)
+        gs = g * span
+        direction = np.zeros_like(g)
+        active = []
+        for sl, name in zip(GROUP_SLICES, GROUP_NAMES):
+            nrm = float(np.linalg.norm(gs[sl]))
+            if nrm >= GROUP_GATE:
+                direction[sl] = gs[sl] / nrm
+                active.append(name)
+        if not active:
+            print(f'[Stage 2] stop: 三组梯度均低于门控 {GROUP_GATE:g}（Model A 曲面趋平，step {step}）')
             break
-        direction = g / gn
 
-        # 2. 回溯线搜索：Model B 保证安全（相对种子点的红线），步长随 step 衰减以收敛
-        alpha = lr * (0.92 ** step)
-        # 预条件缩放：把量纲差异极大的 FFE(±0.3) / CTLE(±5 dB) / gain(±1) 拉到同一数量级，
-        # 否则归一化梯度在 CTLE/gain 维上的实际位移会小到看不见。
-        alpha_vec = alpha * PRECOND
-
+        # 2. 回溯线搜索：候选点必须通过 Model B 的"变差百分比"拦截
+        alpha = lr * (ALPHA_DECAY ** step)
         x_new = None
+        alpha_k = alpha
         for _ in range(20):
-            x_cand = np.clip(x - alpha_vec * direction, tr_bounds[:, 0], tr_bounds[:, 1])
-            taps_c, gdc_c, gdc2_c, gain_c = _x_to_taps_ctle(x_cand, ffe_pre)
-            if _predict_b(model_b, taps_c, gdc_c, gdc2_c, gain_c) <= safety_limit:
+            x_cand = np.clip(x - alpha_k * span * direction, tr_bounds[:, 0], tr_bounds[:, 1])
+            if np.linalg.norm(x_cand - x) < 1e-9:
+                break
+            if _pred_b_ber(model_b, x_cand) <= allowed_ber:
                 x_new = x_cand
                 break
-            alpha *= 0.5
+            alpha_k *= 0.5
         if x_new is None:
-            break  # 信任域内找不到安全方向，停止
+            print(f'[Stage 2] stop: 无候选点通过 Model B 拦截线 {allowed_ber:.2e}（step {step}）')
+            break
 
         # 3. 代理预测 + 真实 BER（仅记录验证）
         taps, gdc, gdc2, gain = _x_to_taps_ctle(x_new, ffe_pre)
-        pred_a = _predict_a(model_a, config, taps, gdc, gdc2, gain)
-        pred_b = _predict_b(model_b, taps, gdc, gdc2, gain)
+        pred_a = _predict_a_x(model_a, x_new)
+        pred_b = _predict_b_x(model_b, x_new)
         real_logber, real_mlse = _physical_eval(config, taps, gdc, gdc2, gain)
+
+        # 4. 边际改善门控：Model A 已经"没什么可赚"时停手（避免无意义地走远）
+        if pred_a_prev is not None and (pred_a_prev - pred_a) < MIN_GAIN_DEX:
+            trace.append({
+                'step': step, 'x': x_new, 'taps': taps,
+                'gdc': gdc, 'gdc2': gdc2, 'gain': gain,
+                'pred_a': pred_a, 'pred_b': pred_b,
+                'pred_b_ber': 10.0 ** pred_b, 'allowed_ber': allowed_ber,
+                'safe': (10.0 ** pred_b) <= allowed_ber,
+                'real_logber': real_logber, 'real_mlse': real_mlse,
+                'grad_norm': float(np.linalg.norm(g)), 'stop_reason': 'marginal_gain',
+            })
+            print(f"[Stage 2] stop: marginal predicted gain "
+                  f"({pred_a_prev - pred_a:+.4f} < {MIN_GAIN_DEX}) at step {step}")
+            break
+        pred_a_prev = pred_a
 
         trace.append({
             'step': step,
@@ -300,17 +399,22 @@ def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_ref, 
             'gdc': gdc, 'gdc2': gdc2, 'gain': gain,
             'pred_a': pred_a,
             'pred_b': pred_b,
-            'safe': pred_b <= safety_limit,
+            'pred_b_ber': 10.0 ** pred_b,
+            'allowed_ber': allowed_ber,
+            'safe': (10.0 ** pred_b) <= allowed_ber,
             'real_logber': real_logber,
             'real_mlse': real_mlse,
-            'grad_norm': gn,
+            'grad_norm': float(np.linalg.norm(g)),
+            'stop_reason': '',
         })
 
         print(f"[Stage 2] gd {step + 1}/{n_steps} | ModelA {10.0 ** pred_a:.2e} "
-              f"| ModelB {10.0 ** pred_b:.2e} (safe) | real {real_mlse:.2e} | |g| {gn:.2e}")
+              f"| ModelB {10.0 ** pred_b:.2e} (<= {allowed_ber:.2e}) | "
+              f"real {real_mlse:.2e} | gain x{gain / DRIVER_GAIN_NOMINAL:.3f} "
+              f"| gDC {gdc:+.2f} | gDC2 {gdc2:+.2f} | 组 {active}")
 
-        # 4. 收敛判断：位移几乎为零则提前停止
-        if np.linalg.norm(x_new - x) < 1e-4:
+        # 5. 收敛判断：位移几乎为零则提前停止
+        if np.linalg.norm(x_new - x) < 1e-6:
             break
         x = x_new
 

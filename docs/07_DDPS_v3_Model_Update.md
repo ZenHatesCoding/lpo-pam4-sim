@@ -1,5 +1,12 @@
 # 07. DDPS v3 模型修正与评估协议
 
+> [!IMPORTANT]
+> **本文是 v3 的记录，已被 v4 取代。** v4 按甲方口径去掉了 VGA/RMS 固定、把 driver_gain 改成
+> 直接相乘的可调增益（倍率 ×0.30~×4.00，标定使基线摆幅=0.617Vpp）、Model A 改用**绝对标定 7-tap FIR**、
+> Model B 拦截改为**预测变差百分比（≤+25%）**、训练数据改为**只用基线 2000 点**。
+> 现行口径见 [08. DDPS v4 模型与算法口径](08_DDPS_v4_Model_Update.md)，交付件 `DDPS_v4_Deliverable.html`；
+> v3 全部产物已归档到 `archive/20260911_ddps_v3_pre_no_vga/`（磁盘，不入库）。
+
 本文记录 v3 相对 v2 的**两处建模修正**、搜索空间升维、评估协议的选择依据，以及复现方式。
 结果数据见 [`result/SUMMARY.md`](../result/SUMMARY.md)；对外呈现件见 `DDPS_v3_Deliverable.html`。
 

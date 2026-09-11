@@ -119,19 +119,20 @@ DDPS（Data-Driven Physical Surrogate）从 0 到 1 的阶段：架构对齐 Sta
 | 文档 | 内容 | main | feature | sjtu | physical |
 | --- | --- | --- | --- | --- | --- |
 | [README.md](README.md) | 项目主页 / 导航枢纽 | ✅ | ✅ | ✅ | ✅ |
-| [DDPS_v3_Deliverable.html](DDPS_v3_Deliverable.html) | 对外交付件：方案总结（自包含 HTML，含全部图表） | — | — | — | ✅ |
+| [DDPS_v4_Deliverable.html](DDPS_v4_Deliverable.html) | 对外交付件：方案总结（自包含 HTML：链路/三组自由度/双代理/三曲线收敛图/全部结果） | — | — | — | ✅ |
 | [01. DSP 架构与核心参数](docs/01_DSP_Architecture.md) | 收发机模型、config.xlsx 参数 | ✅ | ✅ | ✅ | ✅ |
 | [02. 独立分析与诊断工具](docs/02_Utility_Scripts.md) | scratch/ 工具集 | ✅ | ✅ | ✅ | ✅ |
 | [03. 调试排坑与经验沉淀](docs/03_Troubleshooting_History.md) | 踩坑记录 | ✅ | ✅ | ✅ | ✅ |
 | [04. DDPS 数据驱动物理代理寻优](docs/04_DDPS_Optimization.md) | DDPS 架构（重构自 `docs/04_Algorithms/DDPS.md`） | — | 旧版 | ✅ | ✅ |
 | [05. 物理信道模型升级](docs/05_Physical_Channel_Upgrade.md) | 高斯噪声 → 微观物理模型 | — | — | ✅ | ✅ |
 | [06. DDPS v2 重做报告](docs/06_DDPS_v2_Rerun.md) | v2 根因与结果（v2 时代物理模型，已被 v3 取代） | — | — | — | ✅ |
-| [07. DDPS v3 模型修正与评估协议](docs/07_DDPS_v3_Model_Update.md) | CTLE 位置修正、driver_gain 可调、11 维空间、评估协议依据 | — | — | — | ✅ |
+| [07. DDPS v3 模型修正与评估协议](docs/07_DDPS_v3_Model_Update.md) | v3 记录（已被 v4 取代）：CTLE 位置、driver_gain、评估协议依据 | — | — | — | ✅ |
+| [08. DDPS v4 模型与算法口径](docs/08_DDPS_v4_Model_Update.md) | 无 VGA 链路口径、增益标定与倍率箱、三组自由度杠杆、A/B 双代理（核岭均值 + 上包络）、百分比拦截、11 轴方向实测、只用基线 2001 点 | — | — | — | ✅ |
 | [LPO MSA 规范提炼](docs/LPO_MSA_Specification_Summary.md) | 电气/光学参数依据 | — | — | ✅ | ✅ |
-| [结果索引 result/SUMMARY.md](result/SUMMARY.md) | v3 跨实验对比表 + 全部图/数据 | — | — | — | ✅ |
+| [结果索引 result/SUMMARY.md](result/SUMMARY.md) | v4 跨实验对比表 + 全部图/数据 | — | — | — | ✅ |
 | [HANDOFF.md](HANDOFF.md) | Agent 任务交接说明 | — | ✅ | ✅ | ✅ |
 | 古典优化器文档 | Baselines/SafeQCD/TuRBO_Safe/Surrogate_SHC/Two-Stage | `docs/04_Algorithms/` | 同左 | `archive/docs/` | 磁盘 `archive/`（或 sjtu） |
-| v2 及更早产物 | 数据集/模型/结果/旧交付件（磁盘归档，不入库） | — | — | — | `archive/20260910_ddps_v2_pre_ctle_reorder/` |
+| v3 及更早产物 | 数据集/模型/结果/旧交付件（磁盘归档，不入库） | — | — | — | `archive/20260911_ddps_v3_pre_no_vga/`、`archive/20260910_ddps_v2_pre_ctle_reorder/` |
 
 ---
 

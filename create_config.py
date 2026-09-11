@@ -75,8 +75,11 @@ def generate_config(mode=DEFAULT_MODE):
             'rx_pcb_loss_nyquist_db': 10.0 if LPO_MODE else 15.0,
             
             # --- Physical Device Parameters (SJTU Model) ---
-            'driver_vpp': 0.617,          # Volts (target swing into MZM)
-            'driver_gain': 2.0,           # REAL linear driver voltage gain (SJTU Driver Vpp=2.0, ~6 dB)
+            'driver_vpp': 0.617,          # Volts (target swing into MZM at the nominal calibration)
+            # driver_gain 标定值：使基线环境（IL=10dB）+ 种子 FFE/CTLE 下 MZM 摆幅 = 0.617 Vpp。
+            # 由 tools/calibrate_driver_gain.py 实测，与 channel_imdd.DRIVER_GAIN_NOMINAL 保持一致；
+            # 它是 **可调搜索维度**（上游无 VGA、下游无归一化），按倍率 ×0.30~×4.0 搜索。
+            'driver_gain': 0.4381,
             'driver_bw': optics_bw,       # Driver band-limit (decoupled from gain)
             'dac_enob': 5.5,              # DAC quantization ENOB (0 = ideal)
             'adc_enob': 5.5,              # ADC quantization ENOB (0 = ideal)
