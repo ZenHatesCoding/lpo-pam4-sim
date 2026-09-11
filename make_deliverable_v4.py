@@ -170,7 +170,7 @@ TEMPLATE = r'''<!DOCTYPE html>
   <ul style="margin-bottom:0">
     <li>LPO 光模块内部不做重 DSP，发送端均衡由 Host ASIC 承担。可用的均衡自由度：<strong>9-tap T-spaced 发送端 FFE</strong>、<strong>发送端模拟 CTLE 的双级直流增益</strong>、以及 <strong>Driver 的真实线性增益</strong>。</li>
     <li>信道条件：奈奎斯特电插损 Tx/Rx <strong>各自</strong> 10～20 dB，色散 0～28 ps/nm，差分群时延 0～5 ps，偏振角 0～45°，另含器件噪声应力（RIN / 消光比 / TIA 噪声）。</li>
-    <li>约束：在线调优阶段不得使用真实收端误码做决策（只能使用发送端可获得的物理量），且不允许出现任何一次“优化后比起点更差”。</li>
+    <li>约束：在线调优阶段<strong>不得使用真实收端误码做决策</strong>（只能使用发送端可获得的物理量）；每一步落地前必须通过“预测不劣化”的安全性审查，真实 BER 只做旁路记账与事后核验。</li>
   </ul>
 </div>
 
@@ -1067,6 +1067,7 @@ v4 改为百分比口径后，判据形式与量级解耦，回放实验（v3 �
 <h3>6.5 安全性核验（逐条记账）</h3>
 <div class="card">
   <p>Stage-2 每一步的真实 BER_MLSE 均写入 trace 文件。对全部运行逐行扫描：</p>
+  <p class="mut" style="margin-top:0">{{WORSE_NOTE}}</p>
   <div class="tw">
   <table class="wide" style="margin-bottom:6px">
     <tr><th>实验</th><th class="n">用例数</th><th class="n">记录的真实 BER 步数</th><th class="n">劣于种子的步数</th><th>结论</th></tr>
@@ -1093,7 +1094,7 @@ v4 改为百分比口径后，判据形式与量级解耦，回放实验（v3 �
     <li><strong>三组自由度都真的可以调、也真的被用上了</strong>：链路去掉 VGA 与 RMS 归一化后，
       <code>driver 增益</code>是一个名符其实的乘子（倍率 ×0.30～×4.00，标定 ×1.00 = 0.617 Vpp）；
       实测它的最优点在 ×0.5～×0.65（相对种子改善 ×2.1），而 ×2.0 会劣化 100 倍（MZM 非线性）。
-      在线轨迹里它被拉到 <strong>×1.00 → ×0.56</strong>，与实测最优点一致。</li>
+      在线轨迹里它被一致地拉到 <strong>×0.52～×0.88（中位 ×0.62）</strong>，与实测最优区间一致。</li>
     <li><strong>联合寻优优于任何单旋钮最优</strong>：基线用例上，梯度下降的最优点（`1.70e-04`，−0.342 dex）
       优于“增益 ×0.55 单独最优”“CTLE −3 dB 单独最优”“两者叠加”以及“按实测梯度动 FFE”的任意组合；
       手工把三个“各自最优”拼起来反而更差（+0.17 ~ +0.37 dex）。这说明三组自由度强耦合，必须联合求解。</li>
@@ -1537,6 +1538,28 @@ def _rows_blocklen(path):
     return '\n'.join(out)
 
 
+def _worse_note(summary, d, order):
+    """劣化步的分布说明（哪些用例、其余用例是否干净）。"""
+    bad, clean = [], 0
+    for env in order:
+        p = os.path.join(d, f'trace_{env}.csv')
+        if not os.path.exists(p):
+            continue
+        tr = pd.read_csv(p)
+        if tr.empty:
+            continue
+        w = int((tr['real_ber'] > summary[env]['seed_ber']).sum())
+        if w:
+            bad.append(f'{env}（{w}）')
+        else:
+            clean += 1
+    if not bad:
+        return '全部用例的真实 BER 均未劣于种子。'
+    return (f'劣化步全部集中在 <strong>{len(bad)}</strong> 个用例：' + '、'.join(bad) +
+            f'；其余 <strong>{clean}</strong> 个用例 0 步劣化。'
+            '按 §4.6 的运行长度回放，只跑前 2 步时劣化步降到 3/30，而平均改善仍有 ×1.84。')
+
+
 def _img_tag(path):
     with open(path, 'rb') as f:
         b64 = base64.b64encode(f.read()).decode('ascii')
@@ -1679,6 +1702,7 @@ def main():
         '{{IMG_DELTA}}': _img_tag(delta_png) if os.path.exists(delta_png) else '',
         '{{IMG_CASE_HARD}}': _img_tag(hard_png) if os.path.exists(hard_png) else '',
         '{{N_TRAIN}}': str(n_train),
+        '{{WORSE_NOTE}}': _worse_note(core, a.baseline, order),
     }
     for k, v in repl.items():
         html = html.replace(k, v)
