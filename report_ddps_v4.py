@@ -330,7 +330,7 @@ def _rows_params(summ):
         gain_b = float(r.get('best_gain_ratio', float('nan')))
         out.append(
             f"| {r['env']} | {r['best_step']} | {ffe or '（无变化）'} "
-            f"| {unchanged}/{n_tap} | {c_seed:+.4f} → {c_best:+.4f} "
+            f"| {unchanged}/{D.N_SIDE} | {c_seed:+.4f} → {c_best:+.4f} "
             f"| {r['best_gdc']:+.2f} | {r['best_gdc2']:+.2f} "
             f"| ×{gain_s:.2f} → ×{gain_b:.2f} "
             f"| `{r['seed_ber']:.3e}` → `{r['best_ber']:.3e}` |")
