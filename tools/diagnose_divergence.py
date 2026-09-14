@@ -48,11 +48,13 @@ def main():
     df = pd.read_csv(ds_path)
     df = df[df['log10_ber_mlse'] < -0.1]
     xcols = [c for c in df.columns if c.startswith('x_')]
-    X = df[xcols].values.astype(float)
     y = df['log10_ber_mlse'].values.astype(float)
     model_a, model_b = load_models(a.model_dir)
     mu, sd = np.asarray(model_a.mu), np.asarray(model_a.sd)
     rho = float(getattr(model_a, 'local_spacing_', np.nan))
+    # v5 模型只吃 6 维 x_shape（不含 u_gain）；按模型维度截取
+    xcols = xcols[:len(mu)]
+    X = df[xcols].values.astype(float)
 
     # 代理残差尺度（用 10% 留出的简单近似：k 近邻局部散度）
     rs = np.random.RandomState(0)
@@ -77,8 +79,9 @@ def main():
         seed_lb = float(np.log10(summ.loc[env, 'seed_ber']))
         dA = tr['pred_a'].values - tr['pred_a'].iloc[0]
         dR = tr['real_lb'].values - seed_lb
+        xcol = 'x_shape' if 'x_shape' in tr.columns else 'x'
         Ztr = np.array([(np.asarray(json.loads(v) if isinstance(v, str) else v, float) - mu) / sd
-                        for v in tr['x']])
+                        for v in tr[xcol]])
         disp = np.linalg.norm(Ztr - Ztr[0], axis=1)
         ib = int(np.argmin(tr['real_ber'].values))
         slope = float(np.polyfit(dA, dR, 1)[0]) if np.std(dA) > 1e-9 else np.nan

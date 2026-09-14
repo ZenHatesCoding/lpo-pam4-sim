@@ -42,8 +42,8 @@ def main():
     ap.add_argument('--num-symbols', type=int, default=262144)
     ap.add_argument('--sim-seeds', default='42,43,44')
     ap.add_argument('--out', default='result/ddps_v4_local_gradient.csv')
-    ap.add_argument('--steps', default='0.05,0.05,0.05,0.05,1.0,1.0,0.10',
-                    help='各轴中心差分步长（FFE 4 个、CTLE 2 个、gain 1 个），逗号分隔')
+    ap.add_argument('--steps', default='0.05,0.05,0.05,0.05,1.0,1.0',
+                    help='各轴中心差分步长（FFE 4 个、CTLE 2 个），逗号分隔；6 维 v5 模型')
     args = ap.parse_args()
 
     seeds = tuple(int(s) for s in args.sim_seeds.split(','))
@@ -55,22 +55,26 @@ def main():
     ffe_pre = D._ffe_pre(cfg)
     model_a, model_b = load_models(args.model_dir)
 
-    x0 = D._taps_to_x(D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, D.SEED_GAIN, ffe_pre)
+    # v5: 6 维 x_shape = [4 旁瓣, gDC, gDC2]；gain 用种子值（不在 shape 里）
+    seed_pre_post = np.concatenate([D.SEED_TAPS[:ffe_pre], D.SEED_TAPS[ffe_pre + 1:]])
+    x0 = np.concatenate([seed_pre_post, [D.SEED_GDC, D.SEED_GDC2]])
+    gain0 = float(D.SEED_GAIN)
+    n_dim = len(x0)
 
     def ev(x):
-        taps, gdc, gdc2, gain = D._x_to_taps_ctle(x, ffe_pre)
-        return D._physical_eval(cfg, taps, gdc, gdc2, gain)
+        taps = D.construct_taps(x[:D.N_SIDE], ffe_pre)
+        return D._physical_eval(cfg, taps, float(x[D.N_SIDE]), float(x[D.N_SIDE + 1]), gain0)
 
     lb0, ber0 = ev(x0)
     g_a = D._grad_a(model_a, x0)
     g_b = np.asarray(model_b.grad(x0.reshape(1, -1))[0], dtype=float) \
-        if hasattr(model_b, 'grad') else np.full(D.N_DIM, np.nan)
+        if hasattr(model_b, 'grad') else np.full(n_dim, np.nan)
 
     print(f'[validate] env={args.env} | {args.num_symbols} symbols x seeds{seeds}')
     print(f'[validate] seed log10BER={lb0:+.4f} (BER={ber0:.4e})')
 
     rows = []
-    for i in range(D.N_DIM):
+    for i in range(n_dim):
         s = steps[i]
         xp, xm = x0.copy(), x0.copy()
         xp[i] += s

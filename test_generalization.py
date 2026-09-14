@@ -266,7 +266,7 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
                        cloud_n=0, validity_envs=None, sim_seeds=(42,),
                        freeze_extra=False, only_envs=None,
                        cloud_symbols=65536, cloud_sim_seeds=(42, 43),
-                       v5=False, target_rms=None):
+                       v5=False, target_rms=None, per_case_rms_path=None):
     # 只在缺失时生成配置：config.xlsx 是受版本管理的唯一配置源，多进程并发重写会造成
     # 文件损坏竞态（实测三进程同时 generate_config() 会把 xlsx 写坏）。
     if not os.path.exists('config.xlsx'):
@@ -280,9 +280,21 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
 
     D.set_sim_seeds(sim_seeds)
     tag = 'v5' if v5 else 'v3'
+
+    # per-case target_rms：每个用例单独扫描标定的最优发端 RMS（不用全局几何均值）
+    per_case_rms = {}
+    if v5 and target_rms is None:
+        path = per_case_rms_path or 'result/per_case_target_rms.json'
+        if os.path.exists(path):
+            with open(path, encoding='utf-8') as f:
+                per_case_rms = json.load(f)
+            print(f"[test {tag}] per-case target_rms loaded from {path} ({len(per_case_rms)} envs)")
+        else:
+            print(f"[test {tag}] WARNING: {path} not found, falling back to global {D.TARGET_DRIVE_RMS}")
+
     print(f"[test {tag}] models from {model_dir} | num_symbols={num_symbols} | "
           f"n_steps={n_steps} | cloud_n={cloud_n} | sim_seeds={tuple(sim_seeds)} | "
-          f"freeze_extra={freeze_extra}" + (f" | target_rms={target_rms}" if v5 else ""))
+          f"freeze_extra={freeze_extra}" + (f" | target_rms={target_rms}" if (v5 and target_rms) else ""))
     print(f"          cloud protocol: {cloud_symbols} symbols x seeds {tuple(cloud_sim_seeds)}")
 
     os.makedirs(out_dir, exist_ok=True)
@@ -295,8 +307,15 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
         cfg = apply_env_to_config(base_cfg, env)
         cfg['system']['num_symbols'] = int(num_symbols)
         if v5:
+            # 每个用例用自己的 target_rms（per-case 扫描标定），否则用命令行指定的全局值
+            case_rms = None
+            if target_rms is not None:
+                case_rms = float(target_rms)
+            elif env['name'] in per_case_rms:
+                case_rms = float(per_case_rms[env['name']]['target_rms'])
+                print(f"          per-case target_rms = {case_rms:.4f} V")
             res, rows = run_case_v5(cfg, model_a, model_b, env, n_steps=n_steps,
-                                     freeze_extra=freeze_extra, target_rms=target_rms)
+                                     freeze_extra=freeze_extra, target_rms=case_rms)
         else:
             if cloud_n > 0 and (validity_envs is None or env['name'] in validity_envs):
                 c = cloud_n
@@ -332,6 +351,8 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
                    'cloud_sim_seeds': list(cloud_sim_seeds),
                    'freeze_extra': bool(freeze_extra), 'v5': bool(v5),
                    'target_rms': float(target_rms) if (v5 and target_rms) else None,
+                   'per_case_target_rms': ({k: v['target_rms'] for k, v in per_case_rms.items()}
+                                           if per_case_rms else None),
                    'envs': [e['name'] for e in cases]},
                   f, indent=2, ensure_ascii=False)
     print(f"\n[test {tag}] done -> {out_dir}/case_summary.csv")
@@ -358,7 +379,9 @@ if __name__ == "__main__":
     ap.add_argument('--v5', action='store_true',
                     help='用 v5 模式：FFE/CTLE 代理梯度 + gain 发端 RMS 物理目标驱动')
     ap.add_argument('--target-rms', type=float, default=None,
-                    help='v5 模式下的 MZM 输入 RMS 目标（V），默认 0.14')
+                    help='v5 模式下的 MZM 输入 RMS 目标（V）；不指定时自动加载 per-case 扫描结果')
+    ap.add_argument('--per-case-rms-path', type=str, default=None,
+                    help='per-case target_rms JSON 路径（默认 result/per_case_target_rms.json）')
     a = ap.parse_args()
     sim_seeds = tuple(int(s) for s in str(a.sim_seeds).split(',') if s.strip())
     cloud_seeds = tuple(int(s) for s in str(a.cloud_sim_seeds).split(',') if s.strip())
@@ -368,4 +391,5 @@ if __name__ == "__main__":
                        sim_seeds=sim_seeds, freeze_extra=a.freeze_extra,
                        only_envs=only, cloud_symbols=a.cloud_symbols,
                        cloud_sim_seeds=cloud_seeds,
-                       v5=a.v5, target_rms=a.target_rms)
+                       v5=a.v5, target_rms=a.target_rms,
+                       per_case_rms_path=a.per_case_rms_path)

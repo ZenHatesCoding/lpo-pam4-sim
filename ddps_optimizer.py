@@ -75,13 +75,13 @@ MAX_DEGRADE_FRAC = 0.25       # 允许 Model B 预测相对种子最多变差 25
 #   把 gain 解析调到目标摆幅：
 #       drive_rms ∝ gain（链路里 gain 是最后乘子，线性关系，实测 k 为常数）
 #       => gain = gain_seed * (target_rms / measured_rms_at_seed)
-#   target_rms 由全环境扫描标定（scratch/scan_env_optimal.py）：
-#   固定 target_rms=0.14 时，因为 k 随 IL 变化，解析出的 ratio 自动从强信号环境的
-#   ~0.8 调到弱信号环境的 ~1.3——即"锁定发端 RMS 给每个用例配 gain"，且目标值经
-#   扫描设计而非拍脑袋。FFE/CTLE 成形仍走基线代理泛化（扫描证实 CTLE 最优方向
-#   跨环境一致，11/15 case 最优 gDC=-3，可泛化）。
+#   target_rms 由 per-case 细粒度扫描标定（scratch/scan_per_case_rms.py）：
+#   每个用例单独扫 RMS（0.06~0.22 V，步长 0.005），各自取最优——不求几何均值。
+#   因为 k 随 IL 变化，同样的 target_rms 在不同用例解析出的 gain 倍率不同
+#   （强信号 ~0.6、弱信号 ~0.9）。FFE/CTLE 成形仍走基线代理泛化（扫描证实
+#   CTLE 最优方向跨环境一致，11/15 case 最优 gDC=-3，可泛化）。
 # ---------------------------------------------------------------------------
-TARGET_DRIVE_RMS = 0.14       # MZM 输入端 RMS 目标（V），由扫描标定
+TARGET_DRIVE_RMS = 0.14       # 全局兜底值（V）；实际用 per-case 扫描结果覆盖
 
 TRUST_FFE = 0.10              # Stage 2 信任域半径（FFE，相对起点）：防代理外推越界
 TRUST_CTLE = 3.0              # Stage 2 信任域半径（CTLE, dB）
@@ -513,9 +513,9 @@ def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_ref, 
 # 这是 v4 之后真正修复"预测降/实测升"的版本。关键差别：
 #   - 模型只建模 **FFE+CTLE（6 维成形）**，不再含 gain 维（gain 维方向随环境反转，
 #     信道盲代理无法处理）。
-#   - gain 维每步解析调到 TARGET_DRIVE_RMS：drive_rms ∝ gain（一次发端测量标定 k），
-#     gain = gain_ref * (target_rms / rms_ref)。target_rms=0.14 由全环境扫描标定，
-#     因 k 随 IL 变，解析 ratio 自动从强信号环境 ~0.8 调到弱信号环境 ~1.3。
+#   - gain 维每步解析调到 target_rms：drive_rms ∝ gain（一次发端测量标定 k），
+#     gain = gain_ref * (target_rms / rms_ref)。target_rms 由 per-case 细粒度扫描
+#     标定（每个用例单独扫，不求几何均值），因 k 随 IL 变，解析 ratio 随用例自适应。
 #   - FFE/CTLE 成形方向跨环境一致（扫描证实 11/15 case 最优 gDC=-3），可泛化。
 # ============================================================
 

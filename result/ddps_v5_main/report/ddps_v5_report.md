@@ -56,5 +56,5 @@ FFE/CTLE 成形仍走基线代理泛化（扫描证实 CTLE 最优方向跨环�
 
 ## 5. 汇总标注
 
-`result/ddps_v5_main:gain发端RMS物理驱动+FFE/CTLE代理泛化`
+`v5:gain per-case RMS + FFE/CTLE 代理泛化`
 
