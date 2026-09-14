@@ -1,0 +1,24 @@
+{
+  "model_dir": "models/ddps_v5",
+  "n_steps": 10,
+  "num_symbols": 262144,
+  "cloud_n": 16,
+  "sim_seeds": [
+    42,
+    43,
+    44
+  ],
+  "cloud_symbols": 65536,
+  "cloud_sim_seeds": [
+    42,
+    43
+  ],
+  "freeze_extra": false,
+  "v5": true,
+  "target_rms": null,
+  "envs": [
+    "Base_IL10x10",
+    "IL14x14",
+    "IL20x20"
+  ]
+}

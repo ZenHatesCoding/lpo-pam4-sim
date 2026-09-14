@@ -64,13 +64,16 @@ def _taps_without_center(taps, ffe_pre):
 
 
 def _sample_point(u, seed_pre_post, ffe_pre, spread_ffe=None, spread_ctle=None,
-                  gain_half=None):
+                  gain_half=None, gain_ratio_range=None):
     """u: 7D LHS [0,1]^7 -> (pre_post_raw, gdc, gdc2, gain)。
 
     spread_ffe / spread_ctle / gain_half 为 None 时用外壳范围（整箱）。
 
     FFE / CTLE 在种子点的信任域内采样；driver_gain 按倍率在**整个设计箱内对数均匀采样**
     （它不是"围绕种子的微调"，而是需要覆盖 10~20 dB 插损补偿需求的独立设计变量）。
+
+    gain_ratio_range=(lo, hi)：v5 模式下把 gain 限制在 [lo, hi] 倍率窄带（目标 RMS 附近），
+    使 FFE/CTLE 形状-BER 关系不被增益模糊。
     """
     sf = BASE_SPREAD_FFE if spread_ffe is None else float(spread_ffe)
     sc = BASE_SPREAD_CTLE if spread_ctle is None else float(spread_ctle)
@@ -79,12 +82,17 @@ def _sample_point(u, seed_pre_post, ffe_pre, spread_ffe=None, spread_ctle=None,
                         D.CTLE_GDC_MIN, D.CTLE_GDC_MAX))
     gdc2 = float(np.clip(D.SEED_GDC2 + (u[D.N_SIDE + 1] * 2 - 1.0) * sc,
                          D.CTLE_GDC2_MIN, D.CTLE_GDC2_MAX))
-    if gain_half is None:
+    if gain_ratio_range is not None:
+        lo, hi = gain_ratio_range
+        ratio = float(lo + u[D.N_SIDE + 2] * (hi - lo))
+        gain = D.DRIVER_GAIN_NOMINAL * ratio
+    elif gain_half is None:
         u_gain = float(D.GAIN_LOG10_MIN + u[D.N_SIDE + 2]
                        * (D.GAIN_LOG10_MAX - D.GAIN_LOG10_MIN))
+        gain = D.gain_from_u(u_gain)
     else:
         u_gain = float(D.SEED_GAIN_U + (u[D.N_SIDE + 2] * 2 - 1.0) * float(gain_half))
-    gain = D.gain_from_u(u_gain)
+        gain = D.gain_from_u(u_gain)
     return pre_post, gdc, gdc2, gain
 
 
@@ -116,7 +124,12 @@ def _worker_task(args):
         u_gain = D.SEED_GAIN_U
         taps = D.SEED_TAPS.copy()
     else:
-        pre_post, gdc, gdc2, gain = _sample_point(u, seed_pre_post, ffe_pre, *spread)
+        # spread = (spread_ffe, spread_ctle, gain_half[, gain_ratio_range])
+        kw = {}
+        if len(spread) > 3:
+            kw['gain_ratio_range'] = spread[3]
+        pre_post, gdc, gdc2, gain = _sample_point(u, seed_pre_post, ffe_pre,
+                                                    spread[0], spread[1], spread[2], **kw)
         u_gain = D.u_from_gain(gain)
         taps = D.construct_taps(pre_post, ffe_pre)
 
@@ -163,15 +176,14 @@ def _worker_task(args):
 
 def generate_dataset(base_env=BASE_ENV, base_samples=320, anchor_samples=60,
                      num_symbols=131072, seed=42, sim_seeds=(42,), output_dir="dataset",
-                     jobs=1, include_envs=None, core_samples=CORE_SAMPLES):
-    """生成环境锚定邻域数据集（v3）。
+                     jobs=1, include_envs=None, core_samples=CORE_SAMPLES,
+                     v5=False, v5_gain_ratio_lo=0.40, v5_gain_ratio_hi=0.90):
+    """生成环境锚定邻域数据集。
 
-    base_env: 密集采样的基准环境名（默认 Base_IL10x10）
-    base_samples: 基准环境邻域采样数（不含种子行）
-    anchor_samples: 其余每个应力环境的邻域锚点数（不含种子行）
-    num_symbols: 单次仿真符号数（BER_MLSE 评估协议）
-    sim_seeds: 每个采样点使用的仿真种子序列（多seed取均值以抑制BER估计噪声）
-    jobs: 并行进程数（1 = 串行；结果与并行逐位一致）
+    v5 模式：driver_gain 不在整箱对数均匀采样（那会让 FFE/CTLE→BER 映射被增益模糊），
+    而是在**目标 RMS 附近**窄带采样（基线最优 ratio ~0.5-0.7），使代理学到的
+    FFE/CTLE 形状方向清晰。gain 维本身不进 v5 模型（只吃 6 维 x_shape），这里采样的
+    gain 只是为了让数据集的 BER 反映"接近物理最优 gain 下"的形状-BER 关系。
     """
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -187,12 +199,23 @@ def generate_dataset(base_env=BASE_ENV, base_samples=320, anchor_samples=60,
 
     sim_seeds = tuple(int(s) for s in sim_seeds)
 
-    print(f"[dataset v4] env-anchored neighborhood sampling | dims={D.N_DIM} | "
-          f"num_symbols={num_symbols} | sim_seeds={sim_seeds} | jobs={jobs}")
-    print(f"  spread: FFE ±{BASE_SPREAD_FFE} / CTLE ±{BASE_SPREAD_CTLE} dB / "
-          f"driver_gain 倍率 ×{GAIN_RATIO_LO:.2f}..×{GAIN_RATIO_HI:.2f}（对数均匀，整箱）")
+    if v5:
+        gain_lo = v5_gain_ratio_lo
+        gain_hi = v5_gain_ratio_hi
+        print(f"[dataset v5] FFE/CTLE 形状空间采样 + gain 窄带 [x{gain_lo:.2f}, x{gain_hi:.2f}]")
+        print(f"  目的：gain 维由发端 RMS 物理目标驱动，数据集只需让 FFE/CTLE 形状-BER 关系清晰")
+        print(f"[dataset v5] env-anchored neighborhood sampling | dims={D.N_DIM} | "
+              f"num_symbols={num_symbols} | sim_seeds={sim_seeds} | jobs={jobs}")
+        print(f"  spread: FFE ±{BASE_SPREAD_FFE} / CTLE ±{BASE_SPREAD_CTLE} dB / "
+              f"gain ratio x{gain_lo:.2f}..x{gain_hi:.2f}（窄带，目标 RMS 附近）")
+    else:
+        print(f"[dataset v4] env-anchored neighborhood sampling | dims={D.N_DIM} | "
+              f"num_symbols={num_symbols} | sim_seeds={sim_seeds} | jobs={jobs}")
+        print(f"  spread: FFE ±{BASE_SPREAD_FFE} / CTLE ±{BASE_SPREAD_CTLE} dB / "
+              f"driver_gain 倍率 ×{GAIN_RATIO_LO:.2f}..×{GAIN_RATIO_HI:.2f}（对数均匀，整箱）")
 
     tasks = []
+    v5_range = (v5_gain_ratio_lo, v5_gain_ratio_hi) if v5 else None
     for env_idx, env in enumerate(ENV_CASES):
         if include_envs is not None and env['name'] not in include_envs:
             continue
@@ -204,8 +227,13 @@ def generate_dataset(base_env=BASE_ENV, base_samples=320, anchor_samples=60,
         sampler = qmc.LatinHypercube(d=D.N_DIM, seed=int(seed) + env_idx * 7)
         sp = sampler.random(n=n)
         n_core = min(int(core_samples), n) if env['name'] == base_env else 0
-        core_spread = (CORE_SPREAD_FFE, CORE_SPREAD_CTLE, CORE_GAIN_HALF)
-        shell_spread = (None, None, None)
+        if v5:
+            # v5：gain 一律走窄带（目标 RMS 附近），FFE/CTLE 仍分核心/外壳
+            core_spread = (CORE_SPREAD_FFE, CORE_SPREAD_CTLE, None, v5_range)
+            shell_spread = (None, None, None, v5_range)
+        else:
+            core_spread = (CORE_SPREAD_FFE, CORE_SPREAD_CTLE, CORE_GAIN_HALF)
+            shell_spread = (None, None, None)
         for i in range(n):
             spread = core_spread if i < n_core else shell_spread
             tasks.append((f"{env['name']}:{i}", env['name'], cfg_env,
@@ -265,10 +293,15 @@ if __name__ == "__main__":
                    help='仅生成指定环境（逗号分隔），用于快速验证')
     p.add_argument('--core-samples', type=int, default=CORE_SAMPLES,
                    help='基线环境下投入“核心加密”的样本数（其余覆盖整箱，0=纯整箱均匀）')
+    p.add_argument('--v5', action='store_true',
+                   help='v5 模式：gain 在目标 RMS 附近窄带采样，使 FFE/CTLE 形状-BER 关系清晰')
+    p.add_argument('--v5-gain-lo', type=float, default=0.40, help='v5 gain 倍率下界')
+    p.add_argument('--v5-gain-hi', type=float, default=0.90, help='v5 gain 倍率上界')
     a = p.parse_args()
     sim_seeds = tuple(int(s) for s in str(a.sim_seeds).split(',') if s.strip())
     only = tuple(s.strip() for s in a.only_envs.split(',')) if a.only_envs else None
     generate_dataset(base_samples=a.base_samples, anchor_samples=a.anchor_samples,
                      num_symbols=a.num_symbols, seed=a.seed, sim_seeds=sim_seeds,
                      output_dir=a.out_dir, jobs=a.jobs, include_envs=only,
-                     core_samples=a.core_samples)
+                     core_samples=a.core_samples, v5=a.v5,
+                     v5_gain_ratio_lo=a.v5_gain_lo, v5_gain_ratio_hi=a.v5_gain_hi)

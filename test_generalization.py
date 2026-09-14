@@ -179,10 +179,94 @@ def run_case(cfg, model_a, model_b, env, n_steps=25, cloud_n=0, freeze_extra=Fal
     return result, rows
 
 
+def run_case_v5(cfg, model_a, model_b, env, n_steps=25, freeze_extra=False,
+                target_rms=None, gain_bounds=(None, None)):
+    """v5：FFE/CTLE 代理梯度 + gain 发端 RMS 物理目标驱动。
+
+    模型只吃 6 维 x_shape（FFE+CTLE）；gain 每步解析调到 target_rms（发端指标）。
+    """
+    if target_rms is None:
+        target_rms = D.TARGET_DRIVE_RMS
+    ffe_pre = int(cfg['tx'].get('ffe_pre', D.FFE_PRE))
+    seed_pre_post = np.concatenate([D.SEED_TAPS[:ffe_pre], D.SEED_TAPS[ffe_pre + 1:]])
+    x0_shape = np.concatenate([seed_pre_post, [D.SEED_GDC, D.SEED_GDC2]])
+    gain0 = float(D.SEED_GAIN)
+
+    safety_ref = D._predict_b_x(model_b, x0_shape)
+    seed_lb, seed_ber = D._physical_eval(cfg, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, gain0)
+    pa_seed = D._predict_a_x(model_a, x0_shape)
+    pb_seed = D._predict_b_x(model_b, x0_shape)
+
+    trace = D._stage2_descent_v5(cfg, model_a, model_b, x0_shape, gain0, ffe_pre, n_steps,
+                                  safety_ref, D.GD_LR, target_rms=target_rms,
+                                  freeze_extra=freeze_extra, gain_bounds=gain_bounds)
+
+    rows = []
+    if trace:
+        for t in trace:
+            rows.append({
+                'step': t['step'], 'x_shape': np.asarray(t['x_shape']).tolist(),
+                'taps': np.round(np.asarray(t['taps']), 6).tolist(),
+                'gdc': t['gdc'], 'gdc2': t['gdc2'], 'gain': t['gain'],
+                'gain_ratio': t['gain'] / D.DRIVER_GAIN_NOMINAL,
+                'drive_rms': t.get('drive_rms'),
+                'pred_b_ber': t.get('pred_b_ber'), 'allowed_ber': t.get('allowed_ber'),
+                'stop_reason': t.get('stop_reason', ''),
+                'pred_a': t['pred_a'], 'pred_b': t['pred_b'],
+                'real_lb': t['real_logber'], 'real_ber': t['real_mlse'],
+                'grad_norm': t['grad_norm'],
+            })
+    real_lb_t = np.array([r['real_lb'] for r in rows]) if rows else np.array([])
+
+    result = {
+        'env': env['name'], 'il_tx': env['il_tx'], 'il_rx': env['il_rx'],
+        'cd': env['cd'], 'dgd': env['dgd'], 'pol': env['pol'],
+        'noise_stress': bool(env.get('stress')),
+        'seed_lb': float(seed_lb), 'seed_ber': float(seed_ber),
+        'pa_seed': float(pa_seed), 'pb_seed': float(pb_seed),
+        'n_steps_requested': n_steps,
+        'n_steps_actual': len(rows),
+        'freeze_extra': bool(freeze_extra),
+        'target_drive_rms': float(target_rms),
+        'cloud': None,
+    }
+    if rows:
+        ibest = int(np.argmin(real_lb_t))
+        result.update({
+            'best_lb': float(real_lb_t[ibest]),
+            'best_ber': float(rows[ibest]['real_ber']),
+            'best_step': int(rows[ibest]['step']),
+            'final_lb': float(real_lb_t[-1]), 'final_ber': float(rows[-1]['real_ber']),
+            'max_lb': float(real_lb_t.max()),
+            'delta_lb_seed_to_best': float(real_lb_t[ibest] - seed_lb),
+            'delta_lb_seed_to_final': float(real_lb_t[-1] - seed_lb),
+            'best_taps': rows[ibest]['taps'], 'best_gdc': rows[ibest]['gdc'],
+            'best_gdc2': rows[ibest]['gdc2'], 'best_gain': rows[ibest]['gain'],
+            'best_gain_ratio': rows[ibest]['gain'] / D.DRIVER_GAIN_NOMINAL,
+            'seed_gain': float(gain0), 'seed_gain_ratio': 1.0,
+            'stop_reason': rows[-1].get('stop_reason', ''),
+            'early_stop': len(rows) < n_steps,
+        })
+    else:
+        result.update({
+            'best_lb': float(seed_lb), 'best_ber': float(seed_ber), 'best_step': -1,
+            'final_lb': float(seed_lb), 'final_ber': float(seed_ber),
+            'max_lb': float(seed_lb),
+            'delta_lb_seed_to_best': 0.0, 'delta_lb_seed_to_final': 0.0,
+            'best_taps': D.SEED_TAPS.tolist(), 'best_gdc': float(D.SEED_GDC),
+            'best_gdc2': float(D.SEED_GDC2), 'best_gain': float(gain0),
+            'best_gain_ratio': 1.0,
+            'seed_gain': float(gain0), 'seed_gain_ratio': 1.0,
+            'stop_reason': 'no_step_accepted', 'early_stop': True,
+        })
+    return result, rows
+
+
 def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
                        cloud_n=0, validity_envs=None, sim_seeds=(42,),
                        freeze_extra=False, only_envs=None,
-                       cloud_symbols=65536, cloud_sim_seeds=(42, 43)):
+                       cloud_symbols=65536, cloud_sim_seeds=(42, 43),
+                       v5=False, target_rms=None):
     # 只在缺失时生成配置：config.xlsx 是受版本管理的唯一配置源，多进程并发重写会造成
     # 文件损坏竞态（实测三进程同时 generate_config() 会把 xlsx 写坏）。
     if not os.path.exists('config.xlsx'):
@@ -195,9 +279,10 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
         meta = {}
 
     D.set_sim_seeds(sim_seeds)
-    print(f"[test v3] models from {model_dir} | num_symbols={num_symbols} | "
+    tag = 'v5' if v5 else 'v3'
+    print(f"[test {tag}] models from {model_dir} | num_symbols={num_symbols} | "
           f"n_steps={n_steps} | cloud_n={cloud_n} | sim_seeds={tuple(sim_seeds)} | "
-          f"freeze_extra={freeze_extra}")
+          f"freeze_extra={freeze_extra}" + (f" | target_rms={target_rms}" if v5 else ""))
     print(f"          cloud protocol: {cloud_symbols} symbols x seeds {tuple(cloud_sim_seeds)}")
 
     os.makedirs(out_dir, exist_ok=True)
@@ -205,28 +290,32 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
 
     cases = [e for e in ENV_CASES if (only_envs is None or e['name'] in only_envs)]
     for env in cases:
-        print(f"\n--- Stage-2 online tuning: {env['name']} ---")
+        print(f"\n--- Stage-2 online tuning ({tag}): {env['name']} ---")
         base_cfg = utils_config.load_config('config.xlsx')
         cfg = apply_env_to_config(base_cfg, env)
         cfg['system']['num_symbols'] = int(num_symbols)
-        if cloud_n > 0 and (validity_envs is None or env['name'] in validity_envs):
-            c = cloud_n
+        if v5:
+            res, rows = run_case_v5(cfg, model_a, model_b, env, n_steps=n_steps,
+                                     freeze_extra=freeze_extra, target_rms=target_rms)
         else:
-            c = 0
-        res, rows = run_case(cfg, model_a, model_b, env, n_steps=n_steps, cloud_n=c,
-                             freeze_extra=freeze_extra, cloud_symbols=cloud_symbols,
-                             cloud_sim_seeds=cloud_sim_seeds)
+            if cloud_n > 0 and (validity_envs is None or env['name'] in validity_envs):
+                c = cloud_n
+            else:
+                c = 0
+            res, rows = run_case(cfg, model_a, model_b, env, n_steps=n_steps, cloud_n=c,
+                                 freeze_extra=freeze_extra, cloud_symbols=cloud_symbols,
+                                 cloud_sim_seeds=cloud_sim_seeds)
         results.append(res)
         df = pd.DataFrame(rows) if rows else pd.DataFrame()
         if not df.empty:
             df.insert(0, 'env', env['name'])
         trace_dfs[env['name']] = df
-        tag = ('+' if res.get('delta_lb_seed_to_best', 0) < -0.01 else
-               ('~' if abs(res.get('delta_lb_seed_to_best', 0)) <= 0.01 else '-'))
+        tag2 = ('+' if res.get('delta_lb_seed_to_best', 0) < -0.01 else
+                ('~' if abs(res.get('delta_lb_seed_to_best', 0)) <= 0.01 else '-'))
         print(f"    seed BER_MLSE={res['seed_ber']:.3e} | "
               f"best={res.get('best_ber', np.nan):.3e} "
               f"(step {res.get('best_step', 'NA')}, gain {res.get('best_gain', float('nan')):.3f}) | "
-              f"final={res.get('final_ber', np.nan):.3e} | {tag}")
+              f"final={res.get('final_ber', np.nan):.3e} | {tag2}")
 
     out = pd.DataFrame(results)
     out.to_json(os.path.join(out_dir, 'case_summary.json'), orient='records', indent=2)
@@ -241,10 +330,11 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
                    'cloud_n': cloud_n, 'sim_seeds': list(sim_seeds),
                    'cloud_symbols': int(cloud_symbols),
                    'cloud_sim_seeds': list(cloud_sim_seeds),
-                   'freeze_extra': bool(freeze_extra),
+                   'freeze_extra': bool(freeze_extra), 'v5': bool(v5),
+                   'target_rms': float(target_rms) if (v5 and target_rms) else None,
                    'envs': [e['name'] for e in cases]},
                   f, indent=2, ensure_ascii=False)
-    print(f"\n[test v3] done -> {out_dir}/case_summary.csv")
+    print(f"\n[test {tag}] done -> {out_dir}/case_summary.csv")
 
     return out_dir
 
@@ -265,6 +355,10 @@ if __name__ == "__main__":
     ap.add_argument('--freeze-extra', action='store_true',
                     help='冻结 CTLE 与 driver_gain（只优化 FFE），用于消融对比')
     ap.add_argument('--only-envs', type=str, default=None, help='仅跑指定环境（逗号分隔）')
+    ap.add_argument('--v5', action='store_true',
+                    help='用 v5 模式：FFE/CTLE 代理梯度 + gain 发端 RMS 物理目标驱动')
+    ap.add_argument('--target-rms', type=float, default=None,
+                    help='v5 模式下的 MZM 输入 RMS 目标（V），默认 0.14')
     a = ap.parse_args()
     sim_seeds = tuple(int(s) for s in str(a.sim_seeds).split(',') if s.strip())
     cloud_seeds = tuple(int(s) for s in str(a.cloud_sim_seeds).split(',') if s.strip())
@@ -273,4 +367,5 @@ if __name__ == "__main__":
                        num_symbols=a.num_symbols, cloud_n=a.cloud_n,
                        sim_seeds=sim_seeds, freeze_extra=a.freeze_extra,
                        only_envs=only, cloud_symbols=a.cloud_symbols,
-                       cloud_sim_seeds=cloud_seeds)
+                       cloud_sim_seeds=cloud_seeds,
+                       v5=a.v5, target_rms=a.target_rms)

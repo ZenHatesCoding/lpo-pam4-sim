@@ -62,27 +62,6 @@ PEAK_SUM_LIMIT = 0.8          # sum(|pre_post|) <= 0.8 -> 主抽头 >= 0.2
 # ---------------------------------------------------------------------------
 MAX_DEGRADE_FRAC = 0.25       # 允许 Model B 预测相对种子最多变差 25%
 
-# ---------------------------------------------------------------------------
-# v5：driver_gain 维从"代理梯度盲驱"改为"发端 RMS 物理目标解析驱动"
-#
-# 根因（详见 scratch/diag_gain_sweep.py 与 result/ddps_v4_divergence.csv）：
-#   gain 维的最优方向随环境反转——基线信号强、最优 gain 偏低（防 MZM 削顶）；
-#   高插损信号弱、最优 gain 偏高（补摆幅）。基线训练的代理对 gain 梯度永远是
-#   "降 gain"（基线最优是降 gain），于是在 IL20x20 等恶劣环境把 gain 维反方向驱动，
-#   造成"预测一直降、实测却升"。v2/v3 之所以能单调下降，正是因为 gain 被锁死。
-#
-# 修法：gain 不再交给代理。每步用发端指标（MZM 输入端 RMS，发端可测、不需 BER）
-#   把 gain 解析调到目标摆幅：
-#       drive_rms ∝ gain（链路里 gain 是最后乘子，线性关系，实测 k 为常数）
-#       => gain = gain_seed * (target_rms / measured_rms_at_seed)
-#   target_rms 由全环境扫描标定（scratch/scan_env_optimal.py）：
-#   固定 target_rms=0.14 时，因为 k 随 IL 变化，解析出的 ratio 自动从强信号环境的
-#   ~0.8 调到弱信号环境的 ~1.3——即"锁定发端 RMS 给每个用例配 gain"，且目标值经
-#   扫描设计而非拍脑袋。FFE/CTLE 成形仍走基线代理泛化（扫描证实 CTLE 最优方向
-#   跨环境一致，11/15 case 最优 gDC=-3，可泛化）。
-# ---------------------------------------------------------------------------
-TARGET_DRIVE_RMS = 0.14       # MZM 输入端 RMS 目标（V），由扫描标定
-
 TRUST_FFE = 0.10              # Stage 2 信任域半径（FFE，相对起点）：防代理外推越界
 TRUST_CTLE = 3.0              # Stage 2 信任域半径（CTLE, dB）
                               # driver_gain 不设"半径"，直接在整个搜索箱内寻优（见下）
@@ -93,9 +72,6 @@ TRUST_PATH_K = 1.0            # 轨迹信任域：标准化位移超过 TRUST_PA
                               # model.local_spacing_）。理由：模型只在“走过约一个数据格”的
                               # 范围内可信；再往外它给出的“还能继续降”没有数据支撑
                               # （实测：预测下降总量 −0.77 dex/用例 vs 实测最优 −0.34 dex）。
-TRUST_PATH_K_V5 = 2.0         # v5 信任域放宽：gain 维物理驱动后形状空间更紧凑、映射更清晰
-                              # （v5 数据集 gain 窄带使 FFE/CTLE→BER 映射 R²=0.72 vs v4 0.28），
-                              # 形状方向可信范围更大；v5 用 2.0ρ 让轨迹多走几步拿到更多改善。
 GROUP_GATE = 1e-3             # 组梯度门控：某组"每走满整箱"的预测收益低于该值（dex）就冻结该组，
                               # 不沿拟合噪声推动无油水的自由度
 MIN_GAIN_DEX = 0.01           # 边际改善门控：Model A 预测每步改善 < 0.01 个 log10 即停
@@ -214,37 +190,6 @@ def _physical_eval(config, taps, gdc, gdc2, gain):
         lbs.append(float(np.log10(mlse_ber)))
     mean_lb = float(np.mean(lbs))
     return mean_lb, float(10.0 ** mean_lb)
-
-
-def _measure_drive_rms(config, taps, gdc, gdc2, gain):
-    """发端指标：当前配置下 MZM 输入端的驱动 RMS（V）。
-
-    只跑 Tx 模拟前端（FFE->DAC->IL->CTLE->Driver->Driver BW），不含 MZM 与后端，
-    因此**不产生真实 BER**，属于 Stage-2 允许拿的发端指标（与 tx_channel_extract
-    的 _drive_rms 同一实现）。drive_rms ∝ gain（gain 是链路最后的线性乘子，实测
-    在固定 FFE/CTLE 下 rms/gain 为常数 k），所以给定目标 RMS 可解析反推 gain。
-    """
-    _apply_x_to_config(config, gdc, gdc2, gain)
-    _, drive_rms = extract_tx_features(config, custom_tx_taps=taps, num_taps=7)
-    return float(drive_rms)
-
-
-def _solve_gain_for_rms(config, taps, gdc, gdc2, target_rms, gain_init=None,
-                        gain_bounds=(None, None)):
-    """解析地把 driver_gain 调到使 MZM 输入 RMS = target_rms。
-
-    drive_rms(gain) = k * gain（k 由 FFE/CTLE/IL 决定，与 gain 无关），故
-        gain_target = gain_ref * (target_rms / rms_ref)
-    只需一次发端测量即可标定 k。裁到搜索箱内。
-    """
-    g_ref = float(gain_init if gain_init is not None else SEED_GAIN)
-    rms_ref = _measure_drive_rms(config, taps, gdc, gdc2, g_ref)
-    if rms_ref <= 1e-9:
-        return g_ref
-    g_new = g_ref * (target_rms / rms_ref)
-    lo = gain_bounds[0] if gain_bounds[0] is not None else GAIN_MIN
-    hi = gain_bounds[1] if gain_bounds[1] is not None else GAIN_MAX
-    return float(np.clip(g_new, lo, hi))
 
 
 def _make_row(sample_id, taps, gdc, gdc2, gain, logber, mlse_ber, tx_fir, drive_rms):
@@ -503,176 +448,6 @@ def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, safety_ref, 
         if np.linalg.norm(x_new - x) < 1e-6:
             break
         x = x_new
-
-    return trace
-
-
-# ============================================================
-# Stage 2 v5：FFE/CTLE 走基线代理泛化 + gain 走发端 RMS 物理目标
-#
-# 这是 v4 之后真正修复"预测降/实测升"的版本。关键差别：
-#   - 模型只建模 **FFE+CTLE（6 维成形）**，不再含 gain 维（gain 维方向随环境反转，
-#     信道盲代理无法处理）。
-#   - gain 维每步解析调到 TARGET_DRIVE_RMS：drive_rms ∝ gain（一次发端测量标定 k），
-#     gain = gain_ref * (target_rms / rms_ref)。target_rms=0.14 由全环境扫描标定，
-#     因 k 随 IL 变，解析 ratio 自动从强信号环境 ~0.8 调到弱信号环境 ~1.3。
-#   - FFE/CTLE 成形方向跨环境一致（扫描证实 11/15 case 最优 gDC=-3），可泛化。
-# ============================================================
-
-# v5 形成空间的步长箱宽（FFE/CTLE 两组）
-SHAPE_STEP_SPAN = np.array([2.0 * TRUST_FFE] * N_SIDE + [2.0 * TRUST_CTLE] * 2)
-SHAPE_GROUPS = (slice(0, N_SIDE), slice(N_SIDE, N_SIDE + 2))
-SHAPE_GROUP_NAMES = ('FFE', 'CTLE')
-
-
-def _shape_bounds(x0_shape):
-    """FFE/CTLE 的搜索盒（相对种子收紧，防代理外推）。"""
-    b = [(-FFE_BOUND, FFE_BOUND)] * N_SIDE + [(CTLE_GDC_MIN, CTLE_GDC_MAX),
-                                               (CTLE_GDC2_MIN, CTLE_GDC2_MAX)]
-    b = np.array(b)
-    radius = np.array([TRUST_FFE] * N_SIDE + [TRUST_CTLE, TRUST_CTLE])
-    return np.stack([np.maximum(b[:, 0], x0_shape - radius),
-                     np.minimum(b[:, 1], x0_shape + radius)], axis=1)
-
-
-def _stage2_descent_v5(config, model_a, model_b, x0_shape, gain0, ffe_pre, n_steps,
-                        safety_ref, lr, target_rms=TARGET_DRIVE_RMS,
-                        freeze_extra=False, gain_bounds=(None, None)):
-    """v5 在线调优：FFE/CTLE 代理梯度 + gain 发端 RMS 物理目标驱动。
-
-    输入：
-        x0_shape : 6 维 = [4 FFE 旁瓣, gDC, gDC2]（不含 gain）
-        gain0    : 种子 driver_gain（线性）
-        model_a/b: 只吃 6 维 x_shape 的代理（A 给方向，B 给拦截）
-    每步：
-        1. g = ∇_shape ModelA(x_shape)（6 维，解析）
-        2. 组内归一化方向 + 投影到 shape 搜索盒
-        3. gain = 解析调到 target_rms（发端测量，不需 BER）
-        4. Model B 按百分比拦截候选点
-        5. 真实 BER 仅记账
-    """
-    tr_bounds = _shape_bounds(np.asarray(x0_shape, dtype=float))
-    x_shape = np.array(x0_shape, dtype=float)
-    gain = float(gain0)
-
-    # 种子点的发端 RMS 标定（用种子 gain 测一次 k）
-    taps_seed = construct_taps(x_shape[:N_SIDE], ffe_pre)
-    rms_seed = _measure_drive_rms(config, taps_seed, x_shape[N_SIDE], x_shape[N_SIDE + 1], gain)
-
-    # 拦截红线（百分比口径）：允许 BER = 种子预测 × (1 + MAX_DEGRADE_FRAC)
-    seed_pred_ber = 10.0 ** safety_ref
-    allowed_ber = seed_pred_ber * (1.0 + MAX_DEGRADE_FRAC)
-
-    # 轨迹信任域（标准化空间，仅 FFE/CTLE 6 维）——v5 放宽到 2.0ρ
-    rho = float(getattr(model_a, 'local_spacing_', 0.0) or 0.0)
-    sd_vec = np.asarray(getattr(model_a, 'sd', np.ones_like(x_shape)), dtype=float)
-    mu_vec = np.asarray(getattr(model_a, 'mu', np.zeros_like(x_shape)), dtype=float)
-    z0 = (x_shape - mu_vec) / sd_vec
-    path_limit = TRUST_PATH_K_V5 * rho if rho > 0 else None
-
-    trace = []
-    pred_a_prev = None
-    span = SHAPE_STEP_SPAN.copy()
-    if freeze_extra:
-        span[N_SIDE:] = 0.0          # 消融：只优化 FFE
-
-    for step in range(n_steps):
-        # 1. FFE/CTLE 代理梯度 -> 组内归一化方向
-        g = _grad_a(model_a, x_shape)
-        gs = g * span
-        direction = np.zeros_like(g)
-        active = []
-        for sl, name in zip(SHAPE_GROUPS, SHAPE_GROUP_NAMES):
-            nrm = float(np.linalg.norm(gs[sl]))
-            if nrm >= GROUP_GATE:
-                direction[sl] = gs[sl] / nrm
-                active.append(name)
-        if not active:
-            print(f'[Stage2v5] stop: 成形梯度均低于门控 {GROUP_GATE:g}（step {step}）')
-            break
-
-        # 2. 回溯线搜索：候选 shape 必须通过 Model B 的百分比拦截
-        alpha = lr * (ALPHA_DECAY ** step)
-        x_shape_new = None
-        alpha_k = alpha
-        for _ in range(20):
-            x_cand = np.clip(x_shape - alpha_k * span * direction,
-                              tr_bounds[:, 0], tr_bounds[:, 1])
-            if np.linalg.norm(x_cand - x_shape) < 1e-9:
-                break
-            if _pred_b_ber(model_b, x_cand) <= allowed_ber:
-                x_shape_new = x_cand
-                break
-            alpha_k *= 0.5
-        if x_shape_new is None:
-            print(f'[Stage2v5] stop: 无候选点通过 Model B 拦截 {allowed_ber:.2e}（step {step}）')
-            break
-
-        # 2b. 轨迹信任域
-        if path_limit is not None:
-            z_new = (x_shape_new - mu_vec) / sd_vec
-            if float(np.linalg.norm(z_new - z0)) > path_limit:
-                print(f'[Stage2v5] stop: 轨迹位移超过信任域 {path_limit:.2f}σ '
-                      f'(= {TRUST_PATH_K:g} × ρ, ρ={rho:.2f}σ) at step {step}')
-                break
-
-        # 3. gain 解析调到 target_rms（发端物理目标，不需 BER）
-        taps_new = construct_taps(x_shape_new[:N_SIDE], ffe_pre)
-        gdc_new = float(x_shape_new[N_SIDE])
-        gdc2_new = float(x_shape_new[N_SIDE + 1])
-        # 用当前 gain 做参考测 k，反推 target gain（参考点用上一步 gain 更稳）
-        gain_ref = gain
-        rms_ref = _measure_drive_rms(config, taps_new, gdc_new, gdc2_new, gain_ref)
-        if rms_ref > 1e-9:
-            gain_new = gain_ref * (target_rms / rms_ref)
-        else:
-            gain_new = gain_ref
-        lo = gain_bounds[0] if gain_bounds[0] is not None else GAIN_MIN
-        hi = gain_bounds[1] if gain_bounds[1] is not None else GAIN_MAX
-        gain_new = float(np.clip(gain_new, lo, hi))
-
-        # 4. 代理预测 + 真实 BER（仅记录）
-        pred_a = _predict_a_x(model_a, x_shape_new)
-        pred_b = _predict_b_x(model_b, x_shape_new)
-        real_logber, real_mlse = _physical_eval(config, taps_new, gdc_new, gdc2_new, gain_new)
-        rms_actual = _measure_drive_rms(config, taps_new, gdc_new, gdc2_new, gain_new)
-
-        # 5. 边际改善门控（基于代理预测改善）
-        if pred_a_prev is not None and (pred_a_prev - pred_a) < MIN_GAIN_DEX:
-            trace.append({
-                'step': step, 'x_shape': x_shape_new, 'taps': taps_new,
-                'gdc': gdc_new, 'gdc2': gdc2_new, 'gain': gain_new,
-                'gain_ratio': gain_new / DRIVER_GAIN_NOMINAL,
-                'drive_rms': rms_actual,
-                'pred_a': pred_a, 'pred_b': pred_b,
-                'pred_b_ber': 10.0 ** pred_b, 'allowed_ber': allowed_ber,
-                'real_logber': real_logber, 'real_mlse': real_mlse,
-                'grad_norm': float(np.linalg.norm(g)), 'stop_reason': 'marginal_gain',
-            })
-            print(f"[Stage2v5] stop: marginal predicted gain "
-                  f"({pred_a_prev - pred_a:+.4f} < {MIN_GAIN_DEX}) at step {step}")
-            break
-        pred_a_prev = pred_a
-
-        trace.append({
-            'step': step, 'x_shape': x_shape_new, 'taps': taps_new,
-            'gdc': gdc_new, 'gdc2': gdc2_new, 'gain': gain_new,
-            'gain_ratio': gain_new / DRIVER_GAIN_NOMINAL,
-            'drive_rms': rms_actual,
-            'pred_a': pred_a, 'pred_b': pred_b,
-            'pred_b_ber': 10.0 ** pred_b, 'allowed_ber': allowed_ber,
-            'real_logber': real_logber, 'real_mlse': real_mlse,
-            'grad_norm': float(np.linalg.norm(g)), 'stop_reason': '',
-        })
-
-        print(f"[Stage2v5] gd {step + 1}/{n_steps} | ModelA {10.0 ** pred_a:.2e} "
-              f"| real {real_mlse:.2e} | gain x{gain_new / DRIVER_GAIN_NOMINAL:.3f} "
-              f"| rms {rms_actual:.4f} | gDC {gdc_new:+.2f} | gDC2 {gdc2_new:+.2f} | 组 {active}")
-
-        if np.linalg.norm(x_shape_new - x_shape) < 1e-6:
-            break
-        x_shape = x_shape_new
-        gain = gain_new
 
     return trace
 
