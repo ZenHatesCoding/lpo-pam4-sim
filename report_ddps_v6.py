@@ -71,7 +71,7 @@ def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True):
     steps = tr['step'].values
     ax.semilogy(steps, 10.0 ** tr['pred_a'].values, marker='^', ms=3.2, ls='--',
                 lw=1.1, color=C_PREDA, label='Model A 预测（方向代理）')
-    if 'pred_b' in tr.columns:
+    if 'pred_b' in tr.columns and tr['pred_b'].abs().sum() > 0:
         ax.semilogy(steps, 10.0 ** tr['pred_b'].values, marker='s', ms=3.0, ls=':',
                     lw=1.1, color=C_PREDB, label='Model B 预测（风险控制）')
     ax.semilogy(steps, tr['real_ber'].values, marker='o', ms=3.6, lw=1.5,
@@ -79,9 +79,13 @@ def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True):
     seed = row['seed_ber']
     ax.axhline(seed, color=C_SEED, ls='--', lw=0.9, alpha=0.8,
                label='种子 BER（起点）')
-    if 'allowed_ber' in tr.columns:
-        ax.axhline(float(tr['allowed_ber'].iloc[0]), color=C_LIMIT, ls='-.', lw=0.9,
-                   alpha=0.8, label='安全红线（种子×1.25）')
+    # 安全红线：如果从不触发（B 单调下降），不画——画一条没人碰的线只会干扰
+    # 如果有触发步（allowed < pred_b 某些步），画红线轨迹
+    if 'allowed_ber' in tr.columns and tr['allowed_ber'].iloc[0] > 0:
+        triggered = (tr['pred_b_ber'] > tr['allowed_ber']).any() if 'pred_b_ber' in tr.columns else False
+        if triggered:
+            ax.plot(steps, tr['allowed_ber'].values, color=C_LIMIT, ls='-.', lw=0.9,
+                    alpha=0.8, label='安全红线（最优×1.25）')
     ax.set_yscale('log')
     ax.grid(True, which='both', ls='--', alpha=0.35)
     if title:

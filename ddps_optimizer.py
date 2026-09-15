@@ -802,9 +802,11 @@ def _stage2_descent_v6(config, model_a, model_b, x0_shape, gain0, ffe_pre, n_ste
     seed_pred_a = _predict_a_probe(model_a, probe_seed)
     seed_pred_b = _predict_b_params(model_b, x_shape, rms_seed)
 
-    # B 拦截红线
-    seed_pred_ber = 10.0 ** seed_pred_b
-    allowed_ber = seed_pred_ber * (1.0 + MAX_DEGRADE_FRAC)
+    # B 拦截红线：当前最优点预测 BER × (1 + MAX_DEGRADE_FRAC)
+    # 红线随最优点下移——B 单调下降时红线跟着下移，永不触发；
+    # B 突然变差（方向错）时红线才挡住。
+    best_pred_b = seed_pred_b  # 当前已知最优点的 B 预测
+    allowed_ber = (10.0 ** best_pred_b) * (1.0 + MAX_DEGRADE_FRAC)
 
     # 信任域（B 的参数域）
     rho = float(getattr(model_b, 'local_spacing_', 0.0) or 0.0)
@@ -881,6 +883,11 @@ def _stage2_descent_v6(config, model_a, model_b, x0_shape, gain0, ffe_pre, n_ste
         pred_b = _predict_b_params(model_b, x_shape_new, rms_actual)
         real_logber, real_mlse = _physical_eval(config, taps_new, gdc_new, gdc2_new, gain_new)
 
+        # 更新红线基准：如果 B 预测改善，红线跟着下移
+        if pred_b < best_pred_b:
+            best_pred_b = pred_b
+            allowed_ber = (10.0 ** best_pred_b) * (1.0 + MAX_DEGRADE_FRAC)
+
         # 5. 边际改善门控
         if pred_a_prev is not None and (pred_a_prev - pred_a) < MIN_GAIN_DEX:
             trace.append({
@@ -912,6 +919,93 @@ def _stage2_descent_v6(config, model_a, model_b, x0_shape, gain0, ffe_pre, n_ste
         print(f"[Stage2v6] gd {step + 1}/{n_steps} | ModelA {10.0 ** pred_a:.2e} "
               f"| real {real_mlse:.2e} | gain x{gain_new / DRIVER_GAIN_NOMINAL:.3f} "
               f"| rms {rms_actual:.4f} | gDC {gdc_new:+.2f} | gDC2 {gdc2_new:+.2f} | 组 {active}")
+
+        if np.linalg.norm(x_shape_new - x_shape) < 1e-6:
+            break
+        x_shape = x_shape_new
+        gain = gain_new
+
+    return trace
+
+
+
+def _stage2_descent_v6_aonly(config, model_a, x0_shape, gain0, ffe_pre, n_steps,
+                              safety_ref, lr, target_rms=TARGET_DRIVE_RMS,
+                              gain_bounds=(None, None)):
+    """v6 A-only: only Model A gradient descent, no Model B, no safety check.
+
+    For ablation: A-only vs A+B, to see what Model B contributes.
+    """
+    tr_bounds = _shape_bounds(np.asarray(x0_shape, dtype=float))
+    x_shape = np.array(x0_shape, dtype=float)
+    gain = float(gain0)
+
+    span = SHAPE_STEP_SPAN_V6.copy()
+    trace = []
+    pred_a_prev = None
+
+    for step in range(n_steps):
+        g = _grad_a_chain(model_a, config, x_shape, gain, ffe_pre, eps=0.01)
+        gs = g * span
+        direction = np.zeros_like(g)
+        active = []
+        for sl, name in zip(SHAPE_GROUPS_V6, SHAPE_GROUP_NAMES_V6):
+            nrm = float(np.linalg.norm(gs[sl]))
+            if nrm >= GROUP_GATE:
+                direction[sl] = gs[sl] / nrm
+                active.append(name)
+        if not active:
+            break
+
+        alpha = lr * (ALPHA_DECAY ** step)
+        x_shape_new = np.clip(x_shape - alpha * span * direction,
+                              tr_bounds[:, 0], tr_bounds[:, 1])
+        if np.linalg.norm(x_shape_new - x_shape) < 1e-9:
+            break
+
+        taps_new = construct_taps(x_shape_new[:N_SIDE], ffe_pre)
+        gdc_new = float(x_shape_new[N_SIDE])
+        gdc2_new = float(x_shape_new[N_SIDE + 1])
+        gain_ref = gain
+        rms_ref = _measure_drive_rms(config, taps_new, gdc_new, gdc2_new, gain_ref)
+        gain_new = gain_ref * (target_rms / rms_ref) if rms_ref > 1e-9 else gain_ref
+        lo = gain_bounds[0] if gain_bounds[0] is not None else GAIN_MIN
+        hi = gain_bounds[1] if gain_bounds[1] is not None else GAIN_MAX
+        gain_new = float(np.clip(gain_new, lo, hi))
+
+        probe_new = _probe_features(config, taps_new, gdc_new, gdc2_new, gain_new)
+        pred_a = _predict_a_probe(model_a, probe_new)
+        rms_actual = _measure_drive_rms(config, taps_new, gdc_new, gdc2_new, gain_new)
+        real_logber, real_mlse = _physical_eval(config, taps_new, gdc_new, gdc2_new, gain_new)
+
+        if pred_a_prev is not None and (pred_a_prev - pred_a) < MIN_GAIN_DEX:
+            trace.append({
+                'step': step, 'x_shape': x_shape_new, 'taps': taps_new,
+                'gdc': gdc_new, 'gdc2': gdc2_new, 'gain': gain_new,
+                'gain_ratio': gain_new / DRIVER_GAIN_NOMINAL,
+                'drive_rms': rms_actual,
+                'pred_a': pred_a, 'pred_b': 0.0,
+                'pred_b_ber': 0.0, 'allowed_ber': 0.0,
+                'real_logber': real_logber, 'real_mlse': real_mlse,
+                'grad_norm': float(np.linalg.norm(g)), 'stop_reason': 'marginal_gain',
+            })
+            break
+        pred_a_prev = pred_a
+
+        trace.append({
+            'step': step, 'x_shape': x_shape_new, 'taps': taps_new,
+            'gdc': gdc_new, 'gdc2': gdc2_new, 'gain': gain_new,
+            'gain_ratio': gain_new / DRIVER_GAIN_NOMINAL,
+            'drive_rms': rms_actual,
+            'pred_a': pred_a, 'pred_b': 0.0,
+            'pred_b_ber': 0.0, 'allowed_ber': 0.0,
+            'real_logber': real_logber, 'real_mlse': real_mlse,
+            'grad_norm': float(np.linalg.norm(g)), 'stop_reason': '',
+        })
+
+        print(f"[Aonly] gd {step + 1}/{n_steps} | ModelA {10.0 ** pred_a:.2e} "
+              f"| real {real_mlse:.2e} | gain x{gain_new / DRIVER_GAIN_NOMINAL:.3f} "
+              f"| gDC {gdc_new:+.2f} | gDC2 {gdc2_new:+.2f}")
 
         if np.linalg.norm(x_shape_new - x_shape) < 1e-6:
             break

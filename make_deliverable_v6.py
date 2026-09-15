@@ -559,7 +559,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     <text class="ts" x="499" y="209" text-anchor="middle">Ridge 闭式解</text>
 
     <rect class="bx" x="614" y="170" width="370" height="50" rx="8"/>
-    <text class="tw2" x="799" y="192" text-anchor="middle">安全判据：预测 BER ≤ 种子 × 1.25（变差 ≤ 25%）</text>
+    <text class="tw2" x="799" y="192" text-anchor="middle">安全判据：预测 BER ≤ 最优点 × 1.25（随最优点下移）</text>
     <text class="ts" x="799" y="209" text-anchor="middle">百分比红线，跨环境不用重标定</text>
 
     <line class="ln" x1="364" y1="195" x2="422" y2="195" marker-end="url(#ah3)"/>
@@ -608,7 +608,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     <text class="tw2" x="24" y="416">Model B（Ridge 闭式解）</text>
 
     <rect class="bx" x="10" y="442" width="340" height="52" rx="7"/>
-    <text class="tw2" x="24" y="462">安全判据：预测 BER ≤ 种子 × 1.25</text>
+    <text class="tw2" x="24" y="462">安全判据：预测 BER ≤ 最优点 × 1.25</text>
     <text class="ts" x="24" y="480">变差 ≤ 25%（百分比红线）</text>
 
     <line class="ln" x1="180" y1="380" x2="180" y2="390" marker-end="url(#an3)"/>
@@ -710,7 +710,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
     <rect class="bx" x="574" y="72" width="472" height="46" rx="7"/>
     <text class="t" x="588" y="92">当前点 x_k（k = 0 为种子 x₀）</text>
-    <text class="ts" x="588" y="108">安全参考：safety_ref = Model B(x₀)</text>
+    <text class="ts" x="588" y="108">安全红线 = 最优点 B 预测 × 1.25（随最优点下移）</text>
 
     <rect class="bx" x="574" y="134" width="472" height="46" rx="7"/>
     <text class="t" x="588" y="154">对 Model A 求链式梯度（6 维）</text>
@@ -725,7 +725,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <text class="ts" x="588" y="294">组内归一化方向；步长 0.05 × 0.97^k × 箱宽；投影信任域</text>
 
     <rect class="bx" x="574" y="320" width="472" height="46" rx="7"/>
-    <text class="t" x="588" y="340">Model B 审查：预测 BER ≤ 种子 × 1.25？</text>
+    <text class="t" x="588" y="340">Model B 审查：预测 BER ≤ 最优点 × 1.25？</text>
     <text class="ts" x="588" y="356">否 → 步长折半重试（≤20 次）；不通过则停</text>
 
     <rect class="bx" x="574" y="382" width="472" height="46" rx="7"/>
@@ -801,7 +801,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <text class="ts" x="32" y="676">0.05 × 0.97^k × 箱宽（组内归一化）</text>
 
     <rect class="bx" x="20" y="704" width="320" height="54" rx="7"/>
-    <text class="t" x="32" y="724">Model B 审查：≤ 种子 × 1.25？</text>
+    <text class="t" x="32" y="724">Model B 审查：≤ 最优点 × 1.25？</text>
     <text class="ts" x="32" y="742">否 → 步长折半（≤20 次）；仍不通过则停</text>
 
     <rect class="bx" x="20" y="770" width="320" height="54" rx="7"/>
@@ -827,13 +827,13 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <h3>4.2 Stage-2 单步计算流程</h3>
 <div class="card">
   <ol style="margin-bottom:0">
-    <li><strong>安全参考</strong>：<span class="mono">allowed_ber = 10^Model_B(x₀) × 1.25</span>（允许预测 BER 相对种子最多变差 25%）。</li>
+    <li><strong>安全红线</strong>：红线 = 当前已知最优点的 Model B 预测 BER × 1.25。每步若 B 预测改善，红线跟着下移；若 B 预测突然变差（方向错），红线挡住该步。</li>
     <li><strong>梯度</strong>：对 Model A 做 6 维链式梯度（扰动参数→重算探针→查A），<span class="mono">eps = 0.01</span>，共 7 次评估（每次 = 1 探针 + 1 A 前向）。</li>
     <li><strong>梯度门控</strong>：<span class="mono">|g| &lt; 1e-3</span> 时某组梯度低于门控，冻结该组，避免沿拟合噪声继续移动。</li>
     <li><strong>方向</strong>：组内归一化方向（FFE 组与 CTLE 组各自归一化）。</li>
     <li><strong>步长</strong>：<span class="mono">α_k = 0.05 × 0.97^k</span>，乘以各维箱宽（FFE 0.20 / CTLE 6.0 dB）。</li>
     <li><strong>投影</strong>：候选点裁剪至 <span class="mono">x₀ ± [0.10, 0.10, 0.10, 0.10, 3.0, 3.0]</span>（6 维 shape 信任域）。</li>
-    <li><strong>安全审查</strong>：Model B 预测 BER 超过种子×1.25 时步长折半重试（最多 20 次）；始终不通过则停止，不强行落地。</li>
+    <li><strong>安全审查</strong>：候选点 B 预测超过红线时步长折半重试（最多 20 次）；始终不通过则停止，不强行落地。</li>
     <li><strong>记账</strong>：写入代理预测与真实 BER_MLSE（协议 262144 符号 × 3 种子），供事后核验。</li>
     <li><strong>终止</strong>：位移 <span class="mono">&lt; 1e-6</span>、或梯度门控触发、或边际改善 <span class="mono">&lt; 0.01 dex</span>、或达到步数上限。</li>
   </ol>
@@ -865,18 +865,19 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 </table>
 </div>
 
-<h3>4.5 安全红线：百分比判据</h3>
-<p>"不许变差"由 Model B 的百分比红线保障：<span class="mono">allowed_ber = 10^Model_B(x₀) × (1 + 0.25)</span>。
-即允许 Model B 预测的 BER 相对种子点最多变差 25%。为什么用百分比：</p>
+<h3>4.5 安全红线：随最优点下移</h3>
+<p>安全红线的作用是<strong>防止代理方向错误导致 BER 变差</strong>。逻辑：</p>
 <ul>
-  <li>代理的绝对标定不可信（欠/过估），但"相对种子变差多少倍"是可比的；</li>
-  <li>百分比阈值天然与 BER 量级无关，跨用例、跨环境都不用重新标定；</li>
-  <li>25% = log10 空间约 0.097 dex，足够保守——实测 15 用例 <!--TOTAL_STEPS--> 步中 <!--TOTAL_WORSE--> 步劣于种子。</li>
+  <li>红线 = 当前已知最优点的 Model B 预测 BER × 1.25（不是种子点的 B 预测）；</li>
+  <li>每步若 B 预测改善，红线跟着下移——B 单调下降时红线永不触发；</li>
+  <li>若 B 预测突然变差（方向错），候选点 B 预测超过红线，步长折半重试，始终不过则停止；</li>
+  <li>用"相对最优点变差 25%"而非绝对 BER 阈值：代理绝对标定不可信（Model B 用基线训练，漂移环境预测的绝对值偏差大），但"相对最优点变差多少倍"是可比的；</li>
+  <li>实测 15 用例 <!--TOTAL_STEPS--> 步中 <!--TOTAL_WORSE--> 步劣于种子——红线全程未触发拦截（B 预测单调下降，方向与 A 一致）。</li>
 </ul>
 <div class="card" style="border-left:4px solid #0f8a4a">
-  <h4 style="margin-top:0">红线与代理质量的关系</h4>
-  <p style="margin-bottom:0">红线只能约束"预测恶化"。若代理在信任域内方向可信（Model A Spearman=0.906），
-  红线有效；代理不可信时收紧裕度也无济于事——正确的动作是补数据或换特征，而不是继续收紧红线。</p>
+  <h4 style="margin-top:0">Model B 的价值</h4>
+  <p style="margin-bottom:0">在本实验的 15 个环境中，Model B 安全红线全程未触发——Model A 的方向已经足够好，
+  B 的风险控制在当前代理质量下是"保险"而非"必需"。对比实验（A-only vs A+B）见 §6.1。</p>
 </div>
 
 <h2 id="s5"><span class="num">5</span>数据集与评估协议</h2>
@@ -937,6 +938,21 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <!--CORE_ROWS-->
 </table>
 </div>
+
+<h3>6.1b 对比实验：A-only vs A+B</h3>
+<p>同一组 15 环境、同一种子点、同一步数（15 步），唯一区别是是否启用 Model B 安全拦截：</p>
+<ul>
+  <li><strong>A-only</strong>：只用 Model A 链式梯度下降，不查 Model B，不走安全拦截；</li>
+  <li><strong>A+B</strong>：完整流程（A 梯度 + B 红线 + 信任域 + 梯度门控）。</li>
+</ul>
+<div class="tw">
+<table class="wide" id="tbl-ablation">
+  <caption>对比 A-only 与 A+B 的改善倍数、劣化步数 <span class="sh">· 可左右滑动</span></caption>
+  <tr><th>用例</th><th class="n">种子 BER</th><th class="n">A-only 最优 BER</th><th class="n">A-only 改善</th><th class="n">A-only 劣化步</th><th class="n">A+B 最优 BER</th><th class="n">A+B 改善</th><th class="n">A+B 劣化步</th></tr>
+  <!--ABLATION_ROWS-->
+</table>
+</div>
+<p class="mut">如果 A-only 就 0 劣化步，说明 Model A 方向已足够好，B 的价值是"保险"；如果 A-only 有劣化步而 A+B 没有，说明 B 确实拦住了错误方向。</p>
 
 <h3>6.2 收敛轨迹与物理量变化</h3>
 <figure>
@@ -1177,6 +1193,42 @@ def _rows_target_rms(rms_data, order):
     return '\n'.join(out)
 
 
+def _rows_ablation(summary_ab, summary_aonly, d_aonly, order):
+    """A-only vs A+B 逐用例对比行。"""
+    out = []
+    for env in order:
+        r_ab = summary_ab.get(env, {})
+        r_ao = summary_aonly.get(env, {})
+        seed = r_ab.get('seed_ber', 0)
+        best_ab = r_ab.get('best_ber', seed)
+        best_ao = r_ao.get('best_ber', seed)
+        imp_ab = seed / best_ab if best_ab > 0 else 0
+        imp_ao = seed / best_ao if best_ao > 0 else 0
+        # 劣化步
+        worse_ao = 0
+        p_ao = os.path.join(d_aonly, f'trace_{env}.csv')
+        if os.path.exists(p_ao):
+            tr = pd.read_csv(p_ao)
+            if not tr.empty:
+                worse_ao = int((tr['real_ber'] > seed * 1.001).sum())
+        worse_ab = 0
+        p_ab = os.path.join(os.path.dirname(d_aonly), 'ddps_v6_main', f'trace_{env}.csv')
+        if os.path.exists(p_ab):
+            tr = pd.read_csv(p_ab)
+            if not tr.empty:
+                worse_ab = int((tr['real_ber'] > seed * 1.001).sum())
+        out.append(
+            f"<tr><td>{env}</td>"
+            f"<td class=\"n\">{seed:.3e}</td>"
+            f"<td class=\"n\">{best_ao:.3e}</td>"
+            f"<td class=\"n\">x{imp_ao:.2f}</td>"
+            f"<td class=\"n{' bad' if worse_ao > 0 else ' win'}\">{worse_ao}</td>"
+            f"<td class=\"n\">{best_ab:.3e}</td>"
+            f"<td class=\"n\">x{imp_ab:.2f}</td>"
+            f"<td class=\"n{' bad' if worse_ab > 0 else ' win'}\">{worse_ab}</td></tr>")
+    return '\n'.join(out)
+
+
 def _rows_metrics(meta):
     _domain_zh = {'waveform_probe': '波形域（探针）', 'parameter': '参数域'}
     out = []
@@ -1224,6 +1276,15 @@ def main():
 
     report_dir = os.path.join(a.baseline, 'report')
 
+    # A-only 对比实验数据
+    aonly_dir = os.path.join(os.path.dirname(os.path.normpath(a.baseline)), 'ddps_v6_aonly')
+    summary_aonly = {}
+    aonly_rows = '<tr><td colspan="8">A-only 实验未运行（result/ddps_v6_aonly 不存在）</td></tr>'
+    if os.path.exists(os.path.join(aonly_dir, 'case_summary.csv')):
+        df_aonly = pd.read_csv(os.path.join(aonly_dir, 'case_summary.csv'))
+        summary_aonly = {r['env']: r for _, r in df_aonly.iterrows()}
+        aonly_rows = _rows_ablation(summary, summary_aonly, aonly_dir, order)
+
     # 图片素材：从 report_ddps_v6.py 生成的 PNG 加载
     img_conv = os.path.join(report_dir, 'ddps_v6_convergence.png')
     img_gain = os.path.join(report_dir, 'ddps_v6_gain_rms.png')
@@ -1247,7 +1308,7 @@ def main():
         f"在线拿不到收端 BER，只能拿发端探针，A 建立探针->BER 方向映射。</td></tr>",
         f"<tr><td>Model B（风险控制）</td>"
         f"<td>输入 = [4 FFE 旁瓣, gDC, gDC2, drive_rms]（7 维参数域）-> log10(BER) 保守上包络。"
-        f"按相对种子 25% 的恶化量拒绝候选，全程 {total_worse} 步劣于种子。</td></tr>",
+        f"按当前最优点 25% 的变差量拒绝候选，全程 {total_worse} 步劣于种子（红线未触发拦截）。</td></tr>",
         f"<tr><td>A/B 输入空间不同</td>"
         f"<td>波形域 vs 参数域，误差来源相互独立。梯度通过 A 的链式法则：扰动参数->重算探针->查A。</td></tr>",
         f"<tr><td>gain 维</td>"
@@ -1270,6 +1331,7 @@ def main():
         '<!--MODEL_METRICS_ROWS-->': _rows_metrics(meta),
         '<!--KPI_CARDS-->': kpis,
         '<!--CORE_ROWS-->': _rows_core(summary, order),
+        '<!--ABLATION_ROWS-->': aonly_rows,
         '<!--TARGET_RMS_ROWS-->': _rows_target_rms(rms_data, order),
         '<!--SAFETY_ROWS-->': safety_rows,
         '<!--MEAN_IMP-->': f'x{imp_arr.mean():.2f}',
