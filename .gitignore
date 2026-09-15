@@ -15,3 +15,6 @@ archive/
 
 # 历史数据集（只保留最新的）
 dataset/ddps_v4_dataset_2026091[14]_*.csv
+
+# 根目录交付件已移到 deliverables/ 文件夹，不再在根目录生成
+/DDPS_v*_Deliverable.html

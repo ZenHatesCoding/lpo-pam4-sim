@@ -1257,7 +1257,7 @@ def main():
     ap.add_argument('--baseline', default='result/ddps_v6_main', help='v6 主结果目录')
     ap.add_argument('--model-dir', default='models/ddps_v6', help='v6 模型目录')
     ap.add_argument('--dataset', default=None)
-    ap.add_argument('--out', default='DDPS_v6_Deliverable.html')
+    ap.add_argument('--out', default='deliverables/DDPS_v6_Deliverable.html')
     a = ap.parse_args()
 
     summary, core_df = _load_summary(a.baseline)

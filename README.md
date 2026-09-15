@@ -38,7 +38,8 @@ DEFAULT_MODE = '112G'
 
 | 文档 | 内容 |
 | --- | --- |
-| [📄 **DDPS 交付说明（自包含 HTML）**](DDPS_v6_Deliverable.html) | 链路架构、A/B 双代理、链式梯度、安全红线、A-only 对比、15 用例结果 |
+| [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_v6_Deliverable.html) | 链路架构、A/B 双代理、链式梯度、安全红线、A-only 对比、15 用例结果 |
+| [历史交付件](deliverables/) | v2~v5 各版本交付件 HTML |
 | [01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md) | 收发机模型、多采样率机制、`config.xlsx` 参数物理含义 |
 | [02. 独立分析与诊断工具集](docs/02_Utility_Scripts.md) | 信道频响查看器、寻参脚本 |
 | [DDPS 方法](docs/DDPS_Method.md) | A=探针→BER 方向代理 + B=参数→BER 风险控制、链式梯度、per-case target_rms |

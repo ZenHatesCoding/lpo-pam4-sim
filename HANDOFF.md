@@ -76,5 +76,5 @@ python make_deliverable_v6.py --baseline result/ddps_v6_main --model-dir models/
 ## 待完成
 
 - [x] report_ddps_v6.py 创建
-- [ ] make_deliverable_v6.py 适配 + 生成 DDPS_v6_Deliverable.html
+- [ ] make_deliverable_v6.py 适配 + 生成 deliverables/DDPS_v6_Deliverable.html
 - [ ] 提交推送
