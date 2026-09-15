@@ -1,36 +1,28 @@
-# 02. 独立分析与诊断工具集 (Utility Scripts)
+# 02. 独立分析与诊断工具集
 
 [🔙 返回主页](../README.md)
 
-除了作为核心业务流的 `main.py` 和 DSP 链条，本项目在开发过程中积累了一批极具价值的“外围”诊断工具。它们被放置在 `scratch/` 目录下。当需要深入分析模拟信道特性或独立寻找均衡参数时，这些脚本将会是你的得力助手。
+## tools/ 目录
 
----
+| 工具 | 用途 |
+|------|------|
+| `tools/validate_local_gradient.py` | 种子点 6 维中心差分 vs Model A 解析梯度：方向命中率、量级相关系数 |
+| `tools/diagnose_divergence.py` | 预测-实测发散诊断：逐用例 Δ预测 vs Δ实测、相关系数、位移/ρ |
+| `tools/verify_trace.py` | trace 记账复核：独立重仿真逐点核对记录值 |
+| `tools/scan_per_case_rms.py` | 每用例扫描标定最优发端 RMS（0.06~0.22V，步长 0.005） |
+| `tools/scan_env_optimal.py` | 全环境最优参数扫描 |
+| `tools/block_length_study.py` | BER 估计精度：块长漂移与可分辨性 |
+| `tools/calibrate_driver_gain.py` | Driver gain 标定工具 |
+| `tools/run_length_replay.py` | 运行长度回放 |
+| `tools/merge_test_parts.py` | 测试结果合并 |
 
-## 工具目录
+## 核心脚本
 
-### 1. `opt_nm.py` (Nelder-Mead 快速参数优化器)
-- **定位**：脱离了高斯过程 (Bayesian Optimization) 沉重开销的轻量级 Tx FFE 搜索工具。
-- **功能**：调用 `scipy.optimize.minimize`，利用单纯形法快速寻找局部的最佳 5-Tap Tx FFE 参数。
-- **使用场景**：在更换信道模型或改变底噪后，快速获取一个还算不错的 Tx 发送端基准配置。
-
-### 2. `plot_s21.py` (S 参数原始频响探测仪)
-- **定位**：`.s4p` Touchstone 模型文件的透视镜。
-- **功能**：直接读取 IEEE 的四端口 S 参数文件，自动完成单端 (Single-ended) 到差分 (Differential) 模式的混模转换计算（Sdd21），并绘制原始的幅度与相位频响图。
-- **使用场景**：在引入全新的光模块或 PCB 板材信道文件时，先用它看看 56GHz (奈奎斯特) 处到底吃掉了多少 dB 的损耗。
-
-### 3. `plot_sdd21_compare.py` (降频缩放曲线校验仪)
-- **定位**：信道归一化逻辑的测试台。
-- **功能**：在我们的代码中，经常需要把官方的 S 参数损耗“强制缩放”到某一个特定的奈奎斯特损耗（例如 -18dB）以对齐不同的测试标准。这个脚本会将**原始信道**和**经过 `f_scale` 频率缩放后的信道**画在同一张图里，方便你肉眼确认缩放是否导致了曲线变形。
-
-### 4. `test_ctle.py` (CTLE 模拟频响观测器)
-- **定位**：校验模拟连续时间均衡器的传递函数。
-- **功能**：画出我们在 `rx_dsp.py` (或之前的 `tx_dsp.py`) 中定义的 CTLE 曲线。
-- **使用场景**：直观感受 CTLE DC 增益、高频 Peaking 的组合对奈奎斯特频率段的实际补偿量，确认公式有没有写错。
-
-### 5. `download_s4p.py` (资源爬取助手)
-- **定位**：一键获取公开测试信道。
-- **功能**：用以从 IEEE 802.3dj 工作组服务器自动下载官方的 S4P 信道模型文件，省去在庞大网页堆里找文件的烦恼。
-
----
-
-[🔙 返回主页](../README.md)
+| 脚本 | 用途 |
+|------|------|
+| `main.py` | 单点主仿真：PAM4 → 5-tap FFE → DAC → CTLE → MZM → 光纤 → PIN → MLSE |
+| `dataset_generator.py` | DDPS 数据集生成：6 维 LHS 邻域采样 + 真实 BER_MLSE 标注 |
+| `train_surrogates.py` | A/B 模型训练：WhiteBoxRidge（二阶多项式 + L2 Ridge 闭式解，带解析梯度） |
+| `test_generalization.py` | 在线调优泛化测试：15 环境 Stage-2 链式梯度下降 |
+| `report_ddps_v6.py` | 可视化报告：收敛三曲线 + gain/rms 轨迹 + 预测散点 + 四联图 |
+| `make_deliverable_v6.py` | 交付件生成：自包含 HTML |

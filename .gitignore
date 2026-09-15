@@ -3,13 +3,15 @@
 __pycache__/
 *.pyc
 
-# 生成/可再生产物（不纳入版本控制）
+# 生成产物（不纳入版本控制）
 *.pptx
 diagnostic_results/
 
-# scratch 调试输出（图/图源），脚本本身仍跟踪
-scratch/*.png
-scratch/*.mmd
+# scratch 调试脚本（本地保留，不入远端）
+scratch/
 
-# 历史归档：本分支不保留 archive/，完整历史在 sjtu-channel-model 分支。
+# 归档目录（本地保留，不入远端）
 archive/
+
+# 历史数据集（只保留最新的）
+dataset/ddps_v4_dataset_2026091[14]_*.csv
