@@ -50,10 +50,14 @@ def main():
     xcols = [c for c in df.columns if c.startswith('x_')]
     y = df['log10_ber_mlse'].values.astype(float)
     model_a, model_b = load_models(a.model_dir)
-    mu, sd = np.asarray(model_a.mu), np.asarray(model_a.sd)
-    rho = float(getattr(model_a, 'local_spacing_', np.nan))
-    # v5 模型只吃 6 维 x_shape（不含 u_gain）；按模型维度截取
-    xcols = xcols[:len(mu)]
+    # 信任域用 B（参数域）的 mu/sd/rho
+    mu, sd = np.asarray(model_b.mu), np.asarray(model_b.sd)
+    rho = float(getattr(model_b, 'local_spacing_', np.nan))
+    # B 的输入 = 6 维 x_shape + drive_rms；截取前 6 维 x_ 列
+    xcols = xcols[:6]
+    # 补 drive_rms 列
+    if 'drive_rms' in df.columns:
+        xcols = xcols + ['drive_rms']
     X = df[xcols].values.astype(float)
 
     # 代理残差尺度（用 10% 留出的简单近似：k 近邻局部散度）
@@ -80,8 +84,15 @@ def main():
         dA = tr['pred_a'].values - tr['pred_a'].iloc[0]
         dR = tr['real_lb'].values - seed_lb
         xcol = 'x_shape' if 'x_shape' in tr.columns else 'x'
-        Ztr = np.array([(np.asarray(json.loads(v) if isinstance(v, str) else v, float) - mu) / sd
-                        for v in tr[xcol]])
+        # B 的输入 = x_shape + drive_rms；若 mu 是 7 维需补 drive_rms
+        if len(mu) == 7 and 'drive_rms' in tr.columns:
+            Ztr = np.array([
+                np.concatenate([np.asarray(json.loads(v) if isinstance(v, str) else v, float),
+                                [float(tr['drive_rms'].iloc[i])]]) for i, v in enumerate(tr[xcol])])
+        else:
+            Ztr = np.array([(np.asarray(json.loads(v) if isinstance(v, str) else v, float) - mu) / sd
+                            for v in tr[xcol]])
+        Ztr = (Ztr - mu) / sd
         disp = np.linalg.norm(Ztr - Ztr[0], axis=1)
         ib = int(np.argmin(tr['real_ber'].values))
         slope = float(np.polyfit(dA, dR, 1)[0]) if np.std(dA) > 1e-9 else np.nan

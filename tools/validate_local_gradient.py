@@ -66,9 +66,19 @@ def main():
         return D._physical_eval(cfg, taps, float(x[D.N_SIDE]), float(x[D.N_SIDE + 1]), gain0)
 
     lb0, ber0 = ev(x0)
-    g_a = D._grad_a(model_a, x0)
-    g_b = np.asarray(model_b.grad(x0.reshape(1, -1))[0], dtype=float) \
-        if hasattr(model_b, 'grad') else np.full(n_dim, np.nan)
+    # v6: A 吃探针 8 维，梯度走链式法则；B 吃参数 7 维（x_shape+drive_rms）
+    if hasattr(D, '_grad_a_chain'):
+        g_a = D._grad_a_chain(model_a, cfg, x0, gain0, ffe_pre, eps=0.01)
+        rms0 = D._measure_drive_rms(cfg, D.construct_taps(x0[:D.N_SIDE], ffe_pre),
+                                     float(x0[D.N_SIDE]), float(x0[D.N_SIDE+1]), gain0)
+        g_b = np.asarray(model_b.grad(
+            np.concatenate([x0, [rms0]]).reshape(1, -1))[0], dtype=float) \
+            if hasattr(model_b, 'grad') else np.full(n_dim, np.nan)
+        g_b = g_b[:n_dim]  # 只取前 6 维（x_shape）
+    else:
+        g_a = D._grad_a(model_a, x0)
+        g_b = np.asarray(model_b.grad(x0.reshape(1, -1))[0], dtype=float) \
+            if hasattr(model_b, 'grad') else np.full(n_dim, np.nan)
 
     print(f'[validate] env={args.env} | {args.num_symbols} symbols x seeds{seeds}')
     print(f'[validate] seed log10BER={lb0:+.4f} (BER={ber0:.4e})')

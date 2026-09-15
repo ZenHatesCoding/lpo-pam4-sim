@@ -707,3 +707,210 @@ if __name__ == "__main__":
         "  3) python test_generalization.py --model-dir models/ddps_v3 --out-dir result/ddps_v3_<ts>\n"
         "  4) python report_ddps_v3.py --test-dir result/ddps_v3_<ts> --model-dir models/ddps_v3"
     )
+
+# ============================================================
+# v6：A=探针->BER 方向映射 + B=参数->BER 风险控制
+# ============================================================
+
+def _probe_features(config, taps, gdc, gdc2, gain):
+    """提取 Model A 的 8 维探针特征：7-tap Tx FIR + drive_rms。"""
+    fir, drive_rms = extract_tx_features(config, custom_tx_taps=taps, num_taps=7)
+    return np.concatenate([fir, [drive_rms]])
+
+
+def _predict_a_probe(model_a, probe_feat):
+    """Model A 对探针特征的直接预测（标准化后）。"""
+    x = np.asarray(probe_feat, dtype=float).reshape(1, -1)
+    mu = np.asarray(getattr(model_a, 'mu', np.zeros(x.shape[1])), dtype=float)
+    sd = np.asarray(getattr(model_a, 'sd', np.ones(x.shape[1])), dtype=float)
+    x_n = (x - mu) / sd
+    return float(np.asarray(model_a.predict(x_n)).ravel()[0])
+
+
+def _predict_b_params(model_b, x_shape, drive_rms):
+    """Model B 对参数域特征的预测（7 维 = x_shape + drive_rms）。"""
+    feat = np.concatenate([np.asarray(x_shape, dtype=float), [drive_rms]])
+    x = feat.reshape(1, -1)
+    mu = np.asarray(getattr(model_b, 'mu', np.zeros(x.shape[1])), dtype=float)
+    sd = np.asarray(getattr(model_b, 'sd', np.ones(x.shape[1])), dtype=float)
+    x_n = (x - mu) / sd
+    return float(np.asarray(model_b.predict(x_n)).ravel()[0])
+
+
+def _grad_a_chain(model_a, config, x_shape, gain, ffe_pre, eps=0.01):
+    """通过 A 的链式法则计算 6 维参数梯度。
+
+    对每个参数 i 做 ±eps 中心差分：
+        1. 扰动 x_shape[i] -> 新 taps/gdc/gdc2
+        2. 重算探针特征（7-tap FIR + drive_rms，用参考 gain）
+        3. 查 Model A -> 得 ΔBER
+    链式法则：∂BER/∂param_i = ∂A/∂probe × ∂probe/∂param_i ≈ ΔA / Δparam_i
+    """
+    x_shape = np.asarray(x_shape, dtype=float)
+    g = np.zeros_like(x_shape)
+    eps_vec = np.array([eps] * N_SIDE + [eps * 10] * 2)  # CTLE 步长更大
+
+    for i in range(len(x_shape)):
+        xp = x_shape.copy(); xp[i] += eps_vec[i]
+        xm = x_shape.copy(); xm[i] -= eps_vec[i]
+
+        taps_p = construct_taps(xp[:N_SIDE], ffe_pre)
+        taps_m = construct_taps(xm[:N_SIDE], ffe_pre)
+        probe_p = _probe_features(config, taps_p, float(xp[N_SIDE]), float(xp[N_SIDE+1]), gain)
+        probe_m = _probe_features(config, taps_m, float(xm[N_SIDE]), float(xm[N_SIDE+1]), gain)
+
+        ap = _predict_a_probe(model_a, probe_p)
+        am = _predict_a_probe(model_a, probe_m)
+        g[i] = (ap - am) / (2.0 * eps_vec[i])
+
+    return g
+
+
+SHAPE_STEP_SPAN_V6 = np.array([2.0 * TRUST_FFE] * N_SIDE + [2.0 * TRUST_CTLE] * 2)
+SHAPE_GROUPS_V6 = (slice(0, N_SIDE), slice(N_SIDE, N_SIDE + 2))
+SHAPE_GROUP_NAMES_V6 = ('FFE', 'CTLE')
+TRUST_PATH_K_V6 = 2.0
+
+
+def _stage2_descent_v6(config, model_a, model_b, x0_shape, gain0, ffe_pre, n_steps,
+                        safety_ref, lr, target_rms=TARGET_DRIVE_RMS,
+                        gain_bounds=(None, None)):
+    """v6 在线调优：A 探针链式梯度 + B 参数域风险控制 + gain per-case RMS 物理驱动。
+
+    每步：
+        1. g = ∂A/∂x_shape（链式法则：扰动参数->重算探针->查A，6 维中心差分）
+        2. 组内归一化方向 + 投影到 shape 搜索盒
+        3. gain = 解析调到 target_rms（发端测量，不需 BER）
+        4. Model B 对候选参数预测 BER，按百分比拦截（理想情况不触发）
+        5. 真实 BER 仅记账
+    """
+    tr_bounds = _shape_bounds(np.asarray(x0_shape, dtype=float))
+    x_shape = np.array(x0_shape, dtype=float)
+    gain = float(gain0)
+
+    # 种子点探针 + B 预测
+    taps_seed = construct_taps(x_shape[:N_SIDE], ffe_pre)
+    rms_seed = _measure_drive_rms(config, taps_seed, float(x_shape[N_SIDE]),
+                                   float(x_shape[N_SIDE+1]), gain)
+    probe_seed = _probe_features(config, taps_seed, float(x_shape[N_SIDE]),
+                                 float(x_shape[N_SIDE+1]), gain)
+    seed_pred_a = _predict_a_probe(model_a, probe_seed)
+    seed_pred_b = _predict_b_params(model_b, x_shape, rms_seed)
+
+    # B 拦截红线
+    seed_pred_ber = 10.0 ** seed_pred_b
+    allowed_ber = seed_pred_ber * (1.0 + MAX_DEGRADE_FRAC)
+
+    # 信任域（B 的参数域）
+    rho = float(getattr(model_b, 'local_spacing_', 0.0) or 0.0)
+    sd_vec = np.asarray(getattr(model_b, 'sd', np.ones(7)), dtype=float)[:6]
+    mu_vec = np.asarray(getattr(model_b, 'mu', np.zeros(7)), dtype=float)[:6]
+    z0 = (x_shape - mu_vec) / sd_vec
+    path_limit = TRUST_PATH_K_V6 * rho if rho > 0 else None
+
+    span = SHAPE_STEP_SPAN_V6.copy()
+    trace = []
+    pred_a_prev = None
+
+    for step in range(n_steps):
+        # 1. A 链式梯度
+        g = _grad_a_chain(model_a, config, x_shape, gain, ffe_pre, eps=0.01)
+        gs = g * span
+        direction = np.zeros_like(g)
+        active = []
+        for sl, name in zip(SHAPE_GROUPS_V6, SHAPE_GROUP_NAMES_V6):
+            nrm = float(np.linalg.norm(gs[sl]))
+            if nrm >= GROUP_GATE:
+                direction[sl] = gs[sl] / nrm
+                active.append(name)
+        if not active:
+            print(f'[Stage2v6] stop: 成形梯度均低于门控 {GROUP_GATE:g}（step {step}）')
+            break
+
+        # 2. 回溯线搜索 + B 拦截
+        alpha = lr * (ALPHA_DECAY ** step)
+        x_shape_new = None
+        alpha_k = alpha
+        for _ in range(20):
+            x_cand = np.clip(x_shape - alpha_k * span * direction,
+                              tr_bounds[:, 0], tr_bounds[:, 1])
+            if np.linalg.norm(x_cand - x_shape) < 1e-9:
+                break
+            # B 对候选参数预测
+            taps_cand = construct_taps(x_cand[:N_SIDE], ffe_pre)
+            rms_cand = _measure_drive_rms(config, taps_cand, float(x_cand[N_SIDE]),
+                                           float(x_cand[N_SIDE+1]), gain)
+            if _predict_b_params(model_b, x_cand, rms_cand) * np.log(10) <= np.log10(allowed_ber):
+                x_shape_new = x_cand
+                break
+            alpha_k *= 0.5
+        if x_shape_new is None:
+            print(f'[Stage2v6] stop: 无候选点通过 Model B 拦截（step {step}）')
+            break
+
+        # 2b. 信任域
+        if path_limit is not None:
+            z_new = (x_shape_new - mu_vec) / sd_vec
+            if float(np.linalg.norm(z_new - z0)) > path_limit:
+                print(f'[Stage2v6] stop: 轨迹位移超过信任域 {path_limit:.2f}（step {step}）')
+                break
+
+        # 3. gain 解析调到 target_rms
+        taps_new = construct_taps(x_shape_new[:N_SIDE], ffe_pre)
+        gdc_new = float(x_shape_new[N_SIDE])
+        gdc2_new = float(x_shape_new[N_SIDE + 1])
+        gain_ref = gain
+        rms_ref = _measure_drive_rms(config, taps_new, gdc_new, gdc2_new, gain_ref)
+        if rms_ref > 1e-9:
+            gain_new = gain_ref * (target_rms / rms_ref)
+        else:
+            gain_new = gain_ref
+        lo = gain_bounds[0] if gain_bounds[0] is not None else GAIN_MIN
+        hi = gain_bounds[1] if gain_bounds[1] is not None else GAIN_MAX
+        gain_new = float(np.clip(gain_new, lo, hi))
+
+        # 4. A 探针预测 + B 参数预测 + 真实 BER（仅记录）
+        probe_new = _probe_features(config, taps_new, gdc_new, gdc2_new, gain_new)
+        pred_a = _predict_a_probe(model_a, probe_new)
+        rms_actual = _measure_drive_rms(config, taps_new, gdc_new, gdc2_new, gain_new)
+        pred_b = _predict_b_params(model_b, x_shape_new, rms_actual)
+        real_logber, real_mlse = _physical_eval(config, taps_new, gdc_new, gdc2_new, gain_new)
+
+        # 5. 边际改善门控
+        if pred_a_prev is not None and (pred_a_prev - pred_a) < MIN_GAIN_DEX:
+            trace.append({
+                'step': step, 'x_shape': x_shape_new, 'taps': taps_new,
+                'gdc': gdc_new, 'gdc2': gdc2_new, 'gain': gain_new,
+                'gain_ratio': gain_new / DRIVER_GAIN_NOMINAL,
+                'drive_rms': rms_actual,
+                'pred_a': pred_a, 'pred_b': pred_b,
+                'pred_b_ber': 10.0 ** pred_b, 'allowed_ber': allowed_ber,
+                'real_logber': real_logber, 'real_mlse': real_mlse,
+                'grad_norm': float(np.linalg.norm(g)), 'stop_reason': 'marginal_gain',
+            })
+            print(f"[Stage2v6] stop: marginal predicted gain "
+                  f"({pred_a_prev - pred_a:+.4f} < {MIN_GAIN_DEX}) at step {step}")
+            break
+        pred_a_prev = pred_a
+
+        trace.append({
+            'step': step, 'x_shape': x_shape_new, 'taps': taps_new,
+            'gdc': gdc_new, 'gdc2': gdc2_new, 'gain': gain_new,
+            'gain_ratio': gain_new / DRIVER_GAIN_NOMINAL,
+            'drive_rms': rms_actual,
+            'pred_a': pred_a, 'pred_b': pred_b,
+            'pred_b_ber': 10.0 ** pred_b, 'allowed_ber': allowed_ber,
+            'real_logber': real_logber, 'real_mlse': real_mlse,
+            'grad_norm': float(np.linalg.norm(g)), 'stop_reason': '',
+        })
+
+        print(f"[Stage2v6] gd {step + 1}/{n_steps} | ModelA {10.0 ** pred_a:.2e} "
+              f"| real {real_mlse:.2e} | gain x{gain_new / DRIVER_GAIN_NOMINAL:.3f} "
+              f"| rms {rms_actual:.4f} | gDC {gdc_new:+.2f} | gDC2 {gdc2_new:+.2f} | 组 {active}")
+
+        if np.linalg.norm(x_shape_new - x_shape) < 1e-6:
+            break
+        x_shape = x_shape_new
+        gain = gain_new
+
+    return trace
