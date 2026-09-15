@@ -3,7 +3,8 @@
 """report_ddps_v6.py — DDPS v6 结果可视化与报告（精简版）。
 
 v6: A=探针->BER 方向映射, B=参数->BER 风险控制：模型只吃 6 维 FFE+CTLE，gain 维由发端 RMS 物理目标驱动。
-trace 里多一列 drive_rms，x 列改为 x_shape。本脚本生成：
+    _add_shared_legend(fig, ncol=5, fontsize=9, y_offset=0.965)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
   ddps_v6_convergence.png   3×5 三曲线收敛（Model A / Model B / 实测 BER）
   ddps_v6_gain_rms.png      逐用例 gain 倍率与 drive_rms 轨迹（验证物理驱动）
   ddps_v6_report.md         中文报告
@@ -66,27 +67,46 @@ def _summary(test_dir):
     return pd.read_csv(os.path.join(test_dir, 'case_summary.csv'))
 
 
-def _plot_convergence(ax, tr, row, title=None, small=False):
+def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True):
     steps = tr['step'].values
     ax.semilogy(steps, 10.0 ** tr['pred_a'].values, marker='^', ms=3.2, ls='--',
-                lw=1.1, color=C_PREDA, label='Model A 预测')
+                lw=1.1, color=C_PREDA, label='Model A 预测（方向代理）')
     if 'pred_b' in tr.columns:
         ax.semilogy(steps, 10.0 ** tr['pred_b'].values, marker='s', ms=3.0, ls=':',
-                    lw=1.1, color=C_PREDB, label='Model B 预测')
+                    lw=1.1, color=C_PREDB, label='Model B 预测（风险控制）')
     ax.semilogy(steps, tr['real_ber'].values, marker='o', ms=3.6, lw=1.5,
                 color=C_REAL, label='实测 BER_MLSE')
     seed = row['seed_ber']
     ax.axhline(seed, color=C_SEED, ls='--', lw=0.9, alpha=0.8,
-               label='种子（起点）' if not small else None)
+               label='种子 BER（起点）')
     if 'allowed_ber' in tr.columns:
         ax.axhline(float(tr['allowed_ber'].iloc[0]), color=C_LIMIT, ls='-.', lw=0.9,
-                   alpha=0.8, label='Model B 拦截线（+25%）' if not small else None)
+                   alpha=0.8, label='安全红线（种子×1.25）')
     ax.set_yscale('log')
     ax.grid(True, which='both', ls='--', alpha=0.35)
     if title:
         ax.set_title(title, fontsize=9.5)
     if small:
         ax.tick_params(labelsize=7)
+
+
+def _add_shared_legend(fig, loc='upper center', ncol=5, fontsize=9, y_offset=0.985):
+    """在 figure 顶部（suptitle 下方）放统一图例，避免子图内 legend 挤压数据。"""
+    handles, labels = [], []
+    # 用 proxy artist 保证顺序和颜色一致
+    from matplotlib.lines import Line2D
+    handles = [
+        Line2D([0], [0], color=C_PREDA, marker='^', ms=5, ls='--', lw=1.2,
+               label='Model A 预测（方向代理）'),
+        Line2D([0], [0], color=C_PREDB, marker='s', ms=5, ls=':', lw=1.2,
+               label='Model B 预测（风险控制）'),
+        Line2D([0], [0], color=C_REAL, marker='o', ms=5, lw=1.5,
+               label='实测 BER_MLSE'),
+        Line2D([0], [0], color=C_SEED, ls='--', lw=1.2, label='种子 BER（起点）'),
+        Line2D([0], [0], color=C_LIMIT, ls='-.', lw=1.2, label='安全红线（种子×1.25）'),
+    ]
+    fig.legend(handles=handles, loc=loc, ncol=ncol, fontsize=fontsize,
+               framealpha=0.9, edgecolor='#ccc', bbox_to_anchor=(0.5, y_offset))
 
 
 def figure_convergence_grid(test_dir, report_dir, envs):
@@ -107,14 +127,12 @@ def figure_convergence_grid(test_dir, report_dir, envs):
         r = rows[env]
         imp = r['seed_ber'] / r['best_ber']
         _plot_convergence(ax, tr, r,
-                          title=f'{env}\n({env_label(env)})  改善 ×{imp:.2f}', small=True)
-        if i == 0:
-            ax.legend(fontsize=6.5, loc='lower left')
+                          title=f'{env}\n改善 ×{imp:.2f}', small=True)
     for j in range(n, len(axes)):
         axes[j].axis('off')
-    fig.suptitle('DDPS v6 在线调优：Model A 预测 / Model B 预测 / 实测 BER_MLSE'
-                 '（gain 维由发端 RMS 物理目标驱动；FFE/CTLE 走基线代理泛化）', fontsize=11)
-    fig.tight_layout(rect=(0, 0, 1, 0.965))
+    fig.suptitle('DDPS v6 在线调优收敛轨迹（15 环境，只用基线训练泛化）', fontsize=12)
+    _add_shared_legend(fig, ncol=5, fontsize=9, y_offset=0.965)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
     out = os.path.join(report_dir, 'ddps_v6_convergence.png')
     fig.savefig(out, dpi=125)
     plt.close(fig)
@@ -137,11 +155,13 @@ def figure_gain_rms(test_dir, report_dir, envs):
             continue
         steps = tr['step'].values
         ax.plot(steps, tr['gain_ratio'].values, marker='o', ms=4, lw=1.5,
-                color=C_GAIN, label='gain 倍率')
+                color=C_GAIN, label='gain 倍率（左轴）')
         ax2 = ax.twinx()
         ax2.plot(steps, tr['drive_rms'].values, marker='s', ms=3, ls='--',
-                 lw=1.0, color=C_REAL, label='drive_rms')
-        ax2.axhline(D.TARGET_DRIVE_RMS, color=C_LIMIT, ls=':', lw=0.8, alpha=0.7)
+                 lw=1.0, color=C_REAL, label='drive_rms (V)（右轴）')
+        target = float(tr['target_rms'].iloc[0]) if 'target_rms' in tr.columns else D.TARGET_DRIVE_RMS
+        ax2.axhline(target, color=C_LIMIT, ls=':', lw=0.8, alpha=0.7,
+                    label='target_rms 目标')
         ax.set_title(f'{env}', fontsize=9)
         ax.set_xlabel('步数', fontsize=8)
         ax.set_ylabel('gain 倍率', fontsize=8, color=C_GAIN)
@@ -149,18 +169,33 @@ def figure_gain_rms(test_dir, report_dir, envs):
         ax.tick_params(labelsize=7)
         ax2.tick_params(labelsize=7)
         ax.grid(True, ls='--', alpha=0.35)
-        if i == 0:
-            ax.legend(fontsize=6, loc='upper left')
-            ax2.legend(fontsize=6, loc='upper right')
     for j in range(n, len(axes)):
         axes[j].axis('off')
-    fig.suptitle('DDPS v6：gain 维物理驱动轨迹（drive_rms 锁定到目标 0.14V，'
-                 'gain 倍率随环境自适应）', fontsize=11)
-    fig.tight_layout(rect=(0, 0, 1, 0.965))
+    fig.suptitle('DDPS v6 gain 维物理驱动轨迹（drive_rms 锁定到 per-case target_rms）',
+                 fontsize=12)
+    from matplotlib.lines import Line2D
+    _h = [Line2D([0], [0], color=C_GAIN, marker='o', ms=5, lw=1.5, label='gain 倍率（左轴）'),
+          Line2D([0], [0], color=C_REAL, marker='s', ms=4, ls='--', lw=1.0, label='drive_rms (V)（右轴）'),
+          Line2D([0], [0], color=C_LIMIT, ls=':', lw=1.2, label='per-case target_rms 目标')]
+    fig.legend(handles=_h, loc='upper center', ncol=3, fontsize=9,
+               framealpha=0.9, edgecolor='#ccc', bbox_to_anchor=(0.5, 0.965))
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
     out = os.path.join(report_dir, 'ddps_v6_gain_rms.png')
     fig.savefig(out, dpi=125)
     plt.close(fig)
     return out
+
+CAT_COLORS = {"基线": "#0b63ce", "IL": "#e08a1e", "CD": "#0f8a4a",
+           "DGD": "#8e44ad", "复合": "#c0392b", "高噪": "#555555"}
+
+def _env_category(env):
+    if env == "Base_IL10x10": return "基线"
+    if env.startswith("Comb"): return "复合"
+    if env.startswith("HighNoise"): return "高噪"
+    if "CD" in env: return "CD"
+    if "DGD" in env: return "DGD"
+    if "IL" in env: return "IL"
+    return "基线"
 
 
 def figure_tracking(test_dir, report_dir, envs):
@@ -180,7 +215,9 @@ def figure_tracking(test_dir, report_dir, envs):
         all_dA.extend(dA[1:]); all_dR.extend(dR[1:])
         c = np.corrcoef(dA, dR)[0, 1] if np.std(dA) > 1e-9 and np.std(dR) > 1e-9 else 0.0
         corrs.append(c); labels.append(env)
-        ax1.scatter(dA, dR, s=20, alpha=0.6, label=env)
+        # 按类别着色，不逐用例加 legend
+        cat = _env_category(env)
+        ax1.scatter(dA, dR, s=20, alpha=0.6, color=CAT_COLORS[cat])
     lo = min(min(all_dA), min(all_dR)) - 0.02
     hi = max(max(all_dA), max(all_dR)) + 0.02
     ax1.plot([lo, hi], [lo, hi], 'k--', lw=1, alpha=0.5)
@@ -189,6 +226,10 @@ def figure_tracking(test_dir, report_dir, envs):
     ax1.set_title('预测变化量 vs 实测变化量（逐用例逐步）', fontsize=11)
     ax1.set_xlim(lo, hi); ax1.set_ylim(lo, hi)
     ax1.grid(True, ls='--', alpha=0.3)
+    from matplotlib.lines import Line2D
+    _h = [Line2D([0],[0], marker='o', ms=6, ls='', color=c, label=cat)
+           for cat, c in CAT_COLORS.items()]
+    ax1.legend(handles=_h, fontsize=8, loc='lower right', framealpha=0.9)
     colors = ['#0b63ce' if c >= 0 else '#c0392b' for c in corrs]
     ax2.barh(range(len(corrs)), corrs, color=colors, height=0.6)
     ax2.set_yticks(range(len(labels)))
@@ -241,6 +282,7 @@ def figure_hardcase(test_dir, report_dir, envs):
     # (1) 收敛三曲线
     _plot_convergence(axes[0, 0], tr, summ[summ['env'] == hard_env].iloc[0],
                       title=f'{hard_env} 收敛轨迹')
+    axes[0, 0].legend(fontsize=7, loc='lower left', framealpha=0.9)
     # (2) FFE 抽头 seed vs best
     ax = axes[0, 1]
     x = np.arange(len(seed_taps))
