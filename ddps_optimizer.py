@@ -713,7 +713,12 @@ if __name__ == "__main__":
 # ============================================================
 
 def _probe_features(config, taps, gdc, gdc2, gain):
-    """提取 Model A 的 8 维探针特征：7-tap Tx FIR + drive_rms。"""
+    """提取 Model A 的 8 维探针特征：7-tap Tx FIR + drive_rms。
+
+    必须先把 gdc/gdc2/gain 写入 config，否则探针用的是上次的 CTLE 设置，
+    CTLE 维的链式梯度恒为 0。
+    """
+    _apply_x_to_config(config, gdc, gdc2, gain)
     fir, drive_rms = extract_tx_features(config, custom_tx_taps=taps, num_taps=7)
     return np.concatenate([fir, [drive_rms]])
 

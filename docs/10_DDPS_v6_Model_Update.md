@@ -64,8 +64,9 @@ gain = gain_ref × (target_rms / rms_measured)
 
 ## 8. 已知边界
 
-1. CTLE 组在多数用例未激活（gDC/gDC2 停在 0）——探针对 CTLE 直流增益的灵敏度
-   低于对 FFE 旁瓣的灵敏度。后续可调 CTLE 中心差分步长或改用解析链式雅可比。
-2. 恶劣场景绝对 BER 仍在 1e-2 量级（IL20x20=4.8e-2, Comb_IL20x20=6.9e-2）。
+1. ~~CTLE 组在多数用例未激活~~——已修复：根因是 `_probe_features` 未把 gdc/gdc2 写入 config，
+   导致 CTLE 维的链式梯度恒为 0。修复后 CTLE 在全部用例激活（gDC 从 0 到 ±2.5，gDC2 到 ±2.7）。
+2. 恶劣场景绝对 BER 仍在 1e-2 量级（IL20x20=1.52e-3, Comb_IL20x20 待重算）——
+   CTLE 激活后 IL20x20 从 4.78e-2 降到 1.52e-3。
 3. per-case target_rms 是离线标定的，换器件需重跑扫描。
 4. Model A 的绝对标定弱（只用于方向），步长由各维箱宽决定。

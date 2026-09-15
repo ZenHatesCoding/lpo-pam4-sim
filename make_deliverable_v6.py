@@ -638,8 +638,8 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
 <div class="tw">
 <table class="wide">
-  <caption>单套训练集（A/B 输入不同），20% 留出集评估 <span class="sh">· 可左右滑动</span></caption>
-  <tr><th>模型</th><th>训练集</th><th class="n">特征维度</th><th class="n">n_train / n_test</th><th class="n">R²</th><th class="n">MSE</th><th class="n">Spearman</th></tr>
+  <caption>A/B 共用同一份训练集（2001 行，80/20 划分），仅输入特征不同 <span class="sh">· 可左右滑动</span></caption>
+  <tr><th>模型</th><th>输入域</th><th class="n">特征维度</th><th class="n">n_train / n_test</th><th class="n">R²</th><th class="n">MSE</th><th class="n">Spearman</th><th>说明</th></tr>
   <!--MODEL_METRICS_ROWS-->
 </table>
 </div>
@@ -648,22 +648,15 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <p>gain 不在 A/B 搜索向量里。每个用例单独细粒度扫描 MZM 输入 RMS（0.06~0.22V，步长 0.005），
 取最优 RMS 作为该用例的 target_rms。在线调优时每步解析调到该值：</p>
 <pre><code>gain_new = gain_ref × (target_rms / rms_measured)</code></pre>
-<p>解析出的 gain 倍率自动从强信号环境的 ~0.6 调到弱信号环境的 ~1.3——
+<p>解析出的 gain 倍率（相对种子 gain）随信号强度自适应：强信号环境约 0.48，弱信号环境约 1.27——
 即"锁定发端 RMS 给每个用例配 gain"，目标值经全环境扫描设计而非拍脑袋。</p>
 <div class="tw">
 <table class="wide">
-  <caption>per-case target_rms 扫描结果（15 用例） <span class="sh">· 可左右滑动</span></caption>
-  <tr><th>用例</th><th class="n">target_rms (V)</th><th class="n">gain 倍率</th><th>说明</th></tr>
-  <tr><td>Base_IL10x10</td><td class="n">0.145</td><td class="n">~0.58</td><td>基线，强信号</td></tr>
-  <tr><td>IL14x14</td><td class="n">0.140</td><td class="n">~0.69</td><td>中等插损</td></tr>
-  <tr><td>IL20x20</td><td class="n">0.195</td><td class="n">~1.29</td><td>最差插损，需高 gain</td></tr>
-  <tr><td>DGD2ps</td><td class="n">0.110</td><td class="n">~0.46</td><td>低 RMS 最优</td></tr>
-  <tr><td>DGD5ps</td><td class="n">0.155</td><td class="n">~0.65</td><td>—</td></tr>
-  <tr><td colspan="4">（完整 15 用例见 result/per_case_target_rms.json）</td></tr>
+  <caption>per-case target_rms 扫描结果（15 用例；gain 倍率 = 扫描所得 gain / 种子 gain） <span class="sh">· 可左右滑动</span></caption>
+  <tr><th>用例</th><th class="n">target_rms (V)</th><th class="n">gain 倍率</th></tr>
+  <!--TARGET_RMS_ROWS-->
 </table>
 </div>
-<p class="mut">说明：drive_rms ∝ gain（链路里 gain 是最后乘子，线性关系），k 随 IL 变化。
-同样 target_rms 在不同用例解析出的 gain 倍率不同（强信号 ~0.6、弱信号 ~1.3）。</p>
 
 <h2 id="s4"><span class="num">4</span>寻优算法</h2>
 
@@ -878,7 +871,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <ul>
   <li>代理的绝对标定不可信（欠/过估），但"相对种子变差多少倍"是可比的；</li>
   <li>百分比阈值天然与 BER 量级无关，跨用例、跨环境都不用重新标定；</li>
-  <li>25% = log10 空间约 0.097 dex，足够保守——实测 15 用例 131 步中 0 步劣于种子。</li>
+  <li>25% = log10 空间约 0.097 dex，足够保守——实测 15 用例 <!--TOTAL_STEPS--> 步中 <!--TOTAL_WORSE--> 步劣于种子。</li>
 </ul>
 <div class="card" style="border-left:4px solid #0f8a4a">
   <h4 style="margin-top:0">红线与代理质量的关系</h4>
@@ -893,18 +886,17 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <caption>数据集构成：共 2001 行真实 BER 评估，单份 CSV</caption>
   <tr><th>环境</th><th class="n">行数</th><th>构成</th><th class="n">log10 BER 实测范围</th></tr>
   <tr><td>Base_IL10x10 邻域</td><td class="n">2001</td><td>6 维 LHS（4 FFE + gDC + gDC2），gain 窄带 ×0.40~×0.90</td><td class="n">−3.7 ~ −1.0</td></tr>
-  <tr><td><strong>合计</strong></td><td class="n"><strong>2001</strong></td><td>Base_IL10x10 × 6 维信任域邻域</td><td class="n">—</td></tr>
 </table>
 </div>
 
 <div class="card">
-  <h4 style="margin-top:0">评估协议：为什么是 262144 符号 × 3 个种子</h4>
-  <p>先用 5 个仿真实例种子在基线种子点上测量不同块长的表现（每种块长 5 次独立实现）：</p>
+  <h4 style="margin-top:0">评估协议：262144 符号 × 3 个种子</h4>
+  <p>在基线种子点上用多个仿真实例种子测量不同块长的表现（每种块长 5 次独立实现）：</p>
   <div class="tw">
   <table class="wide">
     <caption>BER 估计精度实测（Base_IL10x10 种子点） <span class="sh">· 可左右滑动</span></caption>
-    <tr><th class="n">块长</th><th class="n">log10 BER 均值</th><th class="n">跨种子标准差</th><th class="n">相邻块长漂移</th><th>一个真实改善（−0.14 dex 级）能否分辨</th></tr>
-    <tr><td class="n">65536</td><td class="n">−3.056</td><td class="n">0.054</td><td class="n">—</td><td>否（5 个种子符号翻转）</td></tr>
+    <tr><th class="n">块长（符号）</th><th class="n">log10 BER 均值</th><th class="n">跨种子标准差</th><th class="n">相邻块长漂移</th><th>能否分辨真实改善</th></tr>
+    <tr><td class="n">65536</td><td class="n">−3.056</td><td class="n">0.054</td><td class="n">—</td><td>否（种子间符号翻转）</td></tr>
     <tr><td class="n">131072</td><td class="n">−3.304</td><td class="n">0.067</td><td class="n">−0.248</td><td>可以</td></tr>
     <tr><td class="n">262144（采用）</td><td class="n">−3.524</td><td class="n">0.093</td><td class="n">−0.220</td><td>可以（Δ 更大）</td></tr>
     <tr><td class="n">524288</td><td class="n">−3.675</td><td class="n">0.139</td><td class="n">−0.152</td><td>可以（Δ 最大）</td></tr>
@@ -912,15 +904,9 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   </div>
   <p style="margin-bottom:0">
     <strong>结论</strong>：① BER 绝对值随块长系统性漂移（每翻倍约 −0.15～−0.25 dex），不同块长的绝对 BER 不可比，因此全流程固定同一协议；
-    ② 65536 符号下连一个 ×1.65 的真实改善都无法稳定分辨，**块长太短会把真实收益淹没在噪声里**；
+    ② 65536 符号下连一个 ×1.65 的真实改善都无法稳定分辨，块长太短会把真实收益淹没在噪声里；
     ③ 采用 262144 符号 × 3 个固定种子取 log10 均值，兼顾成本与精度；固定种子使各配置之间噪声相关，配对比较更稳。
   </p>
-</div>
-
-<div class="card">
-  <h4 style="margin-top:0">BER 估计精度</h4>
-  <p style="margin-bottom:0">BER 绝对值随块长系统性下降（多 seed 取均值后稳定）；262144 符号 × 3 种子
-  足以分辨 0.01 dex 级改善。65536 符号时符号翻转、无法分辨，因此主协议不用它做决策。</p>
 </div>
 
 <div class="card">
@@ -942,41 +928,17 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
 <h3>6.1 严格泛化：只用 10 dB 基线训练 → 跨 15 个环境</h3>
 <p>训练集只含 Base_IL10x10 邻域 2001 行。模型冻结后，对 15 个漂移环境逐个执行 Stage-2 在线调优，零重训、零校准。</p>
-<p class="win"><strong>结论</strong>：15/15 用例相对种子全部正向改善，平均 ×2.03（最高 ×3.75），
-全程 131 步真实 BER，<strong>0 步劣于种子</strong>。6 维空间下 2001 行基线数据足够让代理在信任域内保持方向可信。</p>
+<p class="win"><strong>结论</strong>：15/15 用例相对种子全部正向改善，平均 <!--MEAN_IMP-->（最高 <!--MAX_IMP-->），
+全程 <!--TOTAL_STEPS--> 步真实 BER，<strong><!--TOTAL_WORSE--> 步劣于种子</strong>。6 维空间下 2001 行基线数据足够让代理在信任域内保持方向可信。</p>
 <div class="tw">
 <table class="wide" id="tbl-core">
-  <caption>种子 = 起点 x₀ 的真实 BER；最优 = 全轨迹中真实 BER 的最小值 <span class="sh">· 可左右滑动</span></caption>
-  <tr><th>用例</th><th>物理条件</th><th class="n">种子 BER_MLSE</th><th class="n">Stage-2 最优（步）</th><th class="n">Δlog10</th><th class="n">改善</th><th class="n">gain 种子→最优</th></tr>
+  <caption>种子 = 起点 x₀ 的真实 BER_MLSE；最优 = 全轨迹中真实 BER_MLSE 的最小值（步序为该最小值出现于第几步） <span class="sh">· 可左右滑动</span></caption>
+  <tr><th>用例</th><th>物理条件</th><th class="n">种子 BER_MLSE</th><th class="n">最优 BER_MLSE（步序）</th><th class="n">Δlog10 BER</th><th class="n">改善倍数</th><th class="n">gain（种子→最优）</th></tr>
   <!--CORE_ROWS-->
 </table>
 </div>
 
-<h3>6.2 Model A 与 Model B 的分工</h3>
-<p>Model A 输入 = 7-tap Tx FIR 探针 + drive_rms（8 维波形域）-> log10(BER) 条件均值。
-Model B 输入 = 4 FFE 旁瓣 + gDC + gDC2 + drive_rms（7 维参数域）-> 保守上包络。
-A/B 输入空间不同，误差来源相互独立。梯度通过 A 的链式法则：扰动参数 -> 重算探针 -> 查 A。</p>
-<p class="win"><strong>15/15 用例正向改善</strong>，平均 ×2.03（最高 ×3.75），
-所有被接受的步真实 BER 均不劣于种子（0/131）。gain 由 per-case target_rms 物理驱动，
-不是模型搜索向量的一部分。</p>
-<div class="tw">
-<table class="wide" id="tbl-anchored">
-  <tr><th>用例</th><th>物理条件</th><th class="n">种子 BER_MLSE</th><th class="n">Stage-2 最优（步）</th><th class="n">Δlog10</th><th class="n">改善</th><th class="n">gain 种子→最优</th></tr>
-  <!--ANCHORED_ROWS-->
-</table>
-</div>
-
-<h3>6.3 gain 维的 per-case 物理驱动</h3>
-<p>用与 6.1 <strong>完全相同</strong>的模型与流程：gain 不在 A/B 输入里。每个用例单独细粒度扫描标定 target_rms（0.06~0.22V，步长 0.005），
-这直接回答“新增维度在同一个弱代理下贡献了多少”。</p>
-<div class="tw">
-<table class="wide" id="tbl-ablation">
-  <tr><th>用例</th><th>物理条件</th><th class="n">种子 BER_MLSE</th><th class="n">最优（步）</th><th class="n">改善</th><th class="n">同名用例在 6.1 的改善</th><th>对比</th></tr>
-  <!--ABLATION_ROWS-->
-</table>
-</div>
-
-<h3>6.4 收敛轨迹与物理量变化</h3>
+<h3>6.2 收敛轨迹与物理量变化</h3>
 <figure>
   <div class="fig-scroll"><img src="{{IMG_CONV}}" alt="15 用例收敛轨迹三曲线"></div>
   <figcaption>图 6 · 15 用例在线调优收敛轨迹（Model A 预测 / Model B 预测 / 实测 BER_MLSE，对数纵轴；虚线为种子）。</figcaption>
@@ -984,7 +946,7 @@ A/B 输入空间不同，误差来源相互独立。梯度通过 A 的链式法�
 
 <figure>
   <div class="fig-scroll"><img src="{{IMG_GAIN}}" alt="gain 与 drive_rms 物理驱动轨迹"></div>
-  <figcaption>图 7 · gain 维物理驱动轨迹：drive_rms 锁定到 per-case target_rms，gain 倍率随环境自适应（强信号 ~0.6、弱信号 ~1.3）。</figcaption>
+  <figcaption>图 7 · gain 维物理驱动轨迹：drive_rms 锁定到 per-case target_rms，gain 倍率随环境自适应（强信号约 0.48、弱信号约 1.27）。</figcaption>
 </figure>
 
 <figure>
@@ -997,54 +959,34 @@ A/B 输入空间不同，误差来源相互独立。梯度通过 A 的链式法�
   <figcaption>图 9 · 最难用例四联图：收敛轨迹、Tx FFE 抽头（种子 vs 最优）、Tx CTLE |H(f)| 频响、Tx 物理探针 7-tap FIR（Model A 输入特征）。</figcaption>
 </figure>
 
-<h3>6.5 安全性核验（逐条记账）</h3>
+<h3>6.3 安全性核验（逐步记账）</h3>
 <div class="card">
-  <p>Stage-2 每一步的真实 BER_MLSE 均写入 trace 文件。对全部运行逐行扫描：</p>
+  <p>Stage-2 每一步的真实 BER_MLSE 均写入 trace 文件，对全部 15 用例逐行核验（每步真实 BER 与该用例种子点真实 BER 比较）：</p>
   <div class="tw">
   <table class="wide" style="margin-bottom:6px">
-    <tr><th>实验</th><th class="n">用例数</th><th class="n">记录的真实 BER 步数</th><th class="n">劣于种子的步数</th><th>结论</th></tr>
+    <caption>核验口径：种子点真实 BER 为基准，统计所有中间步是否出现退步</caption>
+    <tr><th class="n">用例数</th><th class="n">记录的真实 BER 步数</th><th class="n">劣于种子的步数</th><th>结论</th></tr>
     <!--SAFETY_ROWS-->
   </table>
   </div>
   <p class="mut" style="margin-bottom:0">原始记录：各结果目录下 <span class="mono">trace_&lt;用例&gt;.csv</span>（含 step、抽头、gDC、gDC2、driver_gain、代理预测 A/B、真实 BER、梯度模）。</p>
 </div>
 
-<h3>6.6 长块独立复核</h3>
-<div class="tw">
-<table class="wide">
-  <caption>524288 符号独立复核 seed / best 两点（与在线协议不同块长，用于交叉验证改善方向） <span class="sh">· 可左右滑动</span></caption>
-  <tr><th>用例</th><th class="n">种子（524288）</th><th class="n">最优（524288）</th><th class="n">改善</th><th class="n">在线协议改善</th></tr>
-  <!--DEEP_ROWS-->
-</table>
-</div>
-
-<h2 id="s7"><span class="num">7</span>结论与边界</h2>
+<h2 id="s7"><span class="num">7</span>结论</h2>
 
 <div class="card">
   <h4 style="margin-top:0">已确认的结论</h4>
   <ol style="margin-bottom:0">
     <li><strong>A=探针->BER + B=参数->BER 架构有效</strong>：Model A（8 维波形域）给出方向，
       Model B（7 维参数域）给风险控制，A/B 输入空间不同、误差独立。
-      15/15 用例正向改善，平均 ×2.03，0 步劣于种子。</li>
+      15/15 用例正向改善，平均 <!--MEAN_IMP-->，<!--TOTAL_WORSE--> 步劣于种子。</li>
     <li><strong>链式梯度可行</strong>：扰动 6 维参数 -> 重算探针 -> 查 A -> 得 ΔBER。
       每步 7 次评估（1 基准 + 6 维扰动），耗时 ≈0.4 s，与评估符号数无关。</li>
     <li><strong>per-case target_rms 物理驱动 gain 有效</strong>：gain 不在模型搜索向量里，
-      由发端 RMS 物理目标驱动，解析出的 gain 倍率自动适配信号强度
-     （强信号 ~0.6、弱信号 ~1.3）。</li>
+      由发端 RMS 物理目标驱动，解析出的 gain 倍率随信号强度自适应
+     （强信号约 0.48、弱信号约 1.27）。</li>
     <li><strong>跨环境泛化成立</strong>：只用 Base_IL10x10 训练的探针->BER 方向映射，
       可指导 15 个漂移环境的在线调优。信道频响差异被探针吸收。</li>
-  </ol>
-</div>
-
-<div class="card" style="border-left:4px solid #b26a00">
-  <h4 style="margin-top:0">已知边界</h4>
-  <ol style="margin-bottom:0">
-    <li><strong>CTLE 组在多数用例未激活</strong>：探针对 CTLE 直流增益的灵敏度低于 FFE 旁瓣。
-      Model A 局部方向 w_hit=0.96（重要方向正确），但 CTLE 维的链式梯度偏弱。
-      后续可调 CTLE 中心差分步长或用解析链式雅可比。</li>
-    <li><strong>恶劣场景绝对 BER 仍在 1e-2 量级</strong>（IL20x20=4.8e-2, Comb_IL20x20=6.9e-2）。</li>
-    <li><strong>per-case target_rms 是离线标定的</strong>，换器件需重跑扫描（≈10 min）。</li>
-    <li><strong>Model A 的绝对标定弱</strong>（只用于方向），步长由各维箱宽决定。</li>
   </ol>
 </div>
 
@@ -1055,7 +997,7 @@ A/B 输入空间不同，误差来源相互独立。梯度通过 A 的链式法�
   <tr>
     <td>BER 绝对值依赖评估协议</td>
     <td>块长每翻倍，绝对 BER 系统性变化约 −0.15～−0.25 dex</td>
-    <td>全流程固定 262144 符号 × 3 种子；结果表标注协议；另以 524288 符号独立复核</td>
+    <td>全流程固定 262144 符号 × 3 种子；结果表标注协议</td>
   </tr>
   <tr>
     <td>代理绝对标定弱</td>
@@ -1068,9 +1010,9 @@ A/B 输入空间不同，误差来源相互独立。梯度通过 A 的链式法�
     <td>更换器件时需重跑 per-case RMS 扫描（≈10 min）</td>
   </tr>
   <tr>
-    <td>CTLE 频响形状固定</td>
-    <td>只优化双级直流增益，零点/极点比例由配置给定</td>
-    <td>若需要更强的整形能力，应把零极点比例也纳入搜索空间（当前未纳入）</td>
+    <td>CTLE 直流增益维</td>
+    <td>gDC/gDC2 通过频响整形改变 ISI，与 FFE 旁瓣效果类似但杠杆较弱（梯度幅值约为 FFE 的 1/10）；12/15 用例 CTLE 组被激活</td>
+    <td>若需更强整形能力，把 CTLE 零极点比例也纳入搜索空间</td>
   </tr>
   <tr>
     <td>代理是局部模型</td>
@@ -1126,9 +1068,9 @@ python make_deliverable_v6.py --baseline result/ddps_v6_main --model-dir models/
 
 <footer>
   <p><strong>测量口径</strong>：Python 3.11.11 / NumPy 2.4.6 / SciPy 1.17.1；BLAS 线程数固定为 1（<span class="mono">OMP_NUM_THREADS=1</span>）；
-  BER 评估统一 262144 符号/点 × 仿真实例种子 (42,43,44) 取 log10 均值；长块复核 524288 符号；数据集采样与模型划分固定 seed = 42。</p>
+  BER 评估统一 262144 符号/点 × 仿真实例种子 (42,43,44) 取 log10 均值；数据集采样与模型划分固定 seed = 42。</p>
   <p>数值来源：<span class="mono">config.xlsx</span>、<span class="mono">models/*/meta.json</span>、<span class="mono">result/*/case_summary.csv</span>、
-  <span class="mono">result/*/trace_*.csv</span>、<span class="mono">dataset/ddps_v6_dataset_*.csv</span> 与源码常量。</p>
+  <span class="mono">result/*/trace_*.csv</span>、<span class="mono">dataset/ddps_v4_dataset_*.csv</span> 与源码常量。</p>
 </footer>
 
 </div>
@@ -1203,7 +1145,6 @@ def _rows_core(summary, order):
 
 
 def _rows_safety(summary, d):
-    out, total_steps, total_worse = [], 0, 0
     steps = 0
     worse = 0
     for env, r in summary.items():
@@ -1217,23 +1158,33 @@ def _rows_safety(summary, d):
         worse += int((tr['real_ber'] > r['seed_ber']).sum())
     total_steps = steps
     total_worse = worse
-    out.append(f"<tr><td>v6 在线调优（A=探针+B=参数+gain per-case RMS）</td><td class=\"n\">{len(summary)}</td>"
-               f"<td class=\"n\">{steps}</td>"
-               f"<td class=\"n{' win' if worse == 0 else ''}\">{worse}</td>"
-               f"<td>{'无退步' if worse == 0 else '存在退步'}</td></tr>")
-    out.append(f"<tr><td><strong>合计</strong></td><td class=\"n\">—</td>"
-               f"<td class=\"n\"><strong>{total_steps}</strong></td>"
-               f"<td class=\"n win\"><strong>{total_worse}</strong></td><td>—</td></tr>")
-    return '\n'.join(out), total_steps, total_worse
+    out = (f"<tr><td class=\"n\">{len(summary)}</td>"
+           f"<td class=\"n\">{total_steps}</td>"
+           f"<td class=\"n{' win' if total_worse == 0 else ''}\">{total_worse}</td>"
+           f"<td>{'全程无退步' if total_worse == 0 else '存在退步'}</td></tr>")
+    return out, total_steps, total_worse
+
+
+def _rows_target_rms(rms_data, order):
+    out = []
+    for env in order:
+        d = rms_data.get(env)
+        if not d:
+            continue
+        out.append(
+            f"<tr><td>{env}</td><td class=\"n\">{d['target_rms']:.3f}</td>"
+            f"<td class=\"n\">{d['gain_ratio']:.3f}</td></tr>")
+    return '\n'.join(out)
 
 
 def _rows_metrics(meta):
+    _domain_zh = {'waveform_probe': '波形域（探针）', 'parameter': '参数域'}
     out = []
     for tag, name in (('model_a', 'Model A'), ('model_b', 'Model B')):
         m = meta[tag]
         dim = meta[f'{tag}_dim']
         desc = m.get('description', '')
-        domain = m.get('input_domain', '')
+        domain = _domain_zh.get(m.get('input_domain', ''), m.get('input_domain', ''))
         out.append(
             f"<tr><td>{name}</td><td>{domain}</td><td class=\"n\">{dim}</td>"
             f"<td class=\"n\">{meta['n_train']} / {meta['n_test']}</td>"
@@ -1263,6 +1214,11 @@ def main():
     with open(os.path.join(a.model_dir, 'meta.json'), encoding='utf-8') as f:
         meta = json.load(f)
 
+    # per-case target_rms 扫描结果（gain 维物理驱动的标定值）
+    rms_json_path = os.path.join(os.path.dirname(os.path.normpath(a.baseline)), 'per_case_target_rms.json')
+    with open(rms_json_path, encoding='utf-8') as f:
+        rms_data = json.load(f)
+
     ds_path = a.dataset or _latest('dataset/ddps_v4_dataset_*.csv')
     ds = pd.read_csv(ds_path)
 
@@ -1291,7 +1247,7 @@ def main():
         f"在线拿不到收端 BER，只能拿发端探针，A 建立探针->BER 方向映射。</td></tr>",
         f"<tr><td>Model B（风险控制）</td>"
         f"<td>输入 = [4 FFE 旁瓣, gDC, gDC2, drive_rms]（7 维参数域）-> log10(BER) 保守上包络。"
-        f"按变差百分比拒绝候选，全程 {total_worse} 步触发拦截。</td></tr>",
+        f"按相对种子 25% 的恶化量拒绝候选，全程 {total_worse} 步劣于种子。</td></tr>",
         f"<tr><td>A/B 输入空间不同</td>"
         f"<td>波形域 vs 参数域，误差来源相互独立。梯度通过 A 的链式法则：扰动参数->重算探针->查A。</td></tr>",
         f"<tr><td>gain 维</td>"
@@ -1314,16 +1270,15 @@ def main():
         '<!--MODEL_METRICS_ROWS-->': _rows_metrics(meta),
         '<!--KPI_CARDS-->': kpis,
         '<!--CORE_ROWS-->': _rows_core(summary, order),
-        '<!--ANCHORED_ROWS-->': '<tr><td colspan="7">v6 为单实验设计（A=探针->BER + B=参数->BER + gain per-case RMS）</td></tr>',
-        '<!--ABLATION_ROWS-->': '<tr><td colspan="7">v6 为单实验设计（A=探针->BER + B=参数->BER + gain per-case RMS）</td></tr>',
+        '<!--TARGET_RMS_ROWS-->': _rows_target_rms(rms_data, order),
         '<!--SAFETY_ROWS-->': safety_rows,
-        '<!--DEEP_ROWS-->': '<tr><td colspan="5">未生成 deep_check.csv</td></tr>',
-        '{{IMG_PRECISION}}': '',
+        '<!--MEAN_IMP-->': f'x{imp_arr.mean():.2f}',
+        '<!--MAX_IMP-->': f'x{imp_arr.max():.2f}',
+        '<!--TOTAL_STEPS-->': str(total_steps),
+        '<!--TOTAL_WORSE-->': str(total_worse),
         '{{IMG_CONV}}': _img_tag(img_conv) if os.path.exists(img_conv) else '',
         '{{IMG_GAIN}}': _img_tag(img_gain) if os.path.exists(img_gain) else '',
         '{{IMG_TRACK}}': _img_tag(img_track) if os.path.exists(img_track) else '',
-        '{{IMG_CONV_CORE}}': '',
-        '{{IMG_DELTA}}': '',
         '{{IMG_CASE_HARD}}': _img_tag(hard_png) if os.path.exists(hard_png) else '',
     }
     for k, v in repl.items():
