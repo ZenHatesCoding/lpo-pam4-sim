@@ -571,7 +571,21 @@ if __name__ == "__main__":
                     help='v5/v6 模式下的 MZM 输入 RMS 目标（V）；不指定时自动加载 per-case 扫描结果')
     ap.add_argument('--per-case-rms-path', type=str, default=None,
                     help='per-case target_rms JSON 路径（默认 result/per_case_target_rms.json）')
+    ap.add_argument('--seed-config', type=str, default=None,
+                    help='BO 寻优种子点 JSON（含 best_pre_post/best_gdc/best_gdc2）；'
+                         '不提供则用默认 SEED_TAPS')
     a = ap.parse_args()
+    # 覆盖种子点（用于非基线环境训练的模型）
+    if a.seed_config:
+        import json as _json
+        with open(a.seed_config, 'r', encoding='utf-8') as _f:
+            _sc = _json.load(_f)
+        _ffe_pre = int(D.FFE_PRE)
+        _pp = np.array(_sc['best_pre_post'], dtype=float)
+        D.SEED_TAPS = D.construct_taps(_pp, _ffe_pre).copy()
+        D.SEED_GDC = float(_sc['best_gdc'])
+        D.SEED_GDC2 = float(_sc['best_gdc2'])
+        print(f"[test] 种子点覆盖: taps={np.round(D.SEED_TAPS,4)} gDC={D.SEED_GDC:.2f} gDC2={D.SEED_GDC2:.2f}")
     sim_seeds = tuple(int(s) for s in str(a.sim_seeds).split(',') if s.strip())
     cloud_seeds = tuple(int(s) for s in str(a.cloud_sim_seeds).split(',') if s.strip())
     only = tuple(s.strip() for s in a.only_envs.split(',')) if a.only_envs else None

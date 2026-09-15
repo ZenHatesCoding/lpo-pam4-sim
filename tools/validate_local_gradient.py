@@ -44,7 +44,20 @@ def main():
     ap.add_argument('--out', default='result/ddps_v4_local_gradient.csv')
     ap.add_argument('--steps', default='0.05,0.05,0.05,0.05,1.0,1.0',
                     help='各轴中心差分步长（FFE 4 个、CTLE 2 个），逗号分隔；6 维 v5 模型')
+    ap.add_argument('--seed-config', default=None,
+                    help='BO 寻优种子点 JSON（覆盖 SEED_TAPS/SEED_GDC/SEED_GDC2）')
     args = ap.parse_args()
+
+    if args.seed_config:
+        import json as _json
+        with open(args.seed_config, 'r', encoding='utf-8') as _f:
+            _sc = _json.load(_f)
+        _pp = np.array(_sc['best_pre_post'], dtype=float)
+        _ffe_pre = int(D.FFE_PRE)
+        D.SEED_TAPS = D.construct_taps(_pp, _ffe_pre).copy()
+        D.SEED_GDC = float(_sc['best_gdc'])
+        D.SEED_GDC2 = float(_sc['best_gdc2'])
+        print(f"[gradient] 种子点覆盖: taps={np.round(D.SEED_TAPS,4)} gDC={D.SEED_GDC:.2f} gDC2={D.SEED_GDC2:.2f}")
 
     seeds = tuple(int(s) for s in args.sim_seeds.split(','))
     D.set_sim_seeds(seeds)

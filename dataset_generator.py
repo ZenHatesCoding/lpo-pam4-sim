@@ -177,8 +177,13 @@ def _worker_task(args):
 def generate_dataset(base_env=BASE_ENV, base_samples=320, anchor_samples=60,
                      num_symbols=131072, seed=42, sim_seeds=(42,), output_dir="dataset",
                      jobs=1, include_envs=None, core_samples=CORE_SAMPLES,
-                     v5=False, v5_gain_ratio_lo=0.40, v5_gain_ratio_hi=0.90):
+                     v5=False, v5_gain_ratio_lo=0.40, v5_gain_ratio_hi=0.90,
+                     seed_config=None):
     """生成环境锚定邻域数据集。
+
+    seed_config: dict with keys 'best_pre_post', 'best_gdc', 'best_gdc2' —
+    覆盖默认种子点（D.SEED_TAPS/SEED_GDC/SEED_GDC2），用于非基线环境训练。
+    gain 仍由 v5 窄带 / per-case target_rms 驱动，不从 seed_config 读。
 
     v5 模式：driver_gain 不在整箱对数均匀采样（那会让 FFE/CTLE→BER 映射被增益模糊），
     而是在**目标 RMS 附近**窄带采样（基线最优 ratio ~0.5-0.7），使代理学到的
@@ -195,7 +200,23 @@ def generate_dataset(base_env=BASE_ENV, base_samples=320, anchor_samples=60,
     base_cfg['system']['enable_spectrum_plot'] = False
 
     ffe_pre = int(base_cfg['tx'].get('ffe_pre', D.FFE_PRE))
-    seed_pre_post = np.concatenate([D.SEED_TAPS[:ffe_pre], D.SEED_TAPS[ffe_pre + 1:]])
+
+    # 种子点：默认用 D.SEED_*；若 seed_config 提供则覆盖（BO 寻优结果）
+    if seed_config is not None:
+        seed_pre_post = np.array(seed_config['best_pre_post'], dtype=float)
+        seed_gdc = float(seed_config['best_gdc'])
+        seed_gdc2 = float(seed_config['best_gdc2'])
+        # 覆盖模块级常量，让 _sample_point / _worker_task / construct_taps 自动用新种子
+        taps_full = D.construct_taps(seed_pre_post, ffe_pre)
+        D.SEED_TAPS = taps_full.copy()
+        D.SEED_GDC = seed_gdc
+        D.SEED_GDC2 = seed_gdc2
+        print(f"[dataset] 使用 BO 寻优种子点: pre_post={np.round(seed_pre_post,4)} "
+              f"gDC={seed_gdc:.2f} gDC2={seed_gdc2:.2f} | full taps={np.round(taps_full,4)}")
+    else:
+        seed_pre_post = np.concatenate([D.SEED_TAPS[:ffe_pre], D.SEED_TAPS[ffe_pre + 1:]])
+        seed_gdc = D.SEED_GDC
+        seed_gdc2 = D.SEED_GDC2
 
     sim_seeds = tuple(int(s) for s in sim_seeds)
 
@@ -297,11 +318,23 @@ if __name__ == "__main__":
                    help='v5 模式：gain 在目标 RMS 附近窄带采样，使 FFE/CTLE 形状-BER 关系清晰')
     p.add_argument('--v5-gain-lo', type=float, default=0.40, help='v5 gain 倍率下界')
     p.add_argument('--v5-gain-hi', type=float, default=0.90, help='v5 gain 倍率上界')
+    p.add_argument('--base-env', type=str, default=None,
+                   help='基线训练环境名（默认 Base_IL10x10）；设为 IL20x20 则用 20dB 环境训练')
+    p.add_argument('--seed-config', type=str, default=None,
+                   help='BO 寻优种子点 JSON 路径（含 best_pre_post/best_gdc/best_gdc2）；'
+                        '不提供则用默认 SEED_TAPS')
     a = p.parse_args()
     sim_seeds = tuple(int(s) for s in str(a.sim_seeds).split(',') if s.strip())
     only = tuple(s.strip() for s in a.only_envs.split(',')) if a.only_envs else None
+    base_env = a.base_env if a.base_env else BASE_ENV
+    seed_cfg = None
+    if a.seed_config:
+        import json as _json
+        with open(a.seed_config, 'r', encoding='utf-8') as _f:
+            seed_cfg = _json.load(_f)
     generate_dataset(base_samples=a.base_samples, anchor_samples=a.anchor_samples,
                      num_symbols=a.num_symbols, seed=a.seed, sim_seeds=sim_seeds,
                      output_dir=a.out_dir, jobs=a.jobs, include_envs=only,
                      core_samples=a.core_samples, v5=a.v5,
-                     v5_gain_ratio_lo=a.v5_gain_lo, v5_gain_ratio_hi=a.v5_gain_hi)
+                     v5_gain_ratio_lo=a.v5_gain_lo, v5_gain_ratio_hi=a.v5_gain_hi,
+                     base_env=base_env, seed_config=seed_cfg)

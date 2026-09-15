@@ -7,9 +7,10 @@ gain 用 per-case target_rms 物理驱动（IL20x20 target_rms=0.195V）
 目标：最小化 log10(BER_MLSE)
 """
 import numpy as np
-import os, json, math
+import os, sys, json, math
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import ddps_optimizer as D
-from ddps_cases import apply_env_to_config
+from ddps_cases import apply_env_to_config, ENV_CASES
 from utils_config import load_config
 from main import run_sim
 from optimizers.bo_optimizer import BayesianOptimizer
@@ -30,7 +31,7 @@ def objective(params):
 
     # gain 解析调到 target_rms
     cfg = apply_env_to_config(load_config('config.xlsx'),
-                              next(e for e in D.ENV_CASES if e['name'] == ENV_NAME))
+                              next(e for e in ENV_CASES if e['name'] == ENV_NAME))
     cfg['system']['num_symbols'] = N_SYMBOLS
     D._apply_x_to_config(cfg, gdc, gdc2, D.SEED_GAIN)
     rms = D._measure_drive_rms(cfg, taps, gdc, gdc2, D.SEED_GAIN)
