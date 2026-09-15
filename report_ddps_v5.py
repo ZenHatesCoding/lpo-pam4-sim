@@ -140,6 +140,100 @@ def figure_gain_rms(test_dir, report_dir, envs):
     return out
 
 
+def figure_tracking(test_dir, report_dir, envs):
+    """Δ预测 vs Δ实测 散点 + 逐用例相关系数。"""
+    os.makedirs(report_dir, exist_ok=True)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5.5))
+    corrs = []
+    labels = []
+    all_dA, all_dR = [], []
+    for env in envs:
+        tr = _trace(test_dir, env)
+        if tr is None or tr.empty or len(tr) < 3:
+            corrs.append(np.nan); labels.append(env)
+            continue
+        dA = tr['pred_a'].values - tr['pred_a'].iloc[0]
+        dR = tr['real_lb'].values - tr['real_lb'].iloc[0]
+        all_dA.extend(dA[1:]); all_dR.extend(dR[1:])
+        c = np.corrcoef(dA, dR)[0, 1] if np.std(dA) > 1e-9 and np.std(dR) > 1e-9 else 0.0
+        corrs.append(c); labels.append(env)
+        ax1.scatter(dA, dR, s=20, alpha=0.6, label=env)
+    lo = min(min(all_dA), min(all_dR)) - 0.02
+    hi = max(max(all_dA), max(all_dR)) + 0.02
+    ax1.plot([lo, hi], [lo, hi], 'k--', lw=1, alpha=0.5)
+    ax1.set_xlabel('Δ预测 (dex)', fontsize=10)
+    ax1.set_ylabel('Δ实测 (dex)', fontsize=10)
+    ax1.set_title('预测变化量 vs 实测变化量（逐用例逐步）', fontsize=11)
+    ax1.set_xlim(lo, hi); ax1.set_ylim(lo, hi)
+    ax1.grid(True, ls='--', alpha=0.3)
+    colors = ['#0b63ce' if c >= 0 else '#c0392b' for c in corrs]
+    ax2.barh(range(len(corrs)), corrs, color=colors, height=0.6)
+    ax2.set_yticks(range(len(labels)))
+    ax2.set_yticklabels(labels, fontsize=8)
+    ax2.axvline(0, color='k', lw=0.8)
+    ax2.set_xlabel('corr(Δ预测, Δ实测)', fontsize=10)
+    ax2.set_title('逐用例相关系数', fontsize=11)
+    ax2.grid(True, ls='--', alpha=0.3, axis='x')
+    fig.tight_layout()
+    out = os.path.join(report_dir, 'ddps_v5_tracking.png')
+    fig.savefig(out, dpi=125)
+    plt.close(fig)
+    return out
+
+
+def figure_hardcase(test_dir, report_dir, envs):
+    """最难用例四联图：收敛三曲线 + FFE 抽头 + CTLE 频响 + gain 轨迹。"""
+    os.makedirs(report_dir, exist_ok=True)
+    summ = _summary(test_dir)
+    hard_env = max(envs, key=lambda e: summ[summ['env'] == e].iloc[0]['seed_ber']
+                   if e in summ['env'].values else 0)
+    tr = _trace(test_dir, hard_env)
+    if tr is None or tr.empty:
+        return None
+    fig, axes = plt.subplots(2, 2, figsize=(12, 9))
+    # (1) 收敛三曲线
+    _plot_convergence(axes[0, 0], tr, summ[summ['env'] == hard_env].iloc[0],
+                      title=f'{hard_env} 收敛轨迹')
+    # (2) FFE 抽头种子 vs 收敛
+    ax = axes[0, 1]
+    seed_taps = D.SEED_TAPS.copy()
+    best_row = tr.iloc[int(tr['real_ber'].values.argmin())]
+    try:
+        best_taps = np.array(json.loads(best_row['taps']) if isinstance(best_row['taps'], str)
+                              else best_row['taps'], float)
+    except Exception:
+        best_taps = seed_taps
+    x = np.arange(len(seed_taps))
+    ax.bar(x - 0.15, seed_taps, 0.3, label='种子', color='#0b63ce', alpha=0.7)
+    ax.bar(x + 0.15, best_taps, 0.3, label='最优', color='#0f8a4a', alpha=0.7)
+    ax.set_xticks(x); ax.set_xticklabels([f't{i}' for i in x], fontsize=9)
+    ax.set_ylabel('抽头值', fontsize=9); ax.legend(fontsize=8)
+    ax.set_title('5-tap Tx FFE（种子 vs 最优）', fontsize=10)
+    ax.grid(True, ls='--', alpha=0.3)
+    # (3) gain 倍率轨迹
+    ax = axes[1, 0]
+    ax.plot(tr['step'].values, tr['gain_ratio'].values, marker='o', ms=5,
+            lw=1.5, color=C_GAIN, label='gain 倍率')
+    ax.set_xlabel('步数', fontsize=9); ax.set_ylabel('gain 倍率', fontsize=9, color=C_GAIN)
+    ax.set_title('driver gain 倍率轨迹', fontsize=10)
+    ax.grid(True, ls='--', alpha=0.3)
+    # (4) gDC/gDC2 轨迹
+    ax = axes[1, 1]
+    ax.plot(tr['step'].values, tr['gdc'].values, marker='o', ms=4, lw=1.2,
+            color='#0b63ce', label='gDC')
+    ax.plot(tr['step'].values, tr['gdc2'].values, marker='s', ms=4, lw=1.2,
+            color='#c0392b', label='gDC2')
+    ax.set_xlabel('步数', fontsize=9); ax.set_ylabel('dB', fontsize=9)
+    ax.set_title('CTLE 直流增益轨迹', fontsize=10)
+    ax.legend(fontsize=8); ax.grid(True, ls='--', alpha=0.3)
+    fig.suptitle(f'最难用例四联图：{hard_env}', fontsize=12, fontweight='bold')
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    out = os.path.join(report_dir, f'ddps_v5_case_{hard_env}_a.png')
+    fig.savefig(out, dpi=125)
+    plt.close(fig)
+    return out
+
+
 def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
                  summary_out=None):
     os.makedirs(report_dir, exist_ok=True)
@@ -152,12 +246,14 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
 
     fig_conv = figure_convergence_grid(test_dir, report_dir, envs)
     fig_gain = figure_gain_rms(test_dir, report_dir, envs)
+    fig_track = figure_tracking(test_dir, report_dir, envs)
+    fig_hard = figure_hardcase(test_dir, report_dir, envs)
 
     L = []
     L.append('# DDPS v5 在线调优报告\n')
     L.append(f'> 模型：`{model_dir}`（6 维 FFE+CTLE 核岭代理；gain 维由发端 RMS 物理目标驱动）\n')
     L.append(f'> 评估协议：262144 符号/点 × 3 仿真实例种子（42,43,44）取 log10 均值\n')
-    L.append(f'> gain 目标：MZM 输入 RMS = {D.TARGET_DRIVE_RMS} V（全环境扫描标定）\n\n')
+    L.append(f'> gain 目标：MZM 输入 RMS = per-case 扫描标定（每个用例单独细扫）\n\n')
 
     L.append('## 1. 逐用例结果\n\n')
     L.append('| 用例 | 物理条件 | 种子 BER | 最优 BER | 终点 BER | 改善 × | 单调? | gain 倍率 | gDC | gDC2 |\n')
