@@ -917,10 +917,11 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   </p>
 </div>
 
-<figure>
-  <div class="fig-scroll"><img src="{{IMG_PRECISION}}" alt="BER 估计精度实测：块长漂移与可分辨性"></div>
-  <figcaption>图 5 · 左：BER 绝对值随块长系统性下降（误差棒为跨种子标准差）；右：一个真实改善（gDC = −5 dB）在不同块长下的可分辨性 —— 65536 符号时符号翻转，无法分辨。</figcaption>
-</figure>
+<div class="card">
+  <h4 style="margin-top:0">BER 估计精度</h4>
+  <p style="margin-bottom:0">BER 绝对值随块长系统性下降（多 seed 取均值后稳定）；262144 符号 × 3 种子
+  足以分辨 0.01 dex 级改善。65536 符号时符号翻转、无法分辨，因此主协议不用它做决策。</p>
+</div>
 
 <div class="card">
   <h4 style="margin-top:0">采样与标注口径</h4>
@@ -975,20 +976,25 @@ A/B 输入空间不同，误差来源相互独立。梯度通过 A 的链式法�
 </table>
 </div>
 
-<h3>6.4 收敛轨迹与抽头变化</h3>
+<h3>6.4 收敛轨迹与物理量变化</h3>
 <figure>
-  <div class="fig-scroll"><img src="{{IMG_CONV_CORE}}" alt="核心实验 15 用例收敛轨迹"></div>
-  <figcaption>图 6 · 核心实验的收敛轨迹（真实 BER_MLSE，对数纵轴）。</figcaption>
+  <div class="fig-scroll"><img src="{{IMG_CONV}}" alt="15 用例收敛轨迹三曲线"></div>
+  <figcaption>图 6 · 15 用例在线调优收敛轨迹（Model A 预测 / Model B 预测 / 实测 BER_MLSE，对数纵轴；虚线为种子）。</figcaption>
 </figure>
 
 <figure>
-  <div class="fig-scroll"><img src="{{IMG_DELTA}}" alt="三组实验改善量对照"></div>
-  <figcaption>图 7 · 15 环境在线调优收敛轨迹（A=探针→BER 方向 + B=参数→BER 风险控制）。</figcaption>
+  <div class="fig-scroll"><img src="{{IMG_GAIN}}" alt="gain 与 drive_rms 物理驱动轨迹"></div>
+  <figcaption>图 7 · gain 维物理驱动轨迹：drive_rms 锁定到 per-case target_rms，gain 倍率随环境自适应（强信号 ~0.6、弱信号 ~1.3）。</figcaption>
 </figure>
 
 <figure>
-  <div class="fig-scroll"><img src="{{IMG_CASE_HARD}}" alt="最难用例的四联图"></div>
-  <figcaption>图 8 · 最难用例的四联图：收敛轨迹、Tx FFE 抽头、CTLE 频响、driver_gain 轨迹。</figcaption>
+  <div class="fig-scroll"><img src="{{IMG_TRACK}}" alt="预测变化量 vs 实测变化量"></div>
+  <figcaption>图 8 · 左：Δ预测 vs Δ实测散点（逐用例逐步）；右：逐用例相关系数。</figcaption>
+</figure>
+
+<figure>
+  <div class="fig-scroll"><img src="{{IMG_CASE_HARD}}" alt="最难用例四联图"></div>
+  <figcaption>图 9 · 最难用例四联图：收敛轨迹、Tx FFE 抽头（种子 vs 最优）、Tx CTLE |H(f)| 频响、Tx 物理探针 7-tap FIR（Model A 输入特征）。</figcaption>
 </figure>
 
 <h3>6.5 安全性核验（逐条记账）</h3>
@@ -1237,38 +1243,6 @@ def _rows_metrics(meta):
     return '\n'.join(out)
 
 
-def _fig_convergence(core_dir, summary, order, out_png):
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans']
-    plt.rcParams['axes.unicode_minus'] = False
-    fig, axes = plt.subplots(3, 5, figsize=(15.5, 8.4), sharex=False)
-    axes = axes.ravel()
-    for i, env in enumerate(order):
-        ax = axes[i]
-        p = os.path.join(core_dir, f'trace_{env}.csv')
-        if os.path.exists(p):
-            tr = pd.read_csv(p)
-            if not tr.empty:
-                ax.semilogy(tr['step'], 10 ** tr['real_lb'], marker='o', ms=3,
-                            lw=1.1, color='#0b63ce')
-        r = summary[env]
-        ax.axhline(r['seed_ber'], color='#c0392b', ls=':', lw=1.0)
-        imp = r['seed_ber'] / r['best_ber']
-        ax.set_title(f'{env}\nx{imp:.2f}', fontsize=8)
-        ax.grid(True, which='both', ls='--', alpha=0.35)
-        ax.tick_params(labelsize=7)
-    for j in range(len(order), len(axes)):
-        axes[j].axis('off')
-    fig.suptitle('DDPS v6: A=探针->BER + B=参数->BER + gain per-case RMS | 只用基线训练 -> 跨 15 环境泛化',
-                 fontsize=11)
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
-    fig.savefig(out_png, dpi=120)
-    plt.close(fig)
-    return out_png
-
-
 def _img_tag(path):
     with open(path, 'rb') as f:
         b64 = base64.b64encode(f.read()).decode('ascii')
@@ -1293,10 +1267,11 @@ def main():
     ds = pd.read_csv(ds_path)
 
     report_dir = os.path.join(a.baseline, 'report')
-    os.makedirs(report_dir, exist_ok=True)
 
-    # 图片素材
-    fig_conv = _fig_convergence(a.baseline, summary, order, os.path.join(report_dir, 'fig_convergence_core.png'))
+    # 图片素材：从 report_ddps_v6.py 生成的 PNG 加载
+    img_conv = os.path.join(report_dir, 'ddps_v6_convergence.png')
+    img_gain = os.path.join(report_dir, 'ddps_v6_gain_rms.png')
+    img_track = os.path.join(report_dir, 'ddps_v6_tracking.png')
     hard_env = max(order, key=lambda e: summary[e]['seed_ber'])
     hard_png = os.path.join(report_dir, f'ddps_v6_case_{hard_env}_a.png')
 
@@ -1344,7 +1319,10 @@ def main():
         '<!--SAFETY_ROWS-->': safety_rows,
         '<!--DEEP_ROWS-->': '<tr><td colspan="5">未生成 deep_check.csv</td></tr>',
         '{{IMG_PRECISION}}': '',
-        '{{IMG_CONV_CORE}}': _img_tag(fig_conv),
+        '{{IMG_CONV}}': _img_tag(img_conv) if os.path.exists(img_conv) else '',
+        '{{IMG_GAIN}}': _img_tag(img_gain) if os.path.exists(img_gain) else '',
+        '{{IMG_TRACK}}': _img_tag(img_track) if os.path.exists(img_track) else '',
+        '{{IMG_CONV_CORE}}': '',
         '{{IMG_DELTA}}': '',
         '{{IMG_CASE_HARD}}': _img_tag(hard_png) if os.path.exists(hard_png) else '',
     }

@@ -21,6 +21,29 @@ import pandas as pd
 
 import ddps_optimizer as D
 from ddps_cases import ENV_CASES, env_label
+from tx_channel_extract import extract_tx_s21
+from utils_config import load_config
+import json as _json
+
+BAUD = 56e9  # 56 GBd
+
+def _ctle_response_db(f, gdc_db, gdc2_db):
+    """Tx CTLE |H(f)| in dB. f: Hz array."""
+    tx = load_config('config.xlsx')['tx']
+    f = np.maximum(f, 1e-9)
+    f_b = BAUD
+    f_z = f_b / tx.get('ctle_fz_ratio', 2.5)
+    f_p1 = f_b / tx.get('ctle_fp1_ratio', 2.5)
+    f_p2 = f_b / tx.get('ctle_fp2_ratio', 1.0)
+    f_lf = f_b / tx.get('ctle_flf_ratio', 40.0)
+    g_dc = 10 ** (gdc_db / 20.0)
+    g_dc2 = 10 ** (gdc2_db / 20.0)
+    num1 = g_dc + 1j * f / f_z
+    den1 = (1 + 1j * f / f_z) * (1 + 1j * f / f_p1) * (1 + 1j * f / f_p2)
+    num2 = g_dc2 + 1j * f / f_lf
+    den2 = 1 + 1j * f / f_lf
+    h = (num1 / den1) * (num2 / den2)
+    return 20 * np.log10(np.abs(h) + 1e-12)
 
 plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'Noto Sans CJK SC',
                                    'PingFang SC', 'DejaVu Sans']
@@ -182,7 +205,7 @@ def figure_tracking(test_dir, report_dir, envs):
 
 
 def figure_hardcase(test_dir, report_dir, envs):
-    """最难用例四联图：收敛三曲线 + FFE 抽头 + CTLE 频响 + gain 轨迹。"""
+    """最难用例四联图（v2 风格）：收敛三曲线 + FFE 抽头 + CTLE 频响 + 探针 FIR。"""
     os.makedirs(report_dir, exist_ok=True)
     summ = _summary(test_dir)
     hard_env = max(envs, key=lambda e: summ[summ['env'] == e].iloc[0]['seed_ber']
@@ -190,43 +213,67 @@ def figure_hardcase(test_dir, report_dir, envs):
     tr = _trace(test_dir, hard_env)
     if tr is None or tr.empty:
         return None
-    fig, axes = plt.subplots(2, 2, figsize=(12, 9))
+
+    # 找 best 行
+    best_idx = int(tr['real_ber'].values.argmin())
+    best_row = tr.iloc[best_idx]
+    seed_taps = D.SEED_TAPS.copy()
+    try:
+        best_taps = np.array(_json.loads(best_row['taps']) if isinstance(best_row['taps'], str)
+                             else best_row['taps'], float)
+    except Exception:
+        best_taps = seed_taps
+    best_gdc = float(best_row['gdc'])
+    best_gdc2 = float(best_row['gdc2'])
+
+    # 提取探针 FIR（seed vs best）
+    from ddps_cases import apply_env_to_config
+    cfg = apply_env_to_config(load_config('config.xlsx'), hard_env)
+    fir_seed = extract_tx_s21(cfg, custom_tx_taps=seed_taps, num_taps=7)
+    fir_best = extract_tx_s21(cfg, custom_tx_taps=best_taps, num_taps=7)
+
+    # CTLE 频响
+    f = np.linspace(0, 2.0 * BAUD, 800)
+    ctle_seed = _ctle_response_db(f, D.SEED_GDC, D.SEED_GDC2)
+    ctle_best = _ctle_response_db(f, best_gdc, best_gdc2)
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     # (1) 收敛三曲线
     _plot_convergence(axes[0, 0], tr, summ[summ['env'] == hard_env].iloc[0],
                       title=f'{hard_env} 收敛轨迹')
-    # (2) FFE 抽头种子 vs 收敛
+    # (2) FFE 抽头 seed vs best
     ax = axes[0, 1]
-    seed_taps = D.SEED_TAPS.copy()
-    best_row = tr.iloc[int(tr['real_ber'].values.argmin())]
-    try:
-        best_taps = np.array(json.loads(best_row['taps']) if isinstance(best_row['taps'], str)
-                              else best_row['taps'], float)
-    except Exception:
-        best_taps = seed_taps
     x = np.arange(len(seed_taps))
-    ax.bar(x - 0.15, seed_taps, 0.3, label='种子', color='#0b63ce', alpha=0.7)
-    ax.bar(x + 0.15, best_taps, 0.3, label='最优', color='#0f8a4a', alpha=0.7)
+    w = 0.3
+    ax.bar(x - w / 2, seed_taps, w, label='种子', color='#0b63ce', alpha=0.7)
+    ax.bar(x + w / 2, best_taps, w, label='最优', color='#0f8a4a', alpha=0.7)
+    ax.axvline(D.FFE_PRE - 0.5, color='k', lw=0.5, ls=':')
     ax.set_xticks(x); ax.set_xticklabels([f't{i}' for i in x], fontsize=9)
     ax.set_ylabel('抽头值', fontsize=9); ax.legend(fontsize=8)
-    ax.set_title('5-tap Tx FFE（种子 vs 最优）', fontsize=10)
+    ax.set_title(f'5-tap Tx FFE（种子 vs 最优，主抽头 t{D.FFE_PRE}）', fontsize=10)
     ax.grid(True, ls='--', alpha=0.3)
-    # (3) gain 倍率轨迹
+    # (3) CTLE |H(f)| 频响
     ax = axes[1, 0]
-    ax.plot(tr['step'].values, tr['gain_ratio'].values, marker='o', ms=5,
-            lw=1.5, color=C_GAIN, label='gain 倍率')
-    ax.set_xlabel('步数', fontsize=9); ax.set_ylabel('gain 倍率', fontsize=9, color=C_GAIN)
-    ax.set_title('driver gain 倍率轨迹', fontsize=10)
-    ax.grid(True, ls='--', alpha=0.3)
-    # (4) gDC/gDC2 轨迹
+    ax.plot(f / 1e9, ctle_seed, label=f'种子 (gDC={D.SEED_GDC:.1f}, gDC2={D.SEED_GDC2:.1f})',
+            color='#0b63ce', lw=1.5)
+    ax.plot(f / 1e9, ctle_best, ls='--',
+            label=f'最优 (gDC={best_gdc:+.1f}, gDC2={best_gdc2:+.1f})',
+            color='#0f8a4a', lw=1.5)
+    ax.axvline(BAUD / 2 / 1e9, color='k', ls=':', lw=1, label='Nyquist')
+    ax.set_xlabel('GHz', fontsize=9); ax.set_ylabel('dB', fontsize=9)
+    ax.set_title('Tx CTLE |H(f)|（模拟频谱整形）', fontsize=10)
+    ax.legend(fontsize=8); ax.grid(alpha=0.3)
+    # (4) 探针 FIR 7-tap（Model A 特征）
     ax = axes[1, 1]
-    ax.plot(tr['step'].values, tr['gdc'].values, marker='o', ms=4, lw=1.2,
-            color='#0b63ce', label='gDC')
-    ax.plot(tr['step'].values, tr['gdc2'].values, marker='s', ms=4, lw=1.2,
-            color='#c0392b', label='gDC2')
-    ax.set_xlabel('步数', fontsize=9); ax.set_ylabel('dB', fontsize=9)
-    ax.set_title('CTLE 直流增益轨迹', fontsize=10)
-    ax.legend(fontsize=8); ax.grid(True, ls='--', alpha=0.3)
-    fig.suptitle(f'最难用例四联图：{hard_env}', fontsize=12, fontweight='bold')
+    xs7 = np.arange(7)
+    w7 = 0.35
+    ax.bar(xs7 - w7 / 2, fir_seed, w7, color='#0b63ce', alpha=0.7, label='种子')
+    ax.bar(xs7 + w7 / 2, fir_best, w7, color='#0f8a4a', alpha=0.7, label='最优')
+    ax.set_xticks(xs7); ax.set_xticklabels([f'h{i}' for i in xs7], fontsize=9)
+    ax.set_ylabel('幅度 (V)', fontsize=9); ax.legend(fontsize=8)
+    ax.set_title('Tx 物理探针 7-tap FIR（Model A 输入特征）', fontsize=10)
+    ax.grid(True, ls='--', alpha=0.3, axis='y')
+    fig.suptitle(f'最难用例四联图：{hard_env}（种子 BER → 最优 BER）', fontsize=12, fontweight='bold')
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     out = os.path.join(report_dir, f'ddps_v6_case_{hard_env}_a.png')
     fig.savefig(out, dpi=125)
