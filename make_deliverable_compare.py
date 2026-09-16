@@ -133,10 +133,32 @@ td.bad{color:#d00;font-weight:bold}
 <!--FINDINGS-->
 
 <h2>收敛曲线</h2>
+<p class="caption">每个用例的 Model A 预测 / Model B 预测 / 实测 BER 三曲线，看在线调优是否单调下降。</p>
 <h3>组 A：基线训练</h3>
 {{IMG_CONV_BASE}}
 <h3>组 B：IL20x20 训练</h3>
 {{IMG_CONV_IL20}}
+
+<h2>gain / drive_rms 轨迹</h2>
+<p class="caption">gain（左轴）和 drive_rms（右轴）随调优步数的变化，目标 RMS 线标出 per-case 物理驱动。</p>
+<h3>组 A：基线训练</h3>
+{{IMG_GAIN_BASE}}
+<h3>组 B：IL20x20 训练</h3>
+{{IMG_GAIN_IL20}}
+
+<h2>预测-实测跟踪散点</h2>
+<p class="caption">Model A 预测 BER vs 实测 BER，按环境类别着色。点越贴近对角线，代理越准。</p>
+<h3>组 A：基线训练</h3>
+{{IMG_TRACK_BASE}}
+<h3>组 B：IL20x20 训练</h3>
+{{IMG_TRACK_IL20}}
+
+<h2>最难用例四联图</h2>
+<p class="caption">Comb_IL20x20_CD15_DGD5（复合重损）的收敛 + FFE 抽头 + CTLE 频响 + 探针 FIR。</p>
+<h3>组 A：基线训练</h3>
+{{IMG_HARD_BASE}}
+<h3>组 B：IL20x20 训练</h3>
+{{IMG_HARD_IL20}}
 
 </body></html>
 """
@@ -173,10 +195,13 @@ def main():
                 f'<div class="kpi"><div class="v">{t_i}</div><div class="l">总调优步数</div></div>')
 
     # Findings
+    comb_il20 = s_il20.get('Comb_IL20x20_CD15_DGD5', {})
+    comb_imp_val = (comb_il20.get('seed_ber', 1) / comb_il20.get('best_ber', 1)
+                    if comb_il20.get('best_ber', 0) > 0 else 0)
     findings = []
     findings.append(f"<p><strong>基线训练更稳健</strong>：平均改善 ×{imp_b.mean():.2f}（15/15 正向，{w_b} 步劣化），"
-                     f"模型在所有环境方向可信，全程 153 步无退步。</p>")
-    findings.append(f"<p><strong>IL20x20 训练在重损环境更优</strong>：Comb_IL20x20 用例改善 ×{imp_i[s_il20.get('Comb_IL20x20_CD15_DGD5',{}).get('env_idx',14)] if 'Comb_IL20x20_CD15_DGD5' in s_il20 else 16.05:.2f}"
+                     f"模型在所有环境方向可信，全程 {t_b} 步无退步。</p>")
+    findings.append(f"<p><strong>IL20x20 训练在重损环境更优</strong>：Comb_IL20x20 用例改善 ×{comb_imp_val:.2f}"
                      f"（基线 ×10.15），因为 BO 寻优的种子点 gDC2=-4.95 对重损信道更合适。</p>")
     findings.append(f"<p><strong>IL20x20 训练泛化性下降</strong>：平均改善 ×{imp_i.mean():.2f}（14/15 正向），"
                      f"{w_i} 步劣化，仅 {t_i} 步（vs 基线 {t_b} 步）。模型过拟合 IL20x20 的 gDC2≈-5，"
@@ -187,6 +212,12 @@ def main():
 
     img_conv_base = os.path.join(args.base_dir, 'report', 'ddps_v6_convergence.png')
     img_conv_il20 = os.path.join(args.il20_dir, 'report', 'ddps_v6_convergence.png')
+    img_gain_base = os.path.join(args.base_dir, 'report', 'ddps_v6_gain_rms.png')
+    img_gain_il20 = os.path.join(args.il20_dir, 'report', 'ddps_v6_gain_rms.png')
+    img_track_base = os.path.join(args.base_dir, 'report', 'ddps_v6_tracking.png')
+    img_track_il20 = os.path.join(args.il20_dir, 'report', 'ddps_v6_tracking.png')
+    img_hard_base = os.path.join(args.base_dir, 'report', 'ddps_v6_hardcase.png')
+    img_hard_il20 = os.path.join(args.il20_dir, 'report', 'ddps_v6_hardcase.png')
 
     html = TEMPLATE
     repl = {
@@ -196,6 +227,12 @@ def main():
         '<!--FINDINGS-->': '\n'.join(findings),
         '{{IMG_CONV_BASE}}': _img_tag(img_conv_base),
         '{{IMG_CONV_IL20}}': _img_tag(img_conv_il20),
+        '{{IMG_GAIN_BASE}}': _img_tag(img_gain_base),
+        '{{IMG_GAIN_IL20}}': _img_tag(img_gain_il20),
+        '{{IMG_TRACK_BASE}}': _img_tag(img_track_base),
+        '{{IMG_TRACK_IL20}}': _img_tag(img_track_il20),
+        '{{IMG_HARD_BASE}}': _img_tag(img_hard_base),
+        '{{IMG_HARD_IL20}}': _img_tag(img_hard_il20),
     }
     for k, v in repl.items():
         html = html.replace(k, v)
