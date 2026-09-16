@@ -60,7 +60,7 @@ def _rows_compare3(s_a, s_b, s_c, order):
         out.append(
             f"<tr><td>{env}</td>"
             + ''.join(
-                f'<td class="n">{r[0]:.3e}</td><td class="n">x{r[2]:.2f}</td>'
+                f'<td class="n">{r[0]:.3e}</td><td class="n">{r[1]:.3e}</td><td class="n">x{r[2]:.2f}</td>'
                 for r in rows
             )
             + f'<td class="n">{"ABC"[win_idx]}</td></tr>')
