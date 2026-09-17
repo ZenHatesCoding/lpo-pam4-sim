@@ -60,26 +60,42 @@ def lowpass_filter(x, bw, fs, order=4):
     return y
 
 def apply_ctle(x, fs, f_z, f_p1, f_p2, g_dc_db, g_dc2_db, f_lf):
-    """
-    Apply IEEE 802.3ck / LPO MSA dual-gain CTLE in the frequency domain.
+    """Apply a peaking CTLE in the frequency domain (OIF 2Z3P style).
+
+    g_dc_db  = high-frequency peaking gain (dB) relative to DC. DC gain = 1 (0 dB).
+    g_dc2_db = low-frequency gain (dB) of the LF stage.
+
+    Stage 1 (HF peaking):  H_S1 = (1 + 1j*f*(K_DC/f_z)) / ((1+1j*f/f_p1)(1+1j*f/f_p2))
+        The effective zero sits at f_z/K_DC (low frequency when peaking is large), so the
+        response rises at +20 dB/dec between f_z/K_DC and f_p1, producing a genuine peaking
+        hump whose height ~ K_DC. This is the SJTU LPO_CTLE_2Z4P_NyquistPeaking topology
+        (minus the auto 4th pole; f_p2 already places roll-off at baud).
+
+    Stage 2 (LF):  H_S2 = (1 + 1j*f*(K_DC2/f_lf)) / (1 + 1j*f/f_lf)
+        LF shelf gain K_DC2, transition at f_lf.
+
+    The previous implementation wrote the numerator as (g_dc + 1j*f/f_z) with f_z == f_p1,
+    which pole-zero-cancels into a flat-gain low-pass with NO peaking (|H| <= g_dc for all
+    f). That made the CTLE a "de-equalizer" — it attenuated Nyquist ~7 dB instead of
+    boosting it.
     """
     N = len(x)
     X = np.fft.rfft(x)
     f = np.fft.rfftfreq(N, d=1.0/fs)
-    
-    g_dc = 10**(g_dc_db / 20)
-    g_dc2 = 10**(g_dc2_db / 20)
-    
-    # Avoid 0 division in formula by adding a small epsilon to f, or just handle f=0
-    # Actually f_z, f_p1, f_p2, f_lf are strictly > 0 so no division by zero.
-    num1 = g_dc + 1j * f / f_z
-    den1 = (1 + 1j * f / f_z) * (1 + 1j * f / f_p1) * (1 + 1j * f / f_p2)
-    
-    num2 = g_dc2 + 1j * f / f_lf
-    den2 = 1 + 1j * f / f_lf
-    
+
+    K_DC = 10 ** (g_dc_db / 20.0)
+    K_DC2 = 10 ** (g_dc2_db / 20.0)
+
+    # Stage 1 (HF peaking): zero at f_z/K_DC, poles at f_p1, f_p2
+    num1 = 1.0 + 1j * f * (K_DC / f_z)
+    den1 = (1.0 + 1j * f / f_p1) * (1.0 + 1j * f / f_p2)
+
+    # Stage 2 (LF shelf): zero at f_lf/K_DC2, pole at f_lf
+    num2 = 1.0 + 1j * f * (K_DC2 / f_lf)
+    den2 = 1.0 + 1j * f / f_lf
+
     H_ctle = (num1 / den1) * (num2 / den2)
-    
+
     X_filtered = X * H_ctle
     return np.fft.irfft(X_filtered, n=N)
 
@@ -228,8 +244,10 @@ def tx_frontend_lti(x, config, baud_rate, fs_analog, nyquist, rng=None):
     # 3) Tx 模拟 CTLE（电插损之后、Driver 之前）：post-channel 频谱整形
     if config_tx.get('use_ctle', False):
         f_b = baud_rate
-        f_z = f_b / config_tx.get('ctle_fz_ratio', 2.5)
-        f_p1 = f_b / config_tx.get('ctle_fp1_ratio', 2.5)
+        # SJTU OIF 零极点比例：f_z=fb/2.862, f_p1=fb/1.884, f_p2=fb, f_lf=fb/40
+        # g_dc_db = 高频 peaking gain（直流增益恒为 0 dB），g_dc2_db = LF shelf gain
+        f_z = f_b / config_tx.get('ctle_fz_ratio', 2.862)
+        f_p1 = f_b / config_tx.get('ctle_fp1_ratio', 1.884)
         f_p2 = f_b / config_tx.get('ctle_fp2_ratio', 1.0)
         f_lf = f_b / config_tx.get('ctle_flf_ratio', 40.0)
         x = apply_ctle(x, fs_analog, f_z, f_p1, f_p2,
@@ -395,7 +413,20 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
         
     # [Host Rx Noise]
     x += rng.normal(0, config_ch.get('host_rx_noise_rms', 0.001), len(x))
-        
+
+    # Rx analog CTLE (post-Rx-loss peaking, before ADC). Fixed standard params
+    # (gDC=6 dB, gDC2=3 dB) — not an optimization variable, acts as a static
+    # equalization base that shares load with the digital FFE.
+    if config_ch.get('use_rx_ctle', True):
+        f_b = baud_rate
+        f_z = f_b / config_ch.get('rx_ctle_fz_ratio', 2.862)
+        f_p1 = f_b / config_ch.get('rx_ctle_fp1_ratio', 1.884)
+        f_p2 = f_b / config_ch.get('rx_ctle_fp2_ratio', 1.0)
+        f_lf = f_b / config_ch.get('rx_ctle_flf_ratio', 40.0)
+        x = apply_ctle(x, fs_analog, f_z, f_p1, f_p2,
+                       config_ch.get('rx_ctle_g_dc_db', 6.0),
+                       config_ch.get('rx_ctle_g_dc2_db', 3.0), f_lf)
+
     x_eq = x
     
     # 8. ADC Analog Front-End (Anti-alias + Bandwidth)

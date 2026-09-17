@@ -11,8 +11,10 @@
 - **梯度**：通过 A 的链式法则——扰动 6 维参数 → 重算探针（含 CTLE！）→ 查 A → 得 ΔBER（6 维中心差分，eps=0.01）。每步 7 次评估（1 基准 + 6 维扰动）。
 - **gain**：不在 A/B 搜索向量里。per-case target_rms 物理驱动（每用例离线扫描标定 0.06~0.22V）。
 
-### 物理层（v6 = v5 口径）
-PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → CTLE(gDC,gDC2) → Driver(gain) → Driver BW(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx IL → ADC → Rx FFE(22-tap,LMS) → Burg → MLSE(memory=1)。**无 VGA，无 RMS 归一化。**
+### 物理层（v6.1 口径）
+PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → Tx CTLE(gDC,gDC2, peaking) → Driver(gain) → Driver BW(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx IL → +1mV 噪声 → Rx CTLE(固定 gDC=6/gDC2=3) → ADC → Rx FFE(22-tap,LMS) → Burg → MLSE(memory=1)。**无 VGA，无 RMS 归一化。**
+- Tx CTLE 为 OIF 2Z3P peaking 拓扑（`gDC` = 高频 peaking gain，直流增益恒 0 dB；`gDC2` = LF shelf gain），零极点比 `fz=2.862/fp1=1.884/fp2=1/flf=40`。
+- Rx CTLE 与 Tx 同一拓扑但参数固定（`gDC=6, gDC2=3`），不参与寻优。
 
 ### 关键常量
 - SEED_TAPS=[-0.034,-0.299,0.609,0,0.058]（5-tap，FFE_PRE=2，主抽头 t2）

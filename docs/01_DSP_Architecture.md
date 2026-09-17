@@ -24,9 +24,10 @@
   - **光纤频散解耦**：色散 (CD) 严格作用于复数光场，而偏振态分裂带来的差分群延迟 (DGD) 直接作用于检波后的实数光功率。
 
 ### 1.3 接收端 (Rx DSP & 均衡)
-- **发送端模拟均衡 (Tx Analog CTLE)**：双级 CTLE（`gDC`/`gDC2` 两个独立增益）在代码与配置中隶属 **[tx] 表**，物理上位于 **Tx 电插损（PCB/S4P）之后、Driver 之前**，即链路顺序为
-  `DAC(ZOH,ENOB 5.5) → Tx 电插损(S4P) → +1mV 噪声 → Tx 模拟 CTLE(gDC,gDC2) → Driver(gain) → Driver 带限(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx IL → ADC → Rx FFE → MLSE`。
+- **发送端模拟均衡 (Tx Analog CTLE)**：OIF 2Z3P 高频 peaking 拓扑，`gDC`（高频 peaking gain，直流增益恒 0 dB）与 `gDC2`（低频 shelf gain）两个独立维度在代码与配置中隶属 **[tx] 表**，物理上位于 **Tx 电插损（PCB/S4P）之后、Driver 之前**。链路顺序为
+  `DAC(ZOH,ENOB 5.5) → Tx 电插损(S4P) → +1mV 噪声 → Tx 模拟 CTLE(gDC,gDC2 peaking) → Driver(gain) → Driver 带限(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx 电插损(S4P) → +1mV 噪声 → Rx 模拟 CTLE(固定 gDC=6/gDC2=3) → ADC → Rx FFE → MLSE`。
   **无 VGA，无 RMS 归一化。**
+- **接收端模拟均衡 (Rx Analog CTLE)**：与 Tx CTLE 同一 peaking 拓扑，但参数**固定**（`gDC=6 dB, gDC2=3 dB`，SJTU standard），位于 Rx 电插损之后、ADC 之前，作为静态均衡基座，**不参与寻优**。
 - **Driver 增益 (`driver_gain`)**：Driver 的**真实线性电压增益**，标定值 DRIVER_GAIN_NOMINAL=0.4381。gain **不是**寻优维度，由 per-case target_rms 物理驱动（每用例离线扫描标定最优发端 RMS，在线调优时每步解析调到该值：`gain = gain_ref × (target_rms / rms_measured)`）。
 - 因此 DDPS 寻优空间为 **6 维**：4 个 FFE 旁瓣 + gDC + gDC2。
 - **数字均衡 (Rx FFE)**：Host ASIC 接收端使用 22-tap T-spaced Rx FFE，内置 LMS 自适应收敛（DFE 默认 `dfe_taps=0` 全关，防高误码雪崩）。
@@ -47,7 +48,7 @@ graph LR
     subgraph R2 ["2. Tx Analog + Physical Electro-Optic Channel"]
         direction TB
         E["Tx PCB (Scaled S-Param, Tx IL)"] --> E2["+1mV Noise"]
-        E2 --> F["Tx Analog CTLE (gDC, gDC2)"]
+        E2 --> F["Tx Analog CTLE (gDC, gDC2 peaking)"]
         F --> G1["Driver (gain, BW 40G)"]
         G1 --> G["E-O MZM (Vpi=3, bias=2.25, ER=25dB)"]
         G --> H["Fiber (CD Complex FFT)"]
@@ -55,6 +56,8 @@ graph LR
         I --> J["O-E PIN (Square Law + Shot)"]
         J --> K["TIA (Thermal Noise + Gain 720)"]
         K --> L["Rx PCB (Scaled S-Param, Rx IL)"]
+        L --> L2["+1mV Noise"]
+        L2 --> L3["Rx Analog CTLE (fixed gDC=6/gDC2=3)"]
     end
 
     subgraph R3 ["3. Rx Host (Analog + Digital)"]
@@ -66,7 +69,7 @@ graph LR
     end
 
     D -.-> E
-    L -.-> M
+    L3 -.-> M
 ```
 
 ---
@@ -93,7 +96,8 @@ graph LR
 
 ### [Tx / Rx] 均衡与算法配置
 - `ffe_taps` / `ffe_pre`: FFE 总抽头数与前向抽头数。Tx 固定为 5（FFE_PRE=2，4 个旁瓣自由变量），Rx 固定为 22。
-- `use_ctle` / `ctle_g_dc_db` / `ctle_g_dc2_db`: Tx 模拟 CTLE 开关与双级增益（[tx] 表）。物理位置为 **Tx 电插损之后、Driver 之前**（见 1.3 节的链路顺序）。
+- `use_ctle` / `ctle_g_dc_db` / `ctle_g_dc2_db`: Tx 模拟 CTLE 开关与高频 peaking / 低频 shelf 增益（[tx] 表，`g_dc_db` 为 peaking gain、直流增益恒 0 dB）。物理位置为 **Tx 电插损之后、Driver 之前**（见 1.3 节的链路顺序）。零极点比例 `ctle_fz_ratio=2.862 / ctle_fp1_ratio=1.884 / ctle_fp2_ratio=1 / ctle_flf_ratio=40`。
+- `use_rx_ctle` / `rx_ctle_g_dc_db` / `rx_ctle_g_dc2_db`: Rx 模拟 CTLE 开关与固定增益（[channel] 表，`gDC=6 / gDC2=3`，SJTU standard），位于 Rx 电插损之后、ADC 之前，不参与寻优。
 - `lms_mu`: Rx LMS 训练步长（如 1e-4）。
 - `dfe_taps`: 默认 0（全关）。
 - `mlse_memory`: 默认 1 —— Viterbi MLSE（Burg 白化）开启；`BER_MLSE` 为平台统一终极指标。开启 MLSE 时 DFE 自动锁死。

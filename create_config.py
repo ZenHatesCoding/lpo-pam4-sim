@@ -58,10 +58,11 @@ def generate_config(mode=DEFAULT_MODE):
             'optimizer_type': 'SHC',
             'optimize_mode': 'JOINT',
             'safe_bo_max_log_ber': -3.0, # (e.g. -3.0 for 1e-3). Set to None to disable Safe-BO
-            # Analog Equalization (Tx CTLE)
+            # Analog Equalization (Tx CTLE) — SJTU OIF 2Z3P peaking topology
+            # g_dc_db = HF peaking gain (DC gain is always 0 dB); g_dc2_db = LF shelf gain
             'use_ctle': True,
-            'ctle_fz_ratio': 2.5,
-            'ctle_fp1_ratio': 2.5,
+            'ctle_fz_ratio': 2.862,
+            'ctle_fp1_ratio': 1.884,
             'ctle_fp2_ratio': 1.0,
             'ctle_flf_ratio': 40.0,
             'ctle_g_dc_db': 0.0,
@@ -110,6 +111,16 @@ def generate_config(mode=DEFAULT_MODE):
             'pd_bw': optics_bw,            
             'tia_bw': optics_bw,           
             'adc_bw': optics_bw,
+
+            # Rx analog CTLE (fixed standard base, not optimized)
+            # gDC=6 dB peaking + gDC2=3 dB LF shelf, SJTU standard Rx CTLE setting
+            'use_rx_ctle': True,
+            'rx_ctle_fz_ratio': 2.862,
+            'rx_ctle_fp1_ratio': 1.884,
+            'rx_ctle_fp2_ratio': 1.0,
+            'rx_ctle_flf_ratio': 40.0,
+            'rx_ctle_g_dc_db': 6.0,
+            'rx_ctle_g_dc2_db': 3.0,
             
             # Debug toggle
             'disable_isi': False,

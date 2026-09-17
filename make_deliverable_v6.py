@@ -153,7 +153,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     <div class="chips">
       <span class="chip">形状搜索 <b>6</b> 维（4 FFE 旁瓣 + gDC + gDC2）</span>
       <span class="chip">用例 <b>15</b> 个（含非对称 Tx/Rx 插损与器件噪声）</span>
-      <span class="chip">评估协议 <b>262144</b> 符号 × <b>3</b> 仿真实例种子</span>
+      <span class="chip">评估协议 <b>2097152</b> 符号 × <b>3</b> 仿真实例种子</span>
       <span class="chip">模型训练 <b>&lt;0.1 s</b> · 推理 <b>≈30 µs</b></span>
       <span class="chip">在线决策回路真实 BER <b>0</b> 次</span>
     </div>
@@ -167,7 +167,7 @@ TEMPLATE = r'''<!DOCTYPE html>
 <div class="card">
   <h4 style="margin-top:0">适用场景与约束</h4>
   <ul style="margin-bottom:0">
-    <li>LPO 光模块内部不做重 DSP，发送端均衡由 Host ASIC 承担。可用的均衡自由度：<strong>5-tap T-spaced 发送端 FFE</strong>（4 个旁瓣为自由变量，主抽头由归一化派生）与 <strong>发送端模拟 CTLE 的双级直流增益</strong>。</li>
+    <li>LPO 光模块内部不做重 DSP，发送端均衡由 Host ASIC 承担。可用的均衡自由度：<strong>5-tap T-spaced 发送端 FFE</strong>（4 个旁瓣为自由变量，主抽头由归一化派生）与 <strong>发送端模拟 CTLE 的高频 peaking 增益 gDC 与低频 shelf 增益 gDC2</strong>。接收端另有一级固定参数的模拟 CTLE（gDC = 6 dB，gDC2 = 3 dB）作为静态均衡基座。</li>
     <li>信道条件：奈奎斯特电插损 Tx/Rx <strong>各自</strong> 10～20 dB，色散 0～28 ps/nm，差分群时延 0～5 ps，偏振角 0～45°，另含器件噪声应力（RIN / 消光比 / TIA 噪声）。</li>
     <li>约束：在线调优阶段不得使用真实收端误码做决策（只能使用发送端可获得的物理量），且不允许出现任何一次“优化后比起点更差”。</li>
   </ul>
@@ -292,7 +292,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     <text class="ts" x="160" y="306">Tx 与 Rx 电插损可独立配置，用于刻画 Host 侧 / Module 侧损耗不对称的真实情形。</text>
   </svg>
 
-  <svg class="d-narrow" viewBox="0 0 360 940" role="img" aria-label="仿真链路框图（竖向）">
+  <svg class="d-narrow" viewBox="0 0 360 990" role="img" aria-label="仿真链路框图（竖向）">
     <defs>
       <marker id="an1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#8fa3ba"/>
@@ -352,13 +352,16 @@ TEMPLATE = r'''<!DOCTYPE html>
     <text class="tw2" x="24" y="606">Rx 电插损（S4P，Rx IL）</text>
 
     <rect class="bx" x="10" y="628" width="340" height="38" rx="7"/>
-    <text class="tw2" x="24" y="652">ADC（ENOB 5.5）</text>
+    <text class="tw2" x="24" y="652">Rx CTLE（固定 gDC=6 dB / gDC2=3 dB）</text>
 
     <rect class="bx" x="10" y="674" width="340" height="38" rx="7"/>
-    <text class="tw2" x="24" y="698">22-tap Rx FFE（LMS 自适应）</text>
+    <text class="tw2" x="24" y="698">ADC（ENOB 5.5）</text>
 
     <rect class="bx" x="10" y="720" width="340" height="38" rx="7"/>
-    <text class="tw2" x="24" y="744">Burg + MLSE（memory = 1）</text>
+    <text class="tw2" x="24" y="744">22-tap Rx FFE（LMS 自适应）</text>
+
+    <rect class="bx" x="10" y="766" width="340" height="38" rx="7"/>
+    <text class="tw2" x="24" y="790">Burg + MLSE（memory = 1）</text>
 
     <line class="ln" x1="180" y1="482" x2="180" y2="488" marker-end="url(#an1)"/>
     <line class="ln" x1="180" y1="528" x2="180" y2="534" marker-end="url(#an1)"/>
@@ -366,15 +369,17 @@ TEMPLATE = r'''<!DOCTYPE html>
     <line class="ln" x1="180" y1="620" x2="180" y2="626" marker-end="url(#an1)"/>
     <line class="ln" x1="180" y1="666" x2="180" y2="672" marker-end="url(#an1)"/>
     <line class="ln" x1="180" y1="712" x2="180" y2="718" marker-end="url(#an1)"/>
+    <line class="ln" x1="180" y1="758" x2="180" y2="764" marker-end="url(#an1)"/>
 
-    <line class="ln" x1="180" y1="758" x2="180" y2="770" marker-end="url(#an1)"/>
-    <rect class="bx-ok" x="10" y="772" width="340" height="38" rx="7"/>
-    <text class="tw2" x="24" y="796">BER_MLSE（统一指标）</text>
+    <line class="ln" x1="180" y1="804" x2="180" y2="816" marker-end="url(#an1)"/>
+    <rect class="bx-ok" x="10" y="818" width="340" height="38" rx="7"/>
+    <text class="tw2" x="24" y="842">BER_MLSE（统一指标）</text>
 
-    <text class="ts" x="10" y="836">DFE 固定关闭；噪声由器件参数分布式产生（RIN / 散粒 /</text>
-    <text class="ts" x="10" y="852">热噪声 / TIA 噪声 / 1 mV 前端噪声），无全局 SNR。</text>
-    <text class="ts" x="10" y="874">蓝色框为三个可优化自由度。</text>
-    <text class="ts" x="10" y="898">Tx / Rx 电插损可独立配置（Host 侧与 Module 侧不对称）。</text>
+    <text class="ts" x="360" y="842">DFE 固定关闭；噪声由器件参数分布式产生</text>
+    <text class="ts" x="360" y="858">（RIN / 散粒 / 热噪声 / TIA / 1 mV 前端），无全局 SNR。</text>
+    <text class="ts" x="360" y="880">蓝色框为三个可优化自由度。</text>
+    <text class="ts" x="360" y="902">Rx CTLE 为固定基座（不优化）。</text>
+    <text class="ts" x="360" y="924">Tx / Rx 电插损可独立配置（不对称）。</text>
   </svg>
 
   <figcaption>物理探针与真实链路共用同一段实现（<span class="mono">channel_imdd.tx_frontend_lti</span>），因此链路顺序只有一处定义，探针不会与真实链路漂移。</figcaption>
@@ -403,8 +408,8 @@ TEMPLATE = r'''<!DOCTYPE html>
     <text class="ts" x="268" y="128" text-anchor="middle">4 个旁瓣 = 自由变量，|t| ≤ 0.3，Σ|旁瓣| ≤ 0.8 ⇒ 主抽头 t₂ = 1 − Σ|旁瓣| ≥ 0.2</text>
 
     <rect class="bx-hi" x="14" y="146" width="330" height="52" rx="7"/>
-    <text class="tw2" x="179" y="168" text-anchor="middle">Tx CTLE：gDC, gDC2 ∈ [−5, +5] dB</text>
-    <text class="ts" x="179" y="186" text-anchor="middle">post-channel 频谱整形（2 维）</text>
+    <text class="tw2" x="179" y="168" text-anchor="middle">Tx CTLE：gDC ∈ [0, 12] dB · gDC2 ∈ [0, 4] dB</text>
+    <text class="ts" x="179" y="186" text-anchor="middle">post-channel 高频 peaking（2 维）</text>
 
     <rect class="bx" x="360" y="146" width="250" height="52" rx="7"/>
     <text class="tw2" x="485" y="168" text-anchor="middle">gain = per-case target_rms</text>
@@ -413,16 +418,16 @@ TEMPLATE = r'''<!DOCTYPE html>
     <rect class="panel" x="626" y="146" width="440" height="150" rx="8"/>
     <text class="t" x="642" y="170">搜索向量：</text>
     <text class="mono" x="722" y="170" style="font-size:12.5px">x_shape ∈ R⁶ = [4 旁瓣, gDC, gDC2]</text>
-    <text class="ts" x="642" y="192">种子 x₀：FFE 旁瓣 [-0.034, -0.299, 0, 0.058]，gDC = gDC2 = 0 dB</text>
+    <text class="ts" x="642" y="192">种子 x₀：FFE 旁瓣 [-0.034, -0.299, 0, 0.058]，gDC = 6 dB，gDC2 = 2 dB</text>
     <text class="ts" x="642" y="212">信任域：FFE ±0.10 / CTLE ±3.0 dB（gain 不在搜索向量里）</text>
     <text class="ts" x="642" y="232">组内归一化步长：FFE 组与 CTLE 组各自归一化后乘箱宽</text>
     <text class="ts" x="642" y="256">主抽头不进入搜索向量 ⇒ 下降方向只作用于波形形状，</text>
     <text class="ts" x="642" y="272">不会靠“整体变亮/变暗”这类伪自由度骗 BER。</text>
 
     <text class="tb" x="14" y="232">CTLE 放在 Tx 电插损之后、Driver 之前</text>
-    <text class="ts" x="14" y="254">· 整形"到达 MZM 的频谱"，峰化补偿才有效。</text>
-    <text class="ts" x="14" y="272">· 其直流增益影响驱动幅度，但 gain 维由 per-case target_rms 独立控制，</text>
-    <text class="ts" x="14" y="290">  CTLE 只负责频谱形状，与 gain 维互不冗余。</text>
+    <text class="ts" x="14" y="254">· 整形"到达 MZM 的频谱"，高频 peaking 补偿信道损耗才有效。</text>
+    <text class="ts" x="14" y="272">· peaking 拓扑直流增益恒 0 dB，只抬 Nyquist 附近、不整体抬幅，</text>
+    <text class="ts" x="14" y="290">  驱动幅度由 gain 维独立控制，CTLE 与 gain 互不冗余。</text>
   </svg>
 
   <svg class="d-narrow" viewBox="0 0 360 430" role="img" aria-label="优化空间参数化示意（竖向）">
@@ -438,8 +443,8 @@ TEMPLATE = r'''<!DOCTYPE html>
 
     <text class="tb" x="10" y="182">Tx 模拟 CTLE（post-channel）</text>
     <rect class="bx-hi" x="10" y="192" width="340" height="50" rx="7"/>
-    <text class="tw2" x="24" y="212">gDC, gDC2 ∈ [−5, +5] dB</text>
-    <text class="ts" x="24" y="230">2 维：频谱整形</text>
+    <text class="tw2" x="24" y="212">gDC ∈ [0, 12] dB · gDC2 ∈ [0, 4] dB</text>
+    <text class="ts" x="24" y="230">2 维：高频 peaking</text>
 
     <text class="tb" x="10" y="266">gain = per-case target_rms</text>
     <rect class="bx" x="10" y="276" width="340" height="50" rx="7"/>
@@ -448,7 +453,7 @@ TEMPLATE = r'''<!DOCTYPE html>
 
     <rect class="panel" x="10" y="340" width="340" height="80" rx="8"/>
     <text class="mono" x="24" y="362" style="font-size:12.3px">x_shape ∈ R⁶ = [4 旁瓣, gDC, gDC2]</text>
-    <text class="ts" x="24" y="382">种子：[-0.034,-0.299,0,0.058] / 0 / 0 dB</text>
+    <text class="ts" x="24" y="382">种子：[-0.034,-0.299,0,0.058] / 6 / 2 dB</text>
     <text class="ts" x="24" y="400">信任域：±0.10 / ±3.0 dB（gain 不在向量里）</text>
   </svg>
 
@@ -464,7 +469,8 @@ TEMPLATE = r'''<!DOCTYPE html>
     <tr><td>波特率 / 调制</td><td class="n">56 GBd, PAM4</td></tr>
     <tr><td>采样率（DSP / DAC / 信道 / ADC）</td><td class="n">2 / 2 / 8 / 2 sps</td></tr>
     <tr><td>Tx FFE</td><td class="n">5 tap, T-spaced</td></tr>
-    <tr><td>Tx CTLE 零极点比</td><td class="n">fz 2.5 / fp1 2.5 / fp2 1 / flf 40</td></tr>
+    <tr><td>Tx CTLE 零极点比</td><td class="n">fz 2.862 / fp1 1.884 / fp2 1 / flf 40</td></tr>
+    <tr><td>Rx CTLE</td><td class="n">固定 gDC = 6 dB，gDC2 = 3 dB</td></tr>
     <tr><td>Rx FFE</td><td class="n">22 tap, ffe_pre = 6</td></tr>
     <tr><td>Rx LMS 步长</td><td class="n">1e-4</td></tr>
     <tr><td>DFE</td><td class="n">关闭（0 tap）</td></tr>
@@ -676,7 +682,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
     <rect class="bx" x="34" y="72" width="472" height="46" rx="7"/>
     <text class="t" x="48" y="92">起点 x₀（种子工作点）</text>
-    <text class="ts" x="48" y="108">主抽头 0.6091，gDC = gDC2 = 0 dB，driver_gain = 2.0</text>
+    <text class="ts" x="48" y="108">主抽头 0.6091，gDC = 6 dB，gDC2 = 2 dB，driver_gain = 标定值</text>
 
     <rect class="bx" x="34" y="134" width="472" height="46" rx="7"/>
     <text class="t" x="48" y="154">信任域内 LHS 采样（d = 6）</text>
@@ -684,7 +690,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
     <rect class="bx" x="34" y="196" width="472" height="46" rx="7"/>
     <text class="t" x="48" y="216">每点：真实 BER_MLSE 评估 + 物理探针</text>
-    <text class="ts" x="48" y="232">262144 符号 × 3 仿真实例种子取 log10 均值；探针取 FIR 形状 + 驱动 RMS</text>
+    <text class="ts" x="48" y="232">2097152 符号 × 3 仿真实例种子取 log10 均值；探针取 FIR 形状 + 驱动 RMS</text>
 
     <rect class="bx" x="34" y="258" width="472" height="46" rx="7"/>
     <text class="t" x="48" y="278">二阶多项式 Ridge 闭式解训练</text>
@@ -766,7 +772,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
     <rect class="bx" x="20" y="172" width="320" height="54" rx="7"/>
     <text class="t" x="32" y="192">每点：真实 BER + 物理探针</text>
-    <text class="ts" x="32" y="210">262144 符号 × 3 种子；FIR 形状 + 驱动 RMS</text>
+    <text class="ts" x="32" y="210">2097152 符号 × 3 种子；FIR 形状 + 驱动 RMS</text>
 
     <rect class="bx" x="20" y="238" width="320" height="54" rx="7"/>
     <text class="t" x="32" y="258">二阶多项式 Ridge 闭式解</text>
@@ -834,7 +840,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <li><strong>步长</strong>：<span class="mono">α_k = 0.05 × 0.97^k</span>，乘以各维箱宽（FFE 0.20 / CTLE 6.0 dB）。</li>
     <li><strong>投影</strong>：候选点裁剪至 <span class="mono">x₀ ± [0.10, 0.10, 0.10, 0.10, 3.0, 3.0]</span>（6 维 shape 信任域）。</li>
     <li><strong>安全审查</strong>：候选点 B 预测超过红线时步长折半重试（最多 20 次）；始终不通过则停止，不强行落地。</li>
-    <li><strong>记账</strong>：写入代理预测与真实 BER_MLSE（协议 262144 符号 × 3 种子），供事后核验。</li>
+    <li><strong>记账</strong>：写入代理预测与真实 BER_MLSE（协议 2097152 符号 × 3 种子），供事后核验。</li>
     <li><strong>终止</strong>：位移 <span class="mono">&lt; 1e-6</span>、或梯度门控触发、或边际改善 <span class="mono">&lt; 0.01 dex</span>、或达到步数上限。</li>
   </ol>
 </div>
@@ -848,7 +854,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <tr><td>模型单次推理</td><td>特征展开 + 一次内积</td><td class="n">≈30 µs</td><td class="mono">O(D)</td></tr>
   <tr><td>物理探针（含驱动 RMS）</td><td>单位脉冲 + 短 PAM4 序列过发送链</td><td class="n">≈30 ms</td><td>与评估符号数无关</td></tr>
   <tr><td><strong>Stage-2 单步决策</strong></td><td>7 次探针 + 7 次 A 前向 + ≤20 次 B 前向</td><td class="n win">≈0.4 s</td><td>与评估符号数无关</td></tr>
-  <tr><td>一次真实 BER 评估</td><td>262144 符号 × 3 种子（全链路 + LMS + Viterbi）</td><td class="n">≈16 s</td><td>与符号数线性</td></tr>
+  <tr><td>一次真实 BER 评估</td><td>2097152 符号 × 3 种子（全链路 + LMS + Viterbi）</td><td class="n">≈120 s</td><td>与符号数线性</td></tr>
   <tr><td>离线数据集</td><td>2001 点 ×（BER 评估 + 探针）</td><td class="n">≈55 min（14 进程并行）</td><td>一次性</td></tr>
 </table>
 </div>
@@ -891,22 +897,22 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 </div>
 
 <div class="card">
-  <h4 style="margin-top:0">评估协议：262144 符号 × 3 个种子</h4>
-  <p>在基线种子点上用多个仿真实例种子测量不同块长的表现（每种块长 5 次独立实现）：</p>
+  <h4 style="margin-top:0">评估协议：2097152 符号 × 3 个种子</h4>
+  <p>在 Base_IL10x10 优化后最优工作点（BER≈2e-5）上用 5 个仿真实例种子测量不同块长下的 log10 BER：</p>
   <div class="tw">
   <table class="wide">
-    <caption>BER 估计精度实测（Base_IL10x10 种子点） <span class="sh">· 可左右滑动</span></caption>
-    <tr><th class="n">块长（符号）</th><th class="n">log10 BER 均值</th><th class="n">跨种子标准差</th><th class="n">相邻块长漂移</th><th>能否分辨真实改善</th></tr>
-    <tr><td class="n">65536</td><td class="n">−3.056</td><td class="n">0.054</td><td class="n">—</td><td>否（种子间符号翻转）</td></tr>
-    <tr><td class="n">131072</td><td class="n">−3.304</td><td class="n">0.067</td><td class="n">−0.248</td><td>可以</td></tr>
-    <tr><td class="n">262144（采用）</td><td class="n">−3.524</td><td class="n">0.093</td><td class="n">−0.220</td><td>可以（Δ 更大）</td></tr>
-    <tr><td class="n">524288</td><td class="n">−3.675</td><td class="n">0.139</td><td class="n">−0.152</td><td>可以（Δ 最大）</td></tr>
+    <caption>BER 估计精度实测（Base_IL10x10 最优工作点） <span class="sh">· 可左右滑动</span></caption>
+    <tr><th class="n">块长（符号）</th><th class="n">log10 BER 均值</th><th class="n">跨种子标准差</th><th class="n">相邻块长漂移</th><th>等效 BER</th></tr>
+    <tr><td class="n">262144</td><td class="n">−3.754</td><td class="n">0.019</td><td class="n">—</td><td class="n">1.76e-4</td></tr>
+    <tr><td class="n">524288</td><td class="n">−4.086</td><td class="n">0.024</td><td class="n">−0.332</td><td class="n">8.21e-5</td></tr>
+    <tr><td class="n">1048576</td><td class="n">−4.373</td><td class="n">0.019</td><td class="n">−0.287</td><td class="n">4.23e-5</td></tr>
+    <tr><td class="n">2097152（采用）</td><td class="n">−4.704</td><td class="n">0.027</td><td class="n">−0.331</td><td class="n">1.98e-5</td></tr>
   </table>
   </div>
   <p style="margin-bottom:0">
-    <strong>结论</strong>：① BER 绝对值随块长系统性漂移（每翻倍约 −0.15～−0.25 dex），不同块长的绝对 BER 不可比，因此全流程固定同一协议；
-    ② 65536 符号下连一个 ×1.65 的真实改善都无法稳定分辨，块长太短会把真实收益淹没在噪声里；
-    ③ 采用 262144 符号 × 3 个固定种子取 log10 均值，兼顾成本与精度；固定种子使各配置之间噪声相关，配对比较更稳。
+    <strong>结论</strong>：① BER 绝对值随块长系统性漂移（每翻倍约 −0.3 dex），不同块长的绝对 BER 不可比，因此全流程固定同一协议；
+    ② 该漂移主要来自 Rx LMS FFE 与 MLSE（Burg 白化）随序列加长收敛更充分、残余 ISI 更少，而不仅是统计噪声（跨种子 std 仅 0.02～0.027 dex）；
+    ③ 采用 2097152 符号 × 3 个固定种子取 log10 均值，使最优工作点（≈2e-5）下每个种子仍有约 40 个错误、3 种子合计约 120 个错误，既充分收敛又统计可靠。
   </p>
 </div>
 
@@ -1013,7 +1019,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <tr>
     <td>BER 绝对值依赖评估协议</td>
     <td>块长每翻倍，绝对 BER 系统性变化约 −0.15～−0.25 dex</td>
-    <td>全流程固定 262144 符号 × 3 种子；结果表标注协议</td>
+    <td>全流程固定 2097152 符号 × 3 种子；结果表标注协议</td>
   </tr>
   <tr>
     <td>代理绝对标定弱</td>
@@ -1026,7 +1032,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <td>更换器件时需重跑 per-case RMS 扫描（≈10 min）</td>
   </tr>
   <tr>
-    <td>CTLE 直流增益维</td>
+    <td>CTLE peaking 增益维</td>
     <td>gDC/gDC2 通过频响整形改变 ISI，与 FFE 旁瓣效果类似但杠杆较弱（梯度幅值约为 FFE 的 1/10）；12/15 用例 CTLE 组被激活</td>
     <td>若需更强整形能力，把 CTLE 零极点比例也纳入搜索空间</td>
   </tr>
@@ -1049,18 +1055,18 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <h4 style="margin-top:0">完整流水线</h4>
   <pre><code># 1) 数据集（2001 点；6 维 LHS；只用 Base_IL10x10；gain 窄带 ×0.40~×0.90）
 python dataset_generator.py --base-samples 2000 --only-envs Base_IL10x10 \
-    --num-symbols 262144 --sim-seeds 42,43,44 --jobs 14 --core-samples 1200 --v5
+    --num-symbols 1048576 --sim-seeds 42,43,44 --jobs 14 --core-samples 1200 --v5
 
 # 2) 训练 A/B（A: 探针 8 维 -> BER；B: 参数 7 维 -> BER）
 python -c "from train_surrogates import train_v6; import glob; \
   train_v6(sorted(glob.glob('dataset/ddps_v4_dataset_*.csv'))[-1], 'models/ddps_v6')"
 
 # 3) per-case target_rms 扫描
-python scratch/scan_per_case_rms.py --jobs 12
+python tools/scan_per_case_rms.py --jobs 14
 
 # 4) 在线调优（15 环境）
 python test_generalization.py --model-dir models/ddps_v6 --out-dir result/ddps_v6_main --v6 \
-    --n-steps 15 --num-symbols 262144 --sim-seeds 42,43,44
+    --n-steps 15 --num-symbols 2097152 --sim-seeds 42,43,44
 
 # 5) 可视化报告
 python report_ddps_v6.py --test-dir result/ddps_v6_main --model-dir models/ddps_v6 \
@@ -1084,7 +1090,7 @@ python make_deliverable_v6.py --baseline result/ddps_v6_main --model-dir models/
 
 <footer>
   <p><strong>测量口径</strong>：Python 3.11.11 / NumPy 2.4.6 / SciPy 1.17.1；BLAS 线程数固定为 1（<span class="mono">OMP_NUM_THREADS=1</span>）；
-  BER 评估统一 262144 符号/点 × 仿真实例种子 (42,43,44) 取 log10 均值；数据集采样与模型划分固定 seed = 42。</p>
+  BER 评估统一 2097152 符号/点 × 仿真实例种子 (42,43,44) 取 log10 均值；数据集采样与模型划分固定 seed = 42。</p>
   <p>数值来源：<span class="mono">config.xlsx</span>、<span class="mono">models/*/meta.json</span>、<span class="mono">result/*/case_summary.csv</span>、
   <span class="mono">result/*/trace_*.csv</span>、<span class="mono">dataset/ddps_v4_dataset_*.csv</span> 与源码常量。</p>
 </footer>

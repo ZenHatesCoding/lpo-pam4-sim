@@ -38,14 +38,14 @@ DEFAULT_MODE = '112G'
 
 | 文档 | 内容 |
 | --- | --- |
-| [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_v6_Deliverable.html) | 链路架构、A/B 双代理、链式梯度、安全红线、A-only 对比、15 用例结果 |
+| [📄 **DDPS v6.1 交付说明（自包含 HTML）**](deliverables/DDPS_v6.1_Deliverable.html) | 链路架构、A/B 双代理、链式梯度、安全红线、15 用例结果（BER_MLSE 全部 1e-5 量级） |
 | [📄 **训练环境对比实验**](deliverables/DDPS_v6_TrainingComparison.html) | 基线训练 vs IL20x20(BO种子) vs IL20x20(GD种子)：三组逐用例对比 |
-| [历史交付件](deliverables/) | v2~v5 各版本交付件 HTML |
+| [历史交付件](deliverables/) | v2~v6 各版本交付件 HTML |
 | [01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md) | 收发机模型、多采样率机制、`config.xlsx` 参数物理含义 |
 | [02. 独立分析与诊断工具集](docs/02_Utility_Scripts.md) | optimizers/ + tools/ 目录 + 核心脚本 |
 | [DDPS 方法](docs/DDPS_Method.md) | A=探针→BER 方向代理 + B=参数→BER 风险控制、链式梯度、安全红线、per-case target_rms |
 | [DDPS 要求清单](docs/DDPS_REQUIREMENTS.md) | 架构、安全红线、对比实验、交付件的全部要求 |
-| [版本变更记录](docs/CHANGELOG.md) | 每个版本的核心变化（v1→v6） |
+| [版本变更记录](docs/CHANGELOG.md) | 每个版本的核心变化（v1→v6.1） |
 | [LPO MSA 规范核心参数提炼](docs/LPO_MSA_Specification_Summary.md) | 电气/光学/信道参数标准依据 |
 | [分支关系与版本导览](BRANCHES.md) | 仓库各分支的关系与差异 |
 
@@ -67,7 +67,7 @@ python main.py
 ```bash
 # 只用基线环境（Base_IL10x10）采样 2000 点，6 维 LHS（4 FFE 旁瓣 + gDC + gDC2）
 python dataset_generator.py --base-samples 2000 --anchor-samples 0 \
-    --only-envs Base_IL10x10 --num-symbols 262144 --sim-seeds 42,43,44 \
+    --only-envs Base_IL10x10 --num-symbols 1048576 --sim-seeds 42,43,44 \
     --jobs 14 --core-samples 1200 --v5 --v5-gain-lo 0.40 --v5-gain-hi 0.90
 
 # 训练 A（探针 8 维→BER）+ B（参数 7 维→BER），WhiteBoxRidge 带解析梯度
@@ -78,15 +78,15 @@ python -c "from train_surrogates import train_v6; import glob; \
 ### 4. per-case target_rms 扫描 + 在线调优泛化测试
 ```bash
 # 每用例扫描标定最优发端 RMS（0.06~0.22V，步长 0.005）
-python tools/scan_per_case_rms.py --jobs 12
+python tools/scan_per_case_rms.py --jobs 14
 
 # 冻结模型，15 环境 Stage-2 链式梯度下降 + B 风险控制 + gain per-case RMS
 python test_generalization.py --model-dir models/ddps_v6 --out-dir result/ddps_v6_main \
-    --v6 --n-steps 15 --num-symbols 262144 --sim-seeds 42,43,44
+    --v6 --n-steps 15 --num-symbols 2097152 --sim-seeds 42,43,44
 
 # A-only 对比实验（只用 A 梯度，不查 B）
 python test_generalization.py --model-dir models/ddps_v6 --out-dir result/ddps_v6_aonly \
-    --a-only --n-steps 15 --num-symbols 262144 --sim-seeds 42,43,44
+    --a-only --n-steps 15 --num-symbols 2097152 --sim-seeds 42,43,44
 ```
 
 ### 5. 报告与交付件

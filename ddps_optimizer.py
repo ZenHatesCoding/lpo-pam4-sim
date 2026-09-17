@@ -44,10 +44,14 @@ FFE_PRE = 2                    # 主抽头位置（2 个前游标 + 2 个后游�
 N_SIDE = N_FFE_TAPS - 1        # 4 个旁瓣自由变量
 
 FFE_BOUND = 0.3
-CTLE_GDC_MIN = -5.0
-CTLE_GDC_MAX = 5.0
-CTLE_GDC2_MIN = -5.0
-CTLE_GDC2_MAX = 5.0
+# CTLE 搜索边界（peaking 语义）：
+#   g_dc  = 高频 peaking gain (dB)，直流增益恒 0 dB。≥0 才有意义（负值=额外衰减高频）。
+#           SJTU Tx 用 10.75 dB、Rx 用 6 dB；Tx 优化上界给到 12 dB 覆盖重损补偿。
+#   g_dc2 = LF shelf gain (dB)，SJTU 用 1.91~3 dB；给 [0, 4]。
+CTLE_GDC_MIN = 0.0
+CTLE_GDC_MAX = 12.0
+CTLE_GDC2_MIN = 0.0
+CTLE_GDC2_MAX = 4.0
 PEAK_SUM_LIMIT = 0.8          # sum(|pre_post|) <= 0.8 -> 主抽头 >= 0.2
 
 # ---------------------------------------------------------------------------
@@ -137,8 +141,8 @@ def set_sim_seeds(seeds):
 
 # 已知“不错的起点”（种子）：来自两阶段实验的初始次优点
 SEED_TAPS = np.array([-0.034, -0.2987, 0.6091, 0.0, 0.0582])   # 5-tap：主抽头 = 1 - Σ|旁瓣|
-SEED_GDC = 0.0
-SEED_GDC2 = 0.0
+SEED_GDC = 6.0                  # Tx CTLE peaking seed: moderate 6 dB (Rx adds another fixed 6 dB)
+SEED_GDC2 = 2.0                 # Tx CTLE LF shelf seed: 2 dB (SJTU uses 1.91)
 SEED_GAIN_U = 0.0             # u = log10(gain / DRIVER_GAIN_NOMINAL)，种子即标定值（0.0）
 SEED_GAIN = DRIVER_GAIN_NOMINAL * (10.0 ** SEED_GAIN_U)
 GAIN_MIN = DRIVER_GAIN_NOMINAL * (10.0 ** GAIN_LOG10_MIN)   # 便于阅读/打印的实际增益下界

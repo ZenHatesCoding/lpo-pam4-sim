@@ -29,20 +29,20 @@ import json as _json
 BAUD = 56e9  # 56 GBd
 
 def _ctle_response_db(f, gdc_db, gdc2_db):
-    """Tx CTLE |H(f)| in dB. f: Hz array."""
+    """Tx CTLE |H(f)| in dB (peaking topology, DC gain = 0 dB). f: Hz array."""
     tx = load_config('config.xlsx')['tx']
     f = np.maximum(f, 1e-9)
     f_b = BAUD
-    f_z = f_b / tx.get('ctle_fz_ratio', 2.5)
-    f_p1 = f_b / tx.get('ctle_fp1_ratio', 2.5)
+    f_z = f_b / tx.get('ctle_fz_ratio', 2.862)
+    f_p1 = f_b / tx.get('ctle_fp1_ratio', 1.884)
     f_p2 = f_b / tx.get('ctle_fp2_ratio', 1.0)
     f_lf = f_b / tx.get('ctle_flf_ratio', 40.0)
-    g_dc = 10 ** (gdc_db / 20.0)
-    g_dc2 = 10 ** (gdc2_db / 20.0)
-    num1 = g_dc + 1j * f / f_z
-    den1 = (1 + 1j * f / f_z) * (1 + 1j * f / f_p1) * (1 + 1j * f / f_p2)
-    num2 = g_dc2 + 1j * f / f_lf
-    den2 = 1 + 1j * f / f_lf
+    K_DC = 10 ** (gdc_db / 20.0)
+    K_DC2 = 10 ** (gdc2_db / 20.0)
+    num1 = 1.0 + 1j * f * (K_DC / f_z)
+    den1 = (1.0 + 1j * f / f_p1) * (1.0 + 1j * f / f_p2)
+    num2 = 1.0 + 1j * f * (K_DC2 / f_lf)
+    den2 = 1.0 + 1j * f / f_lf
     h = (num1 / den1) * (num2 / den2)
     return 20 * np.log10(np.abs(h) + 1e-12)
 
@@ -345,7 +345,7 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
     L = []
     L.append('# DDPS v6 在线调优报告\n')
     L.append(f'> 模型：`{model_dir}`（6 维 FFE+CTLE 核岭代理；gain 维由发端 RMS 物理目标驱动）\n')
-    L.append(f'> 评估协议：262144 符号/点 × 3 仿真实例种子（42,43,44）取 log10 均值\n')
+    L.append(f'> 评估协议：2097152 符号/点 × 3 仿真实例种子（42,43,44）取 log10 均值\n')
     L.append(f'> gain 目标：MZM 输入 RMS = per-case 扫描标定（每个用例单独细扫）\n\n')
 
     L.append('## 1. 逐用例结果\n\n')
@@ -404,7 +404,7 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
     if summary_out:
         with open(summary_out, 'w', encoding='utf-8') as f:
             f.write('# DDPS v6：跨实验汇总（BER_MLSE）\n\n')
-            f.write('评估协议：262144 符号/点 × 3 仿真实例种子取 log10 均值；'
+            f.write('评估协议：2097152 符号/点 × 3 仿真实例种子取 log10 均值；'
                     '所有实验共用同一批用例与同一协议。\n\n')
             f.write('| 用例 | 物理条件 | 种子 | v6 最优 | 改善 × |\n')
             f.write('| --- | --- | --- | --- | --- |\n')

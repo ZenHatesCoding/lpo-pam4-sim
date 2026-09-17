@@ -2,7 +2,22 @@
 
 > 本文件记录每个版本的核心变化。只记"变了什么"，不记排错过程。
 
-## v6（当前版本）
+## v6.1（当前版本）
+
+### 物理层修正
+- Tx CTLE 拓扑改为 OIF 2Z3P peaking 形式：分子 `1 + jf·(K_DC/fz)`，零点位于 `fz/K_DC`，直流增益恒 0 dB。`g_dc_db` 语义改为高频 peaking gain（dB）。原实现 `(g_dc + jf/fz)` 在 `fz==fp1` 时零极点对消成低通，Nyquist 处反而衰减。
+- CTLE 零极点比例改为 SJTU 标准：`fz=fb/2.862, fp1=fb/1.884, fp2=fb, flf=fb/40`。
+- 新增 Rx 模拟 CTLE 级（TIA→Rx IL→Host Rx 噪声→Rx CTLE→ADC），固定参数 `gDC=6 dB, gDC2=3 dB`（SJTU standard），不参与优化，作为静态均衡基座。
+- CTLE 优化边界改为 peaking 语义：`g_dc ∈ [0,12] dB, g_dc2 ∈ [0,4] dB`。种子点 `gDC=6, gDC2=2`。
+- 评估符号数拉长至 2^20（数据集）/ 2^21（在线测试），可靠分辨 1e-5 量级。
+
+### 验证
+- Tx CTLE 传递函数：gDC=6 dB 时 Nyquist 处 +5.89 dB（修正前为 −7 dB）。
+- 最终在线测试（15 用例，2097152 符号 × 3 种子）：15/15 改善、0 劣化，最优 BER_MLSE 全部进入 1e-5 量级（1.93e-5 ~ 4.63e-5）。
+- 对比 v6（物理层修正前）：IL20x20 1.52e-3 → 4.61e-5（改善 ~33 倍）；Comb_IL20x20 7.52e-3 → 4.63e-5（~162 倍）。
+- 块长研究（Base_IL10x10 最优工作点）：BER 随块长每翻倍约 −0.3 dex（LMS/MLSE 收敛效应），2^18=1.76e-4、2^19=8.21e-5、2^20=4.23e-5、2^21=1.98e-5。
+
+## v6（已归档）
 
 ### 架构
 - A=探针→BER（8 维波形域：7-tap Tx FIR + drive_rms）
