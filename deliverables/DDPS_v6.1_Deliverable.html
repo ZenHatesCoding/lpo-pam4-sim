@@ -1096,21 +1096,22 @@ python dataset_generator.py --base-samples 2000 --only-envs Base_IL10x10 \
 
 # 2) 训练 A/B（A: 探针 8 维 -> BER；B: 参数 7 维 -> BER）
 python -c "from train_surrogates import train_v6; import glob; \
-  train_v6(sorted(glob.glob('dataset/ddps_v4_dataset_*.csv'))[-1], 'models/ddps_v6')"
+  train_v6(sorted(glob.glob('dataset/ddps_v4_dataset_*.csv'))[-1], 'models/ddps_v6_1')"
 
 # 3) per-case target_rms 扫描
 python tools/scan_per_case_rms.py --jobs 14
 
 # 4) 在线调优（15 环境）
-python test_generalization.py --model-dir models/ddps_v6 --out-dir result/ddps_v6_main --v6 \
+python test_generalization.py --model-dir models/ddps_v6_1 --out-dir result/ddps_v6_1_main --v6 \
     --n-steps 15 --num-symbols 2097152 --sim-seeds 42,43,44
 
 # 5) 可视化报告
-python report_ddps_v6.py --test-dir result/ddps_v6_main --model-dir models/ddps_v6 \
-    --summary "v6:A探针+B参数" --summary-out result/SUMMARY.md
+python report_ddps_v6.py --test-dir result/ddps_v6_1_main --model-dir models/ddps_v6_1 \
+    --summary-out result/SUMMARY_v6_1.md
 
 # 6) 交付件
-python make_deliverable_v6.py --baseline result/ddps_v6_main --model-dir models/ddps_v6</code></pre>
+python make_deliverable_v6.py --baseline result/ddps_v6_1_main --model-dir models/ddps_v6_1 \
+    --out deliverables/DDPS_v6.1_Deliverable.html</code></pre>
 </div>
 
 <div class="tw">
@@ -1118,10 +1119,10 @@ python make_deliverable_v6.py --baseline result/ddps_v6_main --model-dir models/
   <caption>产物清单</caption>
   <tr><th>类别</th><th>路径</th><th>内容</th></tr>
   <tr><td>数据集</td><td class="mono">dataset/ddps_v4_dataset_&lt;ts&gt;.csv</td><td>2001 行 × 44 列（6 维 x_shape + 5-tap FFE + 驱动 RMS + 7-tap FIR 探针 + 真实 BER）</td></tr>
-  <tr><td>核心模型</td><td class="mono">models/ddps_v6/</td><td>A=探针 8 维 / B=参数 7 维 + meta.json</td></tr>
-    <tr><td>核心结果</td><td class="mono">result/ddps_v6_main/</td><td>case_summary.csv/json、trace_&lt;用例&gt;.csv、run_config.json、report/</td></tr>
-      <tr><td>跨实验汇总</td><td class="mono">result/SUMMARY.md</td><td>15 用例结果汇总</td></tr>
-  <tr><td>模型修正记录</td><td class="mono">docs/10_DDPS_v6_Model_Update.md</td><td>A/B 分工、链式梯度、per-case target_rms 设计依据</td></tr>
+  <tr><td>核心模型</td><td class="mono">models/ddps_v6_1/</td><td>A=探针 8 维 / B=参数 7 维 + meta.json</td></tr>
+    <tr><td>核心结果</td><td class="mono">result/ddps_v6_1_main/</td><td>case_summary.csv/json、trace_&lt;用例&gt;.csv、run_config.json、report/</td></tr>
+      <tr><td>跨实验汇总</td><td class="mono">result/SUMMARY_v6_1.md</td><td>15 用例结果汇总</td></tr>
+  <tr><td>块长研究</td><td class="mono">result/ddps_v6_1_block_length.csv</td><td>最优工作点不同块长的 BER 估计精度</td></tr>
 </table>
 </div>
 
