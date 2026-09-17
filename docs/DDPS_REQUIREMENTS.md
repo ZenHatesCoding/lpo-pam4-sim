@@ -46,6 +46,21 @@ PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → C
 - 如果 A-only 就 0 劣化步，说明 Model A 方向已足够好，B 的价值是"保险"而非"必需"
 - 如果 A-only 有劣化步而 A+B 没有，说明 B 确实拦住了错误方向
 
+## 三b、对比实验：训练环境对比（已实现）
+
+### 实现
+- 三组：基线训练(IL10x10) vs IL20x20(BO种子) vs IL20x20(梯度下降种子)
+- `optimizers/bo_search_il20.py`：贝叶斯优化在 IL20x20 上搜 6 维全局最优种子点
+- `dataset_generator.py --base-env IL20x20 --seed-config result/il20_bo_seed.json`：用 BO 种子点邻域采样
+- `test_generalization.py --seed-config result/il20_bo_seed.json`：用 BO 种子点做 Stage-2 起点
+- `make_deliverable_compare.py`：三组对比交付件
+- 新旧数据/模型/结果全部分开存储：`dataset_il20/`, `models/ddps_v6_il20/`, `result/ddps_v6_il20_main/`
+
+### 判读标准
+- 基线训练应最稳健（15/15 正向，0 劣化）
+- 高损环境训练在重损环境更优但泛化性下降
+- 种子点选择决定模型对哪个区域学得准
+
 ## 四、交付件要求（AGENTS.md 硬规矩）
 
 ### 资产负债表原则

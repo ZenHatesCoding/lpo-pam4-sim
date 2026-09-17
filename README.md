@@ -39,10 +39,11 @@ DEFAULT_MODE = '112G'
 | 文档 | 内容 |
 | --- | --- |
 | [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_v6_Deliverable.html) | 链路架构、A/B 双代理、链式梯度、安全红线、A-only 对比、15 用例结果 |
+| [📄 **训练环境对比实验**](deliverables/DDPS_v6_TrainingComparison.html) | 基线训练 vs IL20x20(BO种子) vs IL20x20(GD种子)：三组逐用例对比 |
 | [历史交付件](deliverables/) | v2~v5 各版本交付件 HTML |
 | [01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md) | 收发机模型、多采样率机制、`config.xlsx` 参数物理含义 |
-| [02. 独立分析与诊断工具集](docs/02_Utility_Scripts.md) | 信道频响查看器、寻参脚本 |
-| [DDPS 方法](docs/DDPS_Method.md) | A=探针→BER 方向代理 + B=参数→BER 风险控制、链式梯度、per-case target_rms |
+| [02. 独立分析与诊断工具集](docs/02_Utility_Scripts.md) | optimizers/ + tools/ 目录 + 核心脚本 |
+| [DDPS 方法](docs/DDPS_Method.md) | A=探针→BER 方向代理 + B=参数→BER 风险控制、链式梯度、安全红线、per-case target_rms |
 | [DDPS 要求清单](docs/DDPS_REQUIREMENTS.md) | 架构、安全红线、对比实验、交付件的全部要求 |
 | [版本变更记录](docs/CHANGELOG.md) | 每个版本的核心变化（v1→v6） |
 | [LPO MSA 规范核心参数提炼](docs/LPO_MSA_Specification_Summary.md) | 电气/光学/信道参数标准依据 |
@@ -107,4 +108,29 @@ python tools/validate_local_gradient.py --model-dir models/ddps_v6 --env Base_IL
 # 预测-实测发散诊断
 python tools/diagnose_divergence.py --test-dir result/ddps_v6_main \
     --model-dir models/ddps_v6 --out result/ddps_v6_divergence.csv
+```
+
+### 7. IL20x20 训练对比实验
+```bash
+# 1) BO 寻优 IL20x20 种子点
+python optimizers/bo_search_il20.py
+# -> result/il20_bo_seed.json
+
+# 2) 用 BO 种子点邻域生成数据集
+python dataset_generator.py --base-samples 2000 --anchor-samples 0 \
+    --only-envs IL20x20 --base-env IL20x20 --seed-config result/il20_bo_seed.json \
+    --num-symbols 262144 --sim-seeds 42,43,44 --jobs 12 --core-samples 1200 \
+    --v5 --v5-gain-lo 0.90 --v5-gain-hi 1.60 --out-dir dataset_il20
+
+# 3) 训练 IL20x20 模型
+python -c "from train_surrogates import train_v6; import glob; \
+  train_v6(sorted(glob.glob('dataset_il20/ddps_v4_dataset_*.csv'))[-1], 'models/ddps_v6_il20')"
+
+# 4) 泛化测试（用 BO 种子点做 Stage-2 起点）
+python test_generalization.py --model-dir models/ddps_v6_il20 --out-dir result/ddps_v6_il20_main \
+    --v6 --n-steps 15 --num-symbols 262144 --sim-seeds 42,43,44 \
+    --seed-config result/il20_bo_seed.json
+
+# 5) 三组对比交付件
+python make_deliverable_compare.py
 ```
