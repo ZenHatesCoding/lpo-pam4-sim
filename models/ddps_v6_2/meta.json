@@ -1,0 +1,57 @@
+{
+  "dataset_csv": "dataset/ddps_v62_dataset_20260919_004651.csv",
+  "label_col": "log10_ber_mlse",
+  "pipeline": "ddps_v6_2",
+  "gain_mode": "gradient_with_rms_init",
+  "n_rows": 2001,
+  "n_train": 1601,
+  "n_test": 400,
+  "model_a_features": [
+    "tx_fir_0",
+    "tx_fir_1",
+    "tx_fir_2",
+    "tx_fir_3",
+    "tx_fir_4",
+    "tx_fir_5",
+    "tx_fir_6",
+    "drive_rms"
+  ],
+  "model_b_features": [
+    "x_0",
+    "x_1",
+    "x_2",
+    "x_3",
+    "x_4",
+    "x_5",
+    "drive_rms"
+  ],
+  "model_a_dim": 8,
+  "model_b_dim": 7,
+  "model_a": {
+    "r2_test": 0.66553779430889,
+    "mse_test": 0.40100262868198433,
+    "spearman_test": 0.8320885755535973,
+    "input_domain": "waveform_probe",
+    "description": "7-tap Tx FIR + drive_rms -> log10 BER 条件均值（方向映射）"
+  },
+  "model_b": {
+    "r2_test": 0.7019925194815175,
+    "mse_test": 0.3572953267107606,
+    "spearman_test": 0.835156282226764,
+    "input_domain": "parameter",
+    "description": "6 维 x_shape + drive_rms -> log10 BER 保守上包络（风险控制）",
+    "local_spacing_rho": 1.7524705965674756
+  },
+  "model_a_by_env": {
+    "Base_IL10x10": {
+      "n": 400,
+      "spearman_test": 0.8320885755535973
+    }
+  },
+  "model_b_by_env": {
+    "Base_IL10x10": {
+      "n": 400,
+      "spearman_test": 0.835156282226764
+    }
+  }
+}

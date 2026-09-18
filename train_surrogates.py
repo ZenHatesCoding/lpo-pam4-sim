@@ -794,12 +794,16 @@ V6_B_COLS = [f'x_{i}' for i in range(6)] + ['drive_rms']
 
 
 def train_v6(dataset_csv, model_dir="models", label_col=None, verbose=True,
-             test_size=0.2, seed=42):
-    """DDPS v6：白盒 Ridge 双代理（A: 探针->BER；B: 参数->BER）。
+             test_size=0.2, seed=42, pipeline_tag='ddps_v6',
+             gain_mode='physical_target_rms'):
+    """DDPS v6/v6.2：白盒 Ridge 双代理（A: 探针->BER；B: 参数->BER）。
 
     A 输入 = 7-tap Tx FIR 探针 + drive_rms（8 维波形域）。
     B 输入 = 6 维 x_shape（4 FFE 旁瓣 + gDC + gDC2）+ drive_rms（7 维参数域）。
     两者均用 WhiteBoxRidge（二阶多项式 + L2 正则闭式解，A 带解析梯度）。
+
+    v6.2 复用同一模型结构（gain 通过 drive_rms 已进入 A/B 输入），
+    由 pipeline_tag / gain_mode 区分口径。
     """
     import pandas as pd
     import json as _json
@@ -840,7 +844,8 @@ def train_v6(dataset_csv, model_dir="models", label_col=None, verbose=True,
     pa = model_a.predict(X_A_te)
     pb = model_b.predict(X_B_te)
     meta = {
-        'dataset_csv': dataset_csv, 'label_col': label_col, 'pipeline': 'ddps_v6',
+        'dataset_csv': dataset_csv, 'label_col': label_col, 'pipeline': pipeline_tag,
+        'gain_mode': gain_mode,
         'n_rows': int(len(df)), 'n_train': int(len(tr)), 'n_test': int(len(te)),
         'model_a_features': V6_A_COLS, 'model_b_features': V6_B_COLS,
         'model_a_dim': int(len(V6_A_COLS)), 'model_b_dim': int(len(V6_B_COLS)),

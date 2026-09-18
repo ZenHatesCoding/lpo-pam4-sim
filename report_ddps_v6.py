@@ -73,6 +73,16 @@ def _is_aonly(test_dir):
     return ('pb_seed' in summ.columns) and (float(summ['pb_seed'].abs().sum()) < 1e-12)
 
 
+def _is_v62(test_dir):
+    """v6.2 结果的 case_summary 里有 best_u_gain / seed_gain_ratio 列（gain 纳入梯度）。"""
+    summ = _summary(test_dir)
+    return ('best_u_gain' in summ.columns) and ('seed_gain_ratio' in summ.columns)
+
+
+def _ver(test_dir):
+    return 'v6.2' if _is_v62(test_dir) else 'v6'
+
+
 def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True):
     steps = tr['step'].values
     # 种子点（step -1）作为曲线起点：trace 从梯度第 1 步开始记录，
@@ -156,7 +166,9 @@ def figure_convergence_grid(test_dir, report_dir, envs):
         axes[j].axis('off')
     aonly = _is_aonly(test_dir)
     label = 'A-only（只用 Model A 梯度）' if aonly else 'A+B（完整流程）'
-    fig.suptitle(f'DDPS v6 在线调优收敛轨迹 — {label}（15 环境，只用基线训练泛化）', fontsize=12)
+    vdim = '7 维（FFE+CTLE+gain）' if _is_v62(test_dir) else '6 维 FFE+CTLE（gain 物理驱动）'
+    fig.suptitle(f'DDPS {_ver(test_dir)} 在线调优收敛轨迹 — {label}'
+                 f'（15 环境，只用基线训练泛化，{vdim}）', fontsize=12)
     _add_shared_legend(fig, ncol=3 if aonly else 5, fontsize=9, y_offset=0.965, aonly=aonly)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     out = os.path.join(report_dir, 'ddps_v6_convergence.png')
@@ -166,8 +178,15 @@ def figure_convergence_grid(test_dir, report_dir, envs):
 
 
 def figure_gain_rms(test_dir, report_dir, envs):
-    """逐用例 gain 倍率与 drive_rms 轨迹：验证 gain 物理驱动是否自适应。"""
+    """逐用例 gain 倍率与 drive_rms 轨迹。
+
+    v6：gain 锁定 per-case target_rms（验证物理驱动）；
+    v6.2：gain 纳入梯度（初值 = per-case 扫描最优 gain，之后放开走 7 维梯度）。
+    """
     os.makedirs(report_dir, exist_ok=True)
+    v62 = _is_v62(test_dir)
+    summ = _summary(test_dir)
+    rows = {r['env']: r for _, r in summ.iterrows()}
     n = len(envs)
     ncol = 5
     nrow = int(np.ceil(n / ncol))
@@ -180,22 +199,26 @@ def figure_gain_rms(test_dir, report_dir, envs):
             ax.axis('off')
             continue
         steps = tr['step'].values
-        # 种子点（step -1）：gain_ratio = 1.0（未标定），drive_rms = rms_ref（反算）
-        # trace 从梯度第 1 步（gain 已按 per-case target_rms 标定）开始记录，
-        # 不 prepend 的话看不到"种子 gain 1.0 → 标定后"的跳跃。
-        target = float(tr['drive_rms'].iloc[0])   # per-case target_rms（drive_rms 锁定值）
-        gr0 = float(tr['gain_ratio'].iloc[0])
-        rms_ref = target / gr0 if gr0 > 1e-6 else target
-        steps_ext = np.concatenate([[-1], steps])
-        gr_ext = np.concatenate([[1.0], tr['gain_ratio'].values])
-        dr_ext = np.concatenate([[rms_ref], tr['drive_rms'].values])
+        if v62:
+            # v6.2：种子（step -1）= per-case 扫描最优 gain 的初值点；drive_rms 用首步近似（= per-case target_rms 附近）
+            seed_gr = float(rows[env].get('seed_gain_ratio', tr['gain_ratio'].iloc[0]))
+            seed_rms = float(tr['drive_rms'].iloc[0])
+            steps_ext = np.concatenate([[-1], steps])
+            gr_ext = np.concatenate([[seed_gr], tr['gain_ratio'].values])
+            dr_ext = np.concatenate([[seed_rms], tr['drive_rms'].values])
+        else:
+            # 种子点（step -1）：gain_ratio = 1.0（未标定），drive_rms = rms_ref（反算）
+            target = float(tr['drive_rms'].iloc[0])
+            gr0 = float(tr['gain_ratio'].iloc[0])
+            rms_ref = target / gr0 if gr0 > 1e-6 else target
+            steps_ext = np.concatenate([[-1], steps])
+            gr_ext = np.concatenate([[1.0], tr['gain_ratio'].values])
+            dr_ext = np.concatenate([[rms_ref], tr['drive_rms'].values])
         ax.plot(steps_ext, gr_ext, marker='o', ms=4, lw=1.5,
                 color=C_GAIN, label='gain 倍率（左轴）')
         ax2 = ax.twinx()
         ax2.plot(steps_ext, dr_ext, marker='s', ms=3, ls='--',
                  lw=1.0, color=C_REAL, label='drive_rms (V)（右轴）')
-        ax2.axhline(target, color=C_LIMIT, ls=':', lw=0.8, alpha=0.7,
-                    label='target_rms 目标')
         ax.set_title(f'{env}', fontsize=9)
         ax.set_xlabel('步数', fontsize=8)
         ax.set_ylabel('gain 倍率', fontsize=8, color=C_GAIN)
@@ -206,13 +229,17 @@ def figure_gain_rms(test_dir, report_dir, envs):
     for j in range(n, len(axes)):
         axes[j].axis('off')
     label = 'A-only' if _is_aonly(test_dir) else 'A+B'
-    fig.suptitle(f'DDPS v6 gain 维物理驱动轨迹 — {label}（drive_rms 锁定到 per-case target_rms）',
-                 fontsize=12)
+    if v62:
+        title = (f'DDPS v6.2 gain / drive_rms 轨迹 — {label}'
+                 f'（gain 纳入梯度，初值来自 per-case RMS 扫描）')
+    else:
+        title = (f'DDPS v6 gain 维物理驱动轨迹 — {label}'
+                 f'（drive_rms 锁定到 per-case target_rms）')
+    fig.suptitle(title, fontsize=12)
     from matplotlib.lines import Line2D
     _h = [Line2D([0], [0], color=C_GAIN, marker='o', ms=5, lw=1.5, label='gain 倍率（左轴）'),
-          Line2D([0], [0], color=C_REAL, marker='s', ms=4, ls='--', lw=1.0, label='drive_rms (V)（右轴）'),
-          Line2D([0], [0], color=C_LIMIT, ls=':', lw=1.2, label='per-case target_rms 目标')]
-    fig.legend(handles=_h, loc='upper center', ncol=3, fontsize=9,
+          Line2D([0], [0], color=C_REAL, marker='s', ms=4, ls='--', lw=1.0, label='drive_rms (V)（右轴）')]
+    fig.legend(handles=_h, loc='upper center', ncol=2, fontsize=9,
                framealpha=0.9, edgecolor='#ccc', bbox_to_anchor=(0.5, 0.965))
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     out = os.path.join(report_dir, 'ddps_v6_gain_rms.png')
@@ -377,8 +404,13 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
     fig_hard = figure_hardcase(test_dir, report_dir, envs)
 
     L = []
-    L.append('# DDPS v6 在线调优报告\n')
-    L.append(f'> 模型：`{model_dir}`（6 维 FFE+CTLE 核岭代理；gain 维由发端 RMS 物理目标驱动）\n')
+    ver = _ver(test_dir)
+    v62 = ver == 'v6.2'
+    L.append(f'# DDPS {ver} 在线调优报告\n')
+    if v62:
+        L.append(f'> 模型：`{model_dir}`（7 维 FFE+CTLE+gain 核岭代理；gain 纳入梯度，初值来自 per-case RMS 扫描）\n')
+    else:
+        L.append(f'> 模型：`{model_dir}`（6 维 FFE+CTLE 核岭代理；gain 维由发端 RMS 物理目标驱动）\n')
     L.append(f'> 评估协议：2097152 符号/点 × 3 仿真实例种子（42,43,44）取 log10 均值\n')
     L.append(f'> gain 目标：MZM 输入 RMS = per-case 扫描标定（每个用例单独细扫）\n\n')
 
@@ -414,18 +446,27 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
     L.append(f'![三曲线收敛]({os.path.relpath(fig_conv, os.path.dirname(test_dir) or ".")})\n\n')
     L.append(f'![gain 物理驱动]({os.path.relpath(fig_gain, os.path.dirname(test_dir) or ".")})\n\n')
 
-    L.append('## 4. 架构（v6：A=探针->BER，B=参数->BER）\n\n')
+    L.append(f'## 4. 架构（{ver}：A=探针->BER，B=参数->BER）\n\n')
     L.append('**Model A（方向代理）**：输入 = [7-tap Tx FIR 探针, drive_rms]（8 维波形域）\n')
     L.append('-> log10(BER_MLSE) 条件均值。在线调优时拿不到收端 BER，只能拿发端探针，\n')
-    L.append('所以 A 建立发端探针到收端 BER 的方向映射。梯度通过链式法则：扰动 6 维参数\n')
-    L.append('-> 重算探针 -> 查 A -> 得 ΔBER（6 维中心差分）。\n\n')
+    L.append('所以 A 建立发端探针到收端 BER 的方向映射。梯度通过链式法则：扰动')
+    if v62:
+        L.append('7 维参数（4 FFE 旁瓣 + gDC + gDC2 + u_gain）')
+    else:
+        L.append('6 维参数')
+    L.append('\n-> 重算探针 -> 查 A -> 得 ΔBER（中心差分）。\n\n')
     L.append('**Model B（风险控制）**：输入 = [4 FFE 旁瓣, gDC, gDC2, drive_rms]（7 维参数域）\n')
     L.append('-> log10(BER_MLSE) 保守上包络。按变差百分比拒绝候选，理想情况全程不触发。\n\n')
     L.append('**A/B 输入空间不同**（波形域 vs 参数域），误差来源相互独立。\n\n')
-    L.append('**gain 维**：不在 A/B 输入里。每个用例单独细粒度扫描标定 target_rms\n')
-    L.append('（0.06~0.22V，步长 0.005），在线调优时每步解析调到该用例的 target_rms：\n')
-    L.append('gain = gain_ref × (target_rms / rms_measured)。解析出的 gain 倍率自动从\n')
-    L.append('强信号环境的 ~0.6 调到弱信号环境的 ~1.3——即"锁定发端 RMS 给每个用例配 gain"。\n\n')
+    if v62:
+        L.append('**gain 维**：通过 drive_rms 进入 A/B 输入，作为第 7 维走链式梯度。初值 = 每个用例\n')
+        L.append('单独扫描标定的最优 gain（per-case target_rms -> 解析 gain），信任域 ±0.15 dex，\n')
+        L.append('之后放开让 gain 在梯度下降里继续优化。\n\n')
+    else:
+        L.append('**gain 维**：不在 A/B 输入里。每个用例单独细粒度扫描标定 target_rms\n')
+        L.append('（0.06~0.22V，步长 0.005），在线调优时每步解析调到该用例的 target_rms：\n')
+        L.append('gain = gain_ref × (target_rms / rms_measured)。解析出的 gain 倍率自动从\n')
+        L.append('强信号环境的 ~0.6 调到弱信号环境的 ~1.3——即"锁定发端 RMS 给每个用例配 gain"。\n\n')
 
     if summary_text:
         L.append('## 5. 汇总标注\n\n')

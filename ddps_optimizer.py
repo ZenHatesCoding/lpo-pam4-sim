@@ -1017,3 +1017,278 @@ def _stage2_descent_v6_aonly(config, model_a, x0_shape, gain0, ffe_pre, n_steps,
         gain = gain_new
 
     return trace
+
+
+# ============================================================
+# v6.2：gain 纳入梯度下降（第 7 维），初值来自 per-case RMS 扫描
+#
+# 与 v6.1 的唯一差别：v6.1 里 gain 每步被 target_rms 解析锁死（不进梯度），
+# v6.2 里 gain 成为搜索向量 x 的第 7 维（u_gain = log10(g/g0)），从该 case
+# per-case 扫描给出的最优 gain 出发，和 FFE/CTLE 一起走 Model A 的链式梯度。
+#
+# 之前把 gain 移出代理（v5）的原因：基线训练的代理对 gain 的梯度方向在高插损
+# 环境会反转（基线最优是降 gain，恶劣环境最优是升 gain）。v6.2 不是"把 gain 再
+# 交回代理赌方向"，而是三点配合：
+#   (1) gain 初值 = 该 case 单独扫描的最优 gain（物理、env-specific，不是种子标称值）；
+#   (2) gain 信任域收紧到 ±GAIN_TRUST dex（小范围微调，不跨环境赌方向）；
+#   (3) 训练数据的 gain 采样带围绕基线最优 gain（让代理在该操作点附近有数据支撑）。
+# ============================================================
+GAIN_TRUST = 0.15            # gain 信任域半径（log10 dex，围绕 per-case 初值）
+GAIN_SAMPLE_HALF = 0.25      # 训练数据 gain 采样半宽（log10 dex，围绕基线最优 gain）
+# v6.2 训练 gain 采样带（宽口径）：覆盖全部 15 用例 per-case 最优 gain（×0.30~×0.91）
+# 及其 ±GAIN_TRUST 在线信任域，避免模型在 drive_rms 轴上对高损用例外推。
+# 采样带 = ×0.20~×1.26（u ∈ [-0.70, +0.10]），在 u 空间均匀。
+GAIN_SAMPLE_U_LO = -0.70
+GAIN_SAMPLE_U_HI = 0.10
+
+STEP_SPAN_V62 = np.array([2.0 * TRUST_FFE] * N_SIDE + [2.0 * TRUST_CTLE] * 2
+                         + [2.0 * GAIN_TRUST])
+GROUP_SLICES_V62 = (slice(0, N_SIDE), slice(N_SIDE, N_SIDE + 2),
+                    slice(N_SIDE + 2, N_SIDE + 3))
+GROUP_NAMES_V62 = ('FFE', 'CTLE', 'driver_gain')
+
+
+def _bounds7(x0):
+    """v6.2 七维搜索盒：FFE/CTLE 围绕种子、gain 围绕 per-case 初值收紧。"""
+    x0 = np.asarray(x0, dtype=float)
+    b = np.array([(-FFE_BOUND, FFE_BOUND)] * N_SIDE
+                 + [(CTLE_GDC_MIN, CTLE_GDC_MAX), (CTLE_GDC2_MIN, CTLE_GDC2_MAX),
+                    (GAIN_LOG10_MIN, GAIN_LOG10_MAX)])
+    radius = np.array([TRUST_FFE] * N_SIDE + [TRUST_CTLE, TRUST_CTLE, GAIN_TRUST])
+    return np.stack([np.maximum(b[:, 0], x0 - radius),
+                     np.minimum(b[:, 1], x0 + radius)], axis=1)
+
+
+def _grad_a_chain7(model_a, config, x, ffe_pre, eps=0.01, eps_u=0.05):
+    """v6.2 七维链式梯度：∂A/∂x = [∂A/∂shape(6), ∂A/∂u_gain]。
+
+    x = [4 FFE 旁瓣, gDC, gDC2, u_gain]（7 维）。
+    shape 维：±eps 扰动参数 -> 重算探针 -> 查 A -> 中心差分（gain 固定）。
+    gain 维：±eps_u 扰动 u_gain -> 换算线性 gain -> 重算探针（只有 drive_rms 变）-> 查 A。
+    """
+    x = np.asarray(x, dtype=float)
+    g = np.zeros_like(x)
+    taps = construct_taps(x[:N_SIDE], ffe_pre)
+    gdc = float(x[N_SIDE])
+    gdc2 = float(x[N_SIDE + 1])
+    gain = gain_from_u(float(x[N_SIDE + 2]))
+    eps_vec = np.array([eps] * N_SIDE + [eps * 10] * 2 + [eps_u])
+
+    for i in range(len(x)):
+        xp = x.copy(); xp[i] += eps_vec[i]
+        xm = x.copy(); xm[i] -= eps_vec[i]
+        if i < N_SIDE + 2:
+            taps_p = construct_taps(xp[:N_SIDE], ffe_pre)
+            taps_m = construct_taps(xm[:N_SIDE], ffe_pre)
+            probe_p = _probe_features(config, taps_p, float(xp[N_SIDE]),
+                                      float(xp[N_SIDE + 1]), gain)
+            probe_m = _probe_features(config, taps_m, float(xm[N_SIDE]),
+                                      float(xm[N_SIDE + 1]), gain)
+        else:
+            gp = gain_from_u(float(xp[N_SIDE + 2]))
+            gm = gain_from_u(float(xm[N_SIDE + 2]))
+            probe_p = _probe_features(config, taps, gdc, gdc2, gp)
+            probe_m = _probe_features(config, taps, gdc, gdc2, gm)
+        ap = _predict_a_probe(model_a, probe_p)
+        am = _predict_a_probe(model_a, probe_m)
+        g[i] = (ap - am) / (2.0 * eps_vec[i])
+    return g
+
+
+def _stage2_descent_v62(config, model_a, model_b, x0, ffe_pre, n_steps, lr):
+    """v6.2 在线调优：7 维（4 FFE 旁瓣 + gDC + gDC2 + u_gain）链式梯度下降。
+
+    x0 第 7 维 = 该 case per-case RMS 扫描最优 gain 的 u 编码（初值）。
+    真实 BER 仅记账，不回传决策。
+    """
+    x = np.array(x0, dtype=float)
+    tr_bounds = _bounds7(x)
+    span = STEP_SPAN_V62.copy()
+
+    # 初值点的探针 + B 预测（初值 = 种子形状 + per-case 最优 gain）
+    taps0 = construct_taps(x[:N_SIDE], ffe_pre)
+    gdc0 = float(x[N_SIDE]); gdc2 = float(x[N_SIDE + 1])
+    gain0 = gain_from_u(float(x[N_SIDE + 2]))
+    rms0 = _measure_drive_rms(config, taps0, gdc0, gdc2, gain0)
+    seed_pred_b = _predict_b_params(model_b, x[:N_SIDE + 2], rms0)
+    best_pred_b = seed_pred_b
+    allowed_ber = (10.0 ** best_pred_b) * (1.0 + MAX_DEGRADE_FRAC)
+
+    # 信任域（B 参数域 6 维 shape；gain 信任域由 _bounds7 单独收紧）
+    rho = float(getattr(model_b, 'local_spacing_', 0.0) or 0.0)
+    sd_vec = np.asarray(getattr(model_b, 'sd', np.ones(7)), dtype=float)[:6]
+    mu_vec = np.asarray(getattr(model_b, 'mu', np.zeros(7)), dtype=float)[:6]
+    z0 = (x[:6] - mu_vec) / sd_vec
+    path_limit = TRUST_PATH_K_V6 * rho if rho > 0 else None
+
+    trace = []
+    pred_a_prev = None
+
+    for step in range(n_steps):
+        g = _grad_a_chain7(model_a, config, x, ffe_pre)
+        gs = g * span
+        direction = np.zeros_like(g)
+        active = []
+        for sl, name in zip(GROUP_SLICES_V62, GROUP_NAMES_V62):
+            nrm = float(np.linalg.norm(gs[sl]))
+            if nrm >= GROUP_GATE:
+                direction[sl] = gs[sl] / nrm
+                active.append(name)
+        if not active:
+            print(f'[Stage2v62] stop: 三组梯度均低于门控 {GROUP_GATE:g}（step {step}）')
+            break
+
+        # 回溯线搜索 + B 拦截
+        alpha = lr * (ALPHA_DECAY ** step)
+        x_new = None
+        alpha_k = alpha
+        for _ in range(20):
+            x_cand = np.clip(x - alpha_k * span * direction,
+                             tr_bounds[:, 0], tr_bounds[:, 1])
+            if np.linalg.norm(x_cand - x) < 1e-9:
+                break
+            taps_c = construct_taps(x_cand[:N_SIDE], ffe_pre)
+            gdc_c = float(x_cand[N_SIDE]); gdc2_c = float(x_cand[N_SIDE + 1])
+            gain_c = gain_from_u(float(x_cand[N_SIDE + 2]))
+            rms_c = _measure_drive_rms(config, taps_c, gdc_c, gdc2_c, gain_c)
+            if _predict_b_params(model_b, x_cand[:N_SIDE + 2], rms_c) <= np.log10(allowed_ber):
+                x_new = x_cand
+                break
+            alpha_k *= 0.5
+        if x_new is None:
+            print(f'[Stage2v62] stop: 无候选点通过 Model B 拦截（step {step}）')
+            break
+
+        # 轨迹信任域（只对 shape 6 维）
+        if path_limit is not None:
+            z_new = (x_new[:6] - mu_vec) / sd_vec
+            if float(np.linalg.norm(z_new - z0)) > path_limit:
+                print(f'[Stage2v62] stop: 轨迹位移超过信任域（step {step}）')
+                break
+
+        taps_new = construct_taps(x_new[:N_SIDE], ffe_pre)
+        gdc_new = float(x_new[N_SIDE]); gdc2_new = float(x_new[N_SIDE + 1])
+        gain_new = gain_from_u(float(x_new[N_SIDE + 2]))
+        probe_new = _probe_features(config, taps_new, gdc_new, gdc2_new, gain_new)
+        pred_a = _predict_a_probe(model_a, probe_new)
+        rms_actual = _measure_drive_rms(config, taps_new, gdc_new, gdc2_new, gain_new)
+        pred_b = _predict_b_params(model_b, x_new[:N_SIDE + 2], rms_actual)
+        real_logber, real_mlse = _physical_eval(config, taps_new, gdc_new, gdc2_new, gain_new)
+
+        # 红线基准下移（B 改善时）
+        if pred_b < best_pred_b:
+            best_pred_b = pred_b
+            allowed_ber = (10.0 ** best_pred_b) * (1.0 + MAX_DEGRADE_FRAC)
+
+        # 边际改善门控
+        if pred_a_prev is not None and (pred_a_prev - pred_a) < MIN_GAIN_DEX:
+            trace.append({
+                'step': step, 'x': x_new, 'taps': taps_new,
+                'gdc': gdc_new, 'gdc2': gdc2_new, 'gain': gain_new,
+                'gain_ratio': gain_new / DRIVER_GAIN_NOMINAL,
+                'u_gain': float(x_new[N_SIDE + 2]),
+                'drive_rms': rms_actual,
+                'pred_a': pred_a, 'pred_b': pred_b,
+                'pred_b_ber': 10.0 ** pred_b, 'allowed_ber': allowed_ber,
+                'real_logber': real_logber, 'real_mlse': real_mlse,
+                'grad_norm': float(np.linalg.norm(g)), 'stop_reason': 'marginal_gain',
+            })
+            print(f"[Stage2v62] stop: marginal predicted gain "
+                  f"({pred_a_prev - pred_a:+.4f} < {MIN_GAIN_DEX}) at step {step}")
+            break
+        pred_a_prev = pred_a
+
+        trace.append({
+            'step': step, 'x': x_new, 'taps': taps_new,
+            'gdc': gdc_new, 'gdc2': gdc2_new, 'gain': gain_new,
+            'gain_ratio': gain_new / DRIVER_GAIN_NOMINAL,
+            'u_gain': float(x_new[N_SIDE + 2]),
+            'drive_rms': rms_actual,
+            'pred_a': pred_a, 'pred_b': pred_b,
+            'pred_b_ber': 10.0 ** pred_b, 'allowed_ber': allowed_ber,
+            'real_logber': real_logber, 'real_mlse': real_mlse,
+            'grad_norm': float(np.linalg.norm(g)), 'stop_reason': '',
+        })
+
+        print(f"[Stage2v62] gd {step + 1}/{n_steps} | ModelA {10.0 ** pred_a:.2e} "
+              f"| real {real_mlse:.2e} | gain x{gain_new / DRIVER_GAIN_NOMINAL:.3f} "
+              f"| u_gain {float(x_new[N_SIDE + 2]):+.3f} | gDC {gdc_new:+.2f} "
+              f"| gDC2 {gdc2_new:+.2f} | 组 {active}")
+
+        if np.linalg.norm(x_new - x) < 1e-6:
+            break
+        x = x_new
+
+    return trace
+
+
+def _stage2_descent_v62_aonly(config, model_a, x0, ffe_pre, n_steps, lr):
+    """v6.2 A-only：只用 Model A 七维链式梯度，不查 Model B、不走安全拦截。"""
+    x = np.array(x0, dtype=float)
+    tr_bounds = _bounds7(x)
+    span = STEP_SPAN_V62.copy()
+    trace = []
+    pred_a_prev = None
+
+    for step in range(n_steps):
+        g = _grad_a_chain7(model_a, config, x, ffe_pre)
+        gs = g * span
+        direction = np.zeros_like(g)
+        active = []
+        for sl, name in zip(GROUP_SLICES_V62, GROUP_NAMES_V62):
+            nrm = float(np.linalg.norm(gs[sl]))
+            if nrm >= GROUP_GATE:
+                direction[sl] = gs[sl] / nrm
+                active.append(name)
+        if not active:
+            break
+
+        alpha = lr * (ALPHA_DECAY ** step)
+        x_new = np.clip(x - alpha * span * direction, tr_bounds[:, 0], tr_bounds[:, 1])
+        if np.linalg.norm(x_new - x) < 1e-9:
+            break
+
+        taps_new = construct_taps(x_new[:N_SIDE], ffe_pre)
+        gdc_new = float(x_new[N_SIDE]); gdc2_new = float(x_new[N_SIDE + 1])
+        gain_new = gain_from_u(float(x_new[N_SIDE + 2]))
+        probe_new = _probe_features(config, taps_new, gdc_new, gdc2_new, gain_new)
+        pred_a = _predict_a_probe(model_a, probe_new)
+        rms_actual = _measure_drive_rms(config, taps_new, gdc_new, gdc2_new, gain_new)
+        real_logber, real_mlse = _physical_eval(config, taps_new, gdc_new, gdc2_new, gain_new)
+
+        if pred_a_prev is not None and (pred_a_prev - pred_a) < MIN_GAIN_DEX:
+            trace.append({
+                'step': step, 'x': x_new, 'taps': taps_new,
+                'gdc': gdc_new, 'gdc2': gdc2_new, 'gain': gain_new,
+                'gain_ratio': gain_new / DRIVER_GAIN_NOMINAL,
+                'u_gain': float(x_new[N_SIDE + 2]),
+                'drive_rms': rms_actual,
+                'pred_a': pred_a, 'pred_b': 0.0,
+                'pred_b_ber': 0.0, 'allowed_ber': 0.0,
+                'real_logber': real_logber, 'real_mlse': real_mlse,
+                'grad_norm': float(np.linalg.norm(g)), 'stop_reason': 'marginal_gain',
+            })
+            break
+        pred_a_prev = pred_a
+
+        trace.append({
+            'step': step, 'x': x_new, 'taps': taps_new,
+            'gdc': gdc_new, 'gdc2': gdc2_new, 'gain': gain_new,
+            'gain_ratio': gain_new / DRIVER_GAIN_NOMINAL,
+            'u_gain': float(x_new[N_SIDE + 2]),
+            'drive_rms': rms_actual,
+            'pred_a': pred_a, 'pred_b': 0.0,
+            'pred_b_ber': 0.0, 'allowed_ber': 0.0,
+            'real_logber': real_logber, 'real_mlse': real_mlse,
+            'grad_norm': float(np.linalg.norm(g)), 'stop_reason': '',
+        })
+
+        print(f"[Aonly v62] gd {step + 1}/{n_steps} | ModelA {10.0 ** pred_a:.2e} "
+              f"| real {real_mlse:.2e} | gain x{gain_new / DRIVER_GAIN_NOMINAL:.3f} "
+              f"| u_gain {float(x_new[N_SIDE + 2]):+.3f} | gDC {gdc_new:+.2f} | gDC2 {gdc2_new:+.2f}")
+
+        if np.linalg.norm(x_new - x) < 1e-6:
+            break
+        x = x_new
+
+    return trace

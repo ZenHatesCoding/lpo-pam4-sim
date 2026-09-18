@@ -63,6 +63,8 @@ def _run_one(env, args, parts_dir, model_dir):
         cmd += ['--v5']
     if args.v6:
         cmd += ['--v6']
+    if args.v62:
+        cmd += ['--v62']
     if args.a_only:
         cmd += ['--a-only']
     if args.target_rms is not None:
@@ -96,6 +98,7 @@ def main():
                     help='只跑指定环境（逗号分隔）；缺省跑全部 15 环境')
     ap.add_argument('--v5', action='store_true')
     ap.add_argument('--v6', action='store_true')
+    ap.add_argument('--v62', action='store_true')
     ap.add_argument('--a-only', action='store_true')
     ap.add_argument('--target-rms', type=float, default=None)
     ap.add_argument('--per-case-rms-path', type=str, default=None)
@@ -104,8 +107,8 @@ def main():
                     help='并发进程数；缺省 = min(14, 环境数)')
     args = ap.parse_args()
 
-    if not (args.v5 or args.v6 or args.a_only):
-        ap.error('必须指定 --v5 / --v6 / --a-only 之一（与 test_generalization 一致）')
+    if not (args.v5 or args.v6 or args.v62 or args.a_only):
+        ap.error('必须指定 --v5 / --v6 / --v62 / --a-only 之一（与 test_generalization 一致）')
 
     model_dir = os.path.abspath(args.model_dir)
     out_dir = os.path.abspath(args.out_dir)
@@ -125,7 +128,9 @@ def main():
 
     parts_dir = os.path.join(out_dir, '_parts')
     os.makedirs(parts_dir, exist_ok=True)
-    tag = 'v6-Aonly' if args.a_only else ('v6' if args.v6 else 'v5')
+    tag = ('v62-Aonly' if (args.a_only and args.v62) else
+           'v62' if args.v62 else
+           'v6-Aonly' if args.a_only else ('v6' if args.v6 else 'v5'))
     print(f'[parallel {tag}] {len(envs)} envs x {jobs} procs -> {out_dir}')
 
     done = {}

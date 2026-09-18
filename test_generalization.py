@@ -438,11 +438,174 @@ def run_case_v6_aonly(cfg, model_a, env, n_steps=25,
     return result, rows
 
 
+def run_case_v62(cfg, model_a, model_b, env, n_steps=25, per_case_gain=None):
+    """v6.2：7 维梯度下降（4 FFE 旁瓣 + gDC + gDC2 + u_gain）。
+
+    gain 初值 = 该 case per-case RMS 扫描最优 gain（per_case_gain），之后放开走梯度。
+    """
+    ffe_pre = int(cfg['tx'].get('ffe_pre', D.FFE_PRE))
+    seed_pre_post = np.concatenate([D.SEED_TAPS[:ffe_pre], D.SEED_TAPS[ffe_pre + 1:]])
+    gain0 = float(per_case_gain) if per_case_gain is not None else float(D.SEED_GAIN)
+    x0 = np.concatenate([seed_pre_post, [D.SEED_GDC, D.SEED_GDC2, D.u_from_gain(gain0)]])
+
+    seed_lb, seed_ber = D._physical_eval(cfg, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, gain0)
+    taps_seed = D.construct_taps(x0[:D.N_SIDE], ffe_pre)
+    probe_seed = D._probe_features(cfg, taps_seed, float(x0[D.N_SIDE]),
+                                   float(x0[D.N_SIDE + 1]), gain0)
+    pa_seed = D._predict_a_probe(model_a, probe_seed)
+    rms_seed = D._measure_drive_rms(cfg, taps_seed, float(x0[D.N_SIDE]),
+                                     float(x0[D.N_SIDE + 1]), gain0)
+    pb_seed = D._predict_b_params(model_b, x0[:D.N_SIDE + 2], rms_seed)
+
+    trace = D._stage2_descent_v62(cfg, model_a, model_b, x0, ffe_pre, n_steps, D.GD_LR)
+
+    rows = []
+    if trace:
+        for t in trace:
+            rows.append({
+                'step': t['step'], 'x': np.asarray(t['x']).tolist(),
+                'taps': np.round(np.asarray(t['taps']), 6).tolist(),
+                'gdc': t['gdc'], 'gdc2': t['gdc2'], 'gain': t['gain'],
+                'gain_ratio': t['gain'] / D.DRIVER_GAIN_NOMINAL,
+                'u_gain': t.get('u_gain'),
+                'drive_rms': t.get('drive_rms'),
+                'pred_b_ber': t.get('pred_b_ber'), 'allowed_ber': t.get('allowed_ber'),
+                'stop_reason': t.get('stop_reason', ''),
+                'pred_a': t['pred_a'], 'pred_b': t['pred_b'],
+                'real_lb': t['real_logber'], 'real_ber': t['real_mlse'],
+                'grad_norm': t['grad_norm'],
+            })
+    real_lb_t = np.array([r['real_lb'] for r in rows]) if rows else np.array([])
+
+    result = {
+        'env': env['name'], 'il_tx': env['il_tx'], 'il_rx': env['il_rx'],
+        'cd': env['cd'], 'dgd': env['dgd'], 'pol': env['pol'],
+        'noise_stress': bool(env.get('stress')),
+        'seed_lb': float(seed_lb), 'seed_ber': float(seed_ber),
+        'pa_seed': float(pa_seed), 'pb_seed': float(pb_seed),
+        'n_steps_requested': n_steps,
+        'n_steps_actual': len(rows),
+        'freeze_extra': False,
+        'seed_gain': float(gain0),
+        'seed_gain_ratio': float(gain0 / D.DRIVER_GAIN_NOMINAL),
+        'cloud': None,
+    }
+    if rows:
+        ibest = int(np.argmin(real_lb_t))
+        result.update({
+            'best_lb': float(real_lb_t[ibest]),
+            'best_ber': float(rows[ibest]['real_ber']),
+            'best_step': int(rows[ibest]['step']),
+            'final_lb': float(real_lb_t[-1]), 'final_ber': float(rows[-1]['real_ber']),
+            'max_lb': float(real_lb_t.max()),
+            'delta_lb_seed_to_best': float(real_lb_t[ibest] - seed_lb),
+            'delta_lb_seed_to_final': float(real_lb_t[-1] - seed_lb),
+            'best_taps': rows[ibest]['taps'], 'best_gdc': rows[ibest]['gdc'],
+            'best_gdc2': rows[ibest]['gdc2'], 'best_gain': rows[ibest]['gain'],
+            'best_gain_ratio': rows[ibest]['gain'] / D.DRIVER_GAIN_NOMINAL,
+            'best_u_gain': rows[ibest].get('u_gain'),
+            'stop_reason': rows[-1].get('stop_reason', ''),
+            'early_stop': len(rows) < n_steps,
+        })
+    else:
+        result.update({
+            'best_lb': float(seed_lb), 'best_ber': float(seed_ber), 'best_step': -1,
+            'final_lb': float(seed_lb), 'final_ber': float(seed_ber),
+            'max_lb': float(seed_lb),
+            'delta_lb_seed_to_best': 0.0, 'delta_lb_seed_to_final': 0.0,
+            'best_taps': D.SEED_TAPS.tolist(), 'best_gdc': float(D.SEED_GDC),
+            'best_gdc2': float(D.SEED_GDC2), 'best_gain': float(gain0),
+            'best_gain_ratio': float(gain0 / D.DRIVER_GAIN_NOMINAL),
+            'best_u_gain': float(D.u_from_gain(gain0)),
+            'stop_reason': 'no_trace', 'early_stop': True,
+        })
+    return result, rows
+
+
+def run_case_v62_aonly(cfg, model_a, env, n_steps=25, per_case_gain=None):
+    """v6.2 A-only：只用 Model A 七维链式梯度，不查 Model B、不走安全拦截。"""
+    ffe_pre = int(cfg['tx'].get('ffe_pre', D.FFE_PRE))
+    seed_pre_post = np.concatenate([D.SEED_TAPS[:ffe_pre], D.SEED_TAPS[ffe_pre + 1:]])
+    gain0 = float(per_case_gain) if per_case_gain is not None else float(D.SEED_GAIN)
+    x0 = np.concatenate([seed_pre_post, [D.SEED_GDC, D.SEED_GDC2, D.u_from_gain(gain0)]])
+
+    seed_lb, seed_ber = D._physical_eval(cfg, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, gain0)
+    taps_seed = D.construct_taps(x0[:D.N_SIDE], ffe_pre)
+    probe_seed = D._probe_features(cfg, taps_seed, float(x0[D.N_SIDE]),
+                                   float(x0[D.N_SIDE + 1]), gain0)
+    pa_seed = D._predict_a_probe(model_a, probe_seed)
+
+    trace = D._stage2_descent_v62_aonly(cfg, model_a, x0, ffe_pre, n_steps, D.GD_LR)
+
+    rows = []
+    if trace:
+        for t in trace:
+            rows.append({
+                'step': t['step'], 'x': np.asarray(t['x']).tolist(),
+                'taps': np.round(np.asarray(t['taps']), 6).tolist(),
+                'gdc': t['gdc'], 'gdc2': t['gdc2'], 'gain': t['gain'],
+                'gain_ratio': t['gain'] / D.DRIVER_GAIN_NOMINAL,
+                'u_gain': t.get('u_gain'),
+                'drive_rms': t.get('drive_rms'),
+                'pred_b_ber': 0.0, 'allowed_ber': 0.0,
+                'stop_reason': t.get('stop_reason', ''),
+                'pred_a': t['pred_a'], 'pred_b': 0.0,
+                'real_lb': t['real_logber'], 'real_ber': t['real_mlse'],
+                'grad_norm': t['grad_norm'],
+            })
+    real_lb_t = np.array([r['real_lb'] for r in rows]) if rows else np.array([])
+
+    result = {
+        'env': env['name'], 'il_tx': env['il_tx'], 'il_rx': env['il_rx'],
+        'cd': env['cd'], 'dgd': env['dgd'], 'pol': env['pol'],
+        'noise_stress': bool(env.get('stress')),
+        'seed_lb': float(seed_lb), 'seed_ber': float(seed_ber),
+        'pa_seed': float(pa_seed), 'pb_seed': 0.0,
+        'n_steps_requested': n_steps,
+        'n_steps_actual': len(rows),
+        'freeze_extra': False,
+        'seed_gain': float(gain0),
+        'seed_gain_ratio': float(gain0 / D.DRIVER_GAIN_NOMINAL),
+        'cloud': None,
+    }
+    if rows:
+        ibest = int(np.argmin(real_lb_t))
+        result.update({
+            'best_lb': float(real_lb_t[ibest]),
+            'best_ber': float(rows[ibest]['real_ber']),
+            'best_step': int(rows[ibest]['step']),
+            'final_lb': float(real_lb_t[-1]), 'final_ber': float(rows[-1]['real_ber']),
+            'max_lb': float(real_lb_t.max()),
+            'delta_lb_seed_to_best': float(real_lb_t[ibest] - seed_lb),
+            'delta_lb_seed_to_final': float(real_lb_t[-1] - seed_lb),
+            'best_taps': rows[ibest]['taps'], 'best_gdc': rows[ibest]['gdc'],
+            'best_gdc2': rows[ibest]['gdc2'], 'best_gain': rows[ibest]['gain'],
+            'best_gain_ratio': rows[ibest]['gain'] / D.DRIVER_GAIN_NOMINAL,
+            'best_u_gain': rows[ibest].get('u_gain'),
+            'stop_reason': rows[-1].get('stop_reason', ''),
+            'early_stop': len(rows) < n_steps,
+        })
+    else:
+        result.update({
+            'best_lb': float(seed_lb), 'best_ber': float(seed_ber), 'best_step': -1,
+            'final_lb': float(seed_lb), 'final_ber': float(seed_ber),
+            'max_lb': float(seed_lb),
+            'delta_lb_seed_to_best': 0.0, 'delta_lb_seed_to_final': 0.0,
+            'best_taps': D.SEED_TAPS.tolist(), 'best_gdc': float(D.SEED_GDC),
+            'best_gdc2': float(D.SEED_GDC2), 'best_gain': float(gain0),
+            'best_gain_ratio': float(gain0 / D.DRIVER_GAIN_NOMINAL),
+            'best_u_gain': float(D.u_from_gain(gain0)),
+            'stop_reason': 'no_trace', 'early_stop': True,
+        })
+    return result, rows
+
+
 def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
                        cloud_n=0, validity_envs=None, sim_seeds=(42,),
                        freeze_extra=False, only_envs=None,
                        cloud_symbols=65536, cloud_sim_seeds=(42, 43),
-                       v5=False, v6=False, a_only=False, target_rms=None, per_case_rms_path=None):
+                       v5=False, v6=False, a_only=False, v62=False,
+                       target_rms=None, per_case_rms_path=None):
     # 只在缺失时生成配置：config.xlsx 是受版本管理的唯一配置源，多进程并发重写会造成
     # 文件损坏竞态（实测三进程同时 generate_config() 会把 xlsx 写坏）。
     if not os.path.exists('config.xlsx'):
@@ -455,10 +618,17 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
         meta = {}
 
     D.set_sim_seeds(sim_seeds)
-    tag = 'v6-Aonly' if a_only else ('v6' if v6 else ('v5' if v5 else 'v3'))
+    if v62:
+        tag = 'v62-Aonly' if a_only else 'v62'
+    elif v6 or a_only:
+        tag = 'v6-Aonly' if a_only else 'v6'
+    elif v5:
+        tag = 'v5'
+    else:
+        tag = 'v3'
 
-    # per-case target_rms：每个用例单独扫描标定的最优发端 RMS（不用全局几何均值）
-    use_per_case = v5 or v6 or a_only
+    # per-case target_rms / gain：每个用例单独扫描标定（v62 用 gain 做初值，v5/v6 用 target_rms 锁 gain）
+    use_per_case = v5 or v6 or a_only or v62
     per_case_rms = {}
     if use_per_case and target_rms is None:
         path = per_case_rms_path or 'result/per_case_target_rms.json'
@@ -483,7 +653,20 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
         base_cfg = utils_config.load_config('config.xlsx')
         cfg = apply_env_to_config(base_cfg, env)
         cfg['system']['num_symbols'] = int(num_symbols)
-        if v6 or v5 or a_only:
+        if v62:
+            # v6.2：gain 初值 = 该 case per-case 扫描最优 gain，之后放开走 7 维梯度
+            case_gain = None
+            if env['name'] in per_case_rms:
+                case_gain = float(per_case_rms[env['name']]['gain'])
+                print(f"          per-case gain init = {case_gain:.4f} "
+                      f"(x{case_gain / D.DRIVER_GAIN_NOMINAL:.3f})")
+            if a_only:
+                res, rows = run_case_v62_aonly(cfg, model_a, env, n_steps=n_steps,
+                                               per_case_gain=case_gain)
+            else:
+                res, rows = run_case_v62(cfg, model_a, model_b, env, n_steps=n_steps,
+                                         per_case_gain=case_gain)
+        elif v6 or v5 or a_only:
             # 每个用例用自己的 target_rms（per-case 扫描标定），否则用命令行指定的全局值
             case_rms = None
             if target_rms is not None:
@@ -535,9 +718,12 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
                    'cloud_symbols': int(cloud_symbols),
                    'cloud_sim_seeds': list(cloud_sim_seeds),
                    'freeze_extra': bool(freeze_extra), 'v5': bool(v5), 'v6': bool(v6),
+                   'v62': bool(v62), 'a_only': bool(a_only),
                    'target_rms': float(target_rms) if (use_per_case and target_rms) else None,
                    'per_case_target_rms': ({k: v['target_rms'] for k, v in per_case_rms.items()}
                                            if per_case_rms else None),
+                   'per_case_gain': ({k: v['gain'] for k, v in per_case_rms.items()}
+                                     if per_case_rms else None),
                    'envs': [e['name'] for e in cases]},
                   f, indent=2, ensure_ascii=False)
     print(f"\n[test {tag}] done -> {out_dir}/case_summary.csv")
@@ -567,6 +753,8 @@ if __name__ == "__main__":
                     help='用 v6 模式：A=探针->BER 方向映射 + B=参数->BER 风险控制 + gain per-case RMS')
     ap.add_argument('--a-only', action='store_true',
                     help='v6 A-only 对比实验：只用 Model A 梯度，不查 Model B，不走安全拦截')
+    ap.add_argument('--v62', action='store_true',
+                    help='用 v62 模式：7 维梯度（FFE+CTLE+gain），gain 初值来自 per-case RMS 扫描')
     ap.add_argument('--target-rms', type=float, default=None,
                     help='v5/v6 模式下的 MZM 输入 RMS 目标（V）；不指定时自动加载 per-case 扫描结果')
     ap.add_argument('--per-case-rms-path', type=str, default=None,
@@ -594,5 +782,6 @@ if __name__ == "__main__":
                        sim_seeds=sim_seeds, freeze_extra=a.freeze_extra,
                        only_envs=only, cloud_symbols=a.cloud_symbols,
                        cloud_sim_seeds=cloud_seeds,
-                       v5=a.v5, v6=a.v6, a_only=a.a_only, target_rms=a.target_rms,
+                       v5=a.v5, v6=a.v6, a_only=a.a_only, v62=a.v62,
+                       target_rms=a.target_rms,
                        per_case_rms_path=a.per_case_rms_path)
