@@ -10,6 +10,9 @@ diagnostic_results/
 # scratch 调试脚本（本地保留，不入远端）
 scratch/
 
+# 并行跑外器中间分片（合并后的结果目录才是权威）
+_parts/
+
 # 归档目录（本地保留，不入远端）
 archive/
 

@@ -1205,8 +1205,8 @@ def _rows_target_rms(rms_data, order):
     return '\n'.join(out)
 
 
-def _rows_ablation(summary_ab, summary_aonly, d_aonly, order):
-    """A-only vs A+B 逐用例对比行。"""
+def _rows_ablation(summary_ab, summary_aonly, d_aonly, d_ab, order):
+    """A-only vs A+B 逐用例对比行。d_aonly / d_ab 分别为两组的 trace 目录。"""
     out = []
     for env in order:
         r_ab = summary_ab.get(env, {})
@@ -1224,7 +1224,7 @@ def _rows_ablation(summary_ab, summary_aonly, d_aonly, order):
             if not tr.empty:
                 worse_ao = int((tr['real_ber'] > seed * 1.001).sum())
         worse_ab = 0
-        p_ab = os.path.join(os.path.dirname(d_aonly), 'ddps_v6_main', f'trace_{env}.csv')
+        p_ab = os.path.join(d_ab, f'trace_{env}.csv')
         if os.path.exists(p_ab):
             tr = pd.read_csv(p_ab)
             if not tr.empty:
@@ -1288,14 +1288,14 @@ def main():
 
     report_dir = os.path.join(a.baseline, 'report')
 
-    # A-only 对比实验数据
-    aonly_dir = os.path.join(os.path.dirname(os.path.normpath(a.baseline)), 'ddps_v6_aonly')
+    # A-only 对比实验数据（与 baseline 同物理层 v6.1 的 A-only 结果）
+    aonly_dir = os.path.join(os.path.dirname(os.path.normpath(a.baseline)), 'ddps_v6_1_aonly')
     summary_aonly = {}
-    aonly_rows = '<tr><td colspan="8">A-only 实验未运行（result/ddps_v6_aonly 不存在）</td></tr>'
+    aonly_rows = '<tr><td colspan="8">A-only 实验未运行（result/ddps_v6_1_aonly 不存在）</td></tr>'
     if os.path.exists(os.path.join(aonly_dir, 'case_summary.csv')):
         df_aonly = pd.read_csv(os.path.join(aonly_dir, 'case_summary.csv'))
         summary_aonly = {r['env']: r for _, r in df_aonly.iterrows()}
-        aonly_rows = _rows_ablation(summary, summary_aonly, aonly_dir, order)
+        aonly_rows = _rows_ablation(summary, summary_aonly, aonly_dir, a.baseline, order)
 
     # 图片素材：从 report_ddps_v6.py 生成的 PNG 加载
     img_conv = os.path.join(report_dir, 'ddps_v6_convergence.png')

@@ -20,14 +20,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ddps_cases import ENV_CASES  # noqa: E402
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('parts', nargs='+', help='分片结果目录（按任意顺序）')
-    ap.add_argument('--out', required=True, help='合并输出目录')
-    args = ap.parse_args()
-
+def merge(out_dir, parts):
+    """把多个分片结果目录合并成一个结果目录，返回合并后的 case_summary DataFrame。"""
     frames, traces = [], {}
-    for d in args.parts:
+    for d in parts:
         p = os.path.join(d, 'case_summary.csv')
         if not os.path.exists(p):
             raise SystemExit(f'缺少 {p}')
@@ -41,28 +37,37 @@ def main():
     summ['__o'] = summ['env'].map(lambda x: order.get(x, 999))
     summ = summ.sort_values('__o').drop(columns='__o').reset_index(drop=True)
 
-    os.makedirs(args.out, exist_ok=True)
-    summ.to_csv(os.path.join(args.out, 'case_summary.csv'), index=False)
-    summ.to_json(os.path.join(args.out, 'case_summary.json'), orient='records', indent=2)
+    os.makedirs(out_dir, exist_ok=True)
+    summ.to_csv(os.path.join(out_dir, 'case_summary.csv'), index=False)
+    summ.to_json(os.path.join(out_dir, 'case_summary.json'), orient='records', indent=2)
     for name, src in sorted(traces.items()):
-        shutil.copyfile(src, os.path.join(args.out, name))
-    first = args.parts[0]
+        shutil.copyfile(src, os.path.join(out_dir, name))
+    first = parts[0]
     for f in ('run_config.json', 'model_meta_snapshot.json'):
         s = os.path.join(first, f)
         if os.path.exists(s):
-            shutil.copyfile(s, os.path.join(args.out, f))
+            shutil.copyfile(s, os.path.join(out_dir, f))
     # 汇总 run_config 里记录全部用例
-    rc = os.path.join(args.out, 'run_config.json')
+    rc = os.path.join(out_dir, 'run_config.json')
     if os.path.exists(rc):
         with open(rc, encoding='utf-8') as fh:
             cfg = json.load(fh)
         cfg['envs'] = list(summ['env'])
-        cfg['merged_from'] = list(args.parts)
+        cfg['merged_from'] = list(parts)
         with open(rc, 'w', encoding='utf-8') as fh:
             json.dump(cfg, fh, indent=2, ensure_ascii=False)
-    print(f'[merge] {len(summ)} cases from {len(args.parts)} parts -> {args.out}')
+    print(f'[merge] {len(summ)} cases from {len(parts)} parts -> {out_dir}')
     print(summ[['env', 'seed_ber', 'best_ber', 'delta_lb_seed_to_best', 'best_step',
                 'best_gain_ratio', 'n_steps_actual']].to_string(index=False))
+    return summ
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('parts', nargs='+', help='分片结果目录（按任意顺序）')
+    ap.add_argument('--out', required=True, help='合并输出目录')
+    args = ap.parse_args()
+    merge(args.out, args.parts)
 
 
 if __name__ == '__main__':
