@@ -14,6 +14,7 @@
 2. **重跑 A-only（新物理层 v6.1）** → `result/ddps_v6_1_aonly/`（15 用例 × 15 步 × 2^21×3 种子，全部收敛、0 劣化步）。
 3. **修 C1（`make_deliverable_v6.py` `_rows_ablation`）**：`_rows_ablation` 增加 `d_ab` 参数，A+B 劣化步改读 `--baseline` 的 trace（不再 hardcode 旧 `ddps_v6_main`）；`main()` 的 `aonly_dir` 默认改指 `ddps_v6_1_aonly`。旧物理层 `result/ddps_v6_aonly` 与 `result/ddps_v6_main` 都是错误数据源，**勿再引用**。
 4. 交付件重新生成 + 三节数字 grep 核对通过。
+5. **交付件第二版**（用户反馈）：① 6.2 改为 A+B 与 A-only 两套图（各 4 张，共 8 张，`report_ddps_v6.py` 新增 `_is_aonly` 识别）；② 新增 6.0「种子点怎么定的、调优主要改什么」；③ 文案去 AI 味 + 正确性修正（「数据驱动」「已确认的结论」等措辞、55min→5.6h、平均→几何平均、4.9~6.0dB 对齐）。A-only 报告图落在 `result/ddps_v6_1_aonly/report/`。
 
 ## 待办（下一步，仅剩收尾）
 
@@ -67,8 +68,8 @@ PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → T
 | `channel_imdd.py` | 链路 + Tx/Rx CTLE（apply_ctle peaking）；Rx CTLE 固定 6/3 |
 | `dataset_generator.py` | 数据集生成（`--jobs 14` 多进程，OMP=1） |
 | `tools/scan_per_case_rms.py` | per-case target_rms 扫描（`--jobs 14`，OMP=1） |
-| `report_ddps_v6.py` | 报告 + 图（`_plot_convergence`/`figure_gain_rms` 已补种子点） |
-| `make_deliverable_v6.py` | 交付件生成；`_rows_ablation`（line 1208）已对齐 v6.1 A-only 数据源 |
+| `report_ddps_v6.py` | 报告 + 图（`_plot_convergence`/`figure_gain_rms` 已补种子点；`_is_aonly` 自动识别 A-only，收敛图例去掉 Model B/红线并标图题） |
+| `make_deliverable_v6.py` | 交付件生成；`_rows_ablation`（line 1208）对齐 v6.1 A-only；6.0 种子说明 + 6.2/6.2b 两套图（A+B / A-only） |
 | `models/ddps_v6_1/` | v6.1 基线 A/B 模型（当前） |
 | `result/ddps_v6_1_main/` | v6.1 基线 15 用例泛化结果（含 `run_config.json` 记录跑法） |
 | `result/ddps_v6_1_aonly/` | **A-only 结果（新物理层，本次重跑完成）** |

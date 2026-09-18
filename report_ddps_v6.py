@@ -67,6 +67,12 @@ def _summary(test_dir):
     return pd.read_csv(os.path.join(test_dir, 'case_summary.csv'))
 
 
+def _is_aonly(test_dir):
+    """A-only 结果的 case_summary 里 pb_seed 全为 0（未跑 Model B）。"""
+    summ = _summary(test_dir)
+    return ('pb_seed' in summ.columns) and (float(summ['pb_seed'].abs().sum()) < 1e-12)
+
+
 def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True):
     steps = tr['step'].values
     # 种子点（step -1）作为曲线起点：trace 从梯度第 1 步开始记录，
@@ -102,21 +108,27 @@ def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True):
         ax.tick_params(labelsize=7)
 
 
-def _add_shared_legend(fig, loc='upper center', ncol=5, fontsize=9, y_offset=0.985):
+def _add_shared_legend(fig, loc='upper center', ncol=5, fontsize=9, y_offset=0.985, aonly=False):
     """在 figure 顶部（suptitle 下方）放统一图例，避免子图内 legend 挤压数据。"""
-    handles, labels = [], []
-    # 用 proxy artist 保证顺序和颜色一致
     from matplotlib.lines import Line2D
     handles = [
         Line2D([0], [0], color=C_PREDA, marker='^', ms=5, ls='--', lw=1.2,
                label='Model A 预测（方向代理）'),
-        Line2D([0], [0], color=C_PREDB, marker='s', ms=5, ls=':', lw=1.2,
-               label='Model B 预测（风险控制）'),
         Line2D([0], [0], color=C_REAL, marker='o', ms=5, lw=1.5,
                label='实测 BER_MLSE'),
         Line2D([0], [0], color=C_SEED, ls='--', lw=1.2, label='种子 BER（起点）'),
-        Line2D([0], [0], color=C_LIMIT, ls='-.', lw=1.2, label='安全红线（种子×1.25）'),
     ]
+    if not aonly:
+        handles = [
+            Line2D([0], [0], color=C_PREDA, marker='^', ms=5, ls='--', lw=1.2,
+                   label='Model A 预测（方向代理）'),
+            Line2D([0], [0], color=C_PREDB, marker='s', ms=5, ls=':', lw=1.2,
+                   label='Model B 预测（风险控制）'),
+            Line2D([0], [0], color=C_REAL, marker='o', ms=5, lw=1.5,
+                   label='实测 BER_MLSE'),
+            Line2D([0], [0], color=C_SEED, ls='--', lw=1.2, label='种子 BER（起点）'),
+            Line2D([0], [0], color=C_LIMIT, ls='-.', lw=1.2, label='安全红线（种子×1.25）'),
+        ]
     fig.legend(handles=handles, loc=loc, ncol=ncol, fontsize=fontsize,
                framealpha=0.9, edgecolor='#ccc', bbox_to_anchor=(0.5, y_offset))
 
@@ -142,8 +154,10 @@ def figure_convergence_grid(test_dir, report_dir, envs):
                           title=f'{env}\n改善 ×{imp:.2f}', small=True)
     for j in range(n, len(axes)):
         axes[j].axis('off')
-    fig.suptitle('DDPS v6 在线调优收敛轨迹（15 环境，只用基线训练泛化）', fontsize=12)
-    _add_shared_legend(fig, ncol=5, fontsize=9, y_offset=0.965)
+    aonly = _is_aonly(test_dir)
+    label = 'A-only（只用 Model A 梯度）' if aonly else 'A+B（完整流程）'
+    fig.suptitle(f'DDPS v6 在线调优收敛轨迹 — {label}（15 环境，只用基线训练泛化）', fontsize=12)
+    _add_shared_legend(fig, ncol=3 if aonly else 5, fontsize=9, y_offset=0.965, aonly=aonly)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     out = os.path.join(report_dir, 'ddps_v6_convergence.png')
     fig.savefig(out, dpi=125)
@@ -191,7 +205,8 @@ def figure_gain_rms(test_dir, report_dir, envs):
         ax.grid(True, ls='--', alpha=0.35)
     for j in range(n, len(axes)):
         axes[j].axis('off')
-    fig.suptitle('DDPS v6 gain 维物理驱动轨迹（drive_rms 锁定到 per-case target_rms）',
+    label = 'A-only' if _is_aonly(test_dir) else 'A+B'
+    fig.suptitle(f'DDPS v6 gain 维物理驱动轨迹 — {label}（drive_rms 锁定到 per-case target_rms）',
                  fontsize=12)
     from matplotlib.lines import Line2D
     _h = [Line2D([0], [0], color=C_GAIN, marker='o', ms=5, lw=1.5, label='gain 倍率（左轴）'),
@@ -258,6 +273,8 @@ def figure_tracking(test_dir, report_dir, envs):
     ax2.set_xlabel('corr(Δ预测, Δ实测)', fontsize=10)
     ax2.set_title('逐用例相关系数', fontsize=11)
     ax2.grid(True, ls='--', alpha=0.3, axis='x')
+    label = 'A-only' if _is_aonly(test_dir) else 'A+B'
+    fig.suptitle(f'预测变化量 vs 实测变化量 — {label}', fontsize=12)
     fig.tight_layout()
     out = os.path.join(report_dir, 'ddps_v6_tracking.png')
     fig.savefig(out, dpi=125)
@@ -335,7 +352,8 @@ def figure_hardcase(test_dir, report_dir, envs):
     ax.set_ylabel('幅度 (V)', fontsize=9); ax.legend(fontsize=8)
     ax.set_title('Tx 物理探针 7-tap FIR（Model A 输入特征）', fontsize=10)
     ax.grid(True, ls='--', alpha=0.3, axis='y')
-    fig.suptitle(f'最难用例四联图：{hard_env}（种子 BER → 最优 BER）', fontsize=12, fontweight='bold')
+    label = 'A-only' if _is_aonly(test_dir) else 'A+B'
+    fig.suptitle(f'最难用例四联图 — {label}：{hard_env}（种子 BER → 最优 BER）', fontsize=12, fontweight='bold')
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     out = os.path.join(report_dir, f'ddps_v6_case_{hard_env}_a.png')
     fig.savefig(out, dpi=125)

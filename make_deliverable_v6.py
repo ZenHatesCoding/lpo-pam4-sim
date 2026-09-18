@@ -19,7 +19,7 @@ TEMPLATE = r'''<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0e2a52">
-<title>DDPS 交付说明 — 数据驱动物理代理寻优</title>
+<title>DDPS 交付说明 — 收发端均衡代理寻优</title>
 <style>
   :root{
     --ink:#12161c; --ink-2:#3c4858; --ink-3:#6b7a8d;
@@ -145,7 +145,7 @@ TEMPLATE = r'''<!DOCTYPE html>
 <header class="top">
   <div class="wrap">
     <div class="eyebrow">LPO 112G PAM4 仿真平台 · 收发端联合寻优</div>
-    <h1>DDPS：数据驱动物理代理寻优 — 交付说明</h1>
+    <h1>DDPS：收发端均衡代理寻优 — 交付说明</h1>
     <div class="scope">
       本文说明方案的适用范围、物理链路与优化对象、两个代理模型的构成与全部参数、在线调优算法流程与复杂度、实测效果与适用边界。
       参数取自 <code>config.xlsx</code>、模型 <code>meta.json</code>、结果 <code>case_summary / trace</code> 与源码常量；图表为内嵌 SVG 与 PNG，单文件可离线打开。
@@ -753,7 +753,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <text class="ts" x="1074" y="281" transform="rotate(90 1074 281)" text-anchor="middle">迭代（真实 BER 不回传）</text>
 
     <path class="brk" d="M556 200 L546 200 L546 348 L556 348"/>
-    <text class="ts" x="16" y="474" style="fill:#0f8a4a;font-weight:700">三重护栏：</text>
+    <text class="ts" x="16" y="474" style="fill:#0f8a4a;font-weight:700">三道约束：</text>
     <text class="ts" x="88" y="474">梯度门控（第 3 步）· 信任域投影（第 4 步）· Model B 相对红线（第 5 步）</text>
   </svg>
 
@@ -827,7 +827,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
     <path class="ln" d="M348 797 L358 797 L358 533 L350 533" marker-end="url(#an4)"/>
 
-    <text class="ts" x="10" y="892" style="fill:#0f8a4a;font-weight:700">三重护栏：</text>
+    <text class="ts" x="10" y="892" style="fill:#0f8a4a;font-weight:700">三道约束：</text>
     <text class="ts" x="10" y="908">梯度门控 · 信任域投影 · Model B 相对红线</text>
     <text class="ts" x="10" y="926">右侧回边为迭代；真实 BER 仅记录、不回传决策</text>
   </svg>
@@ -871,7 +871,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <tr><th>环节</th><th>机制</th><th>效果</th></tr>
   <tr><td>特征侧</td><td>以入纤波形形状 + 绝对驱动幅度（而非硬件参数）作为代理输入，信道频响差异被探针吸收</td><td>同一模型可跨插损（含非对称）、色散、群时延变化复用，无需按环境重训</td></tr>
   <tr><td>决策侧</td><td>方向用归一化梯度，安全判据用相对种子点的恶化量</td><td>全局底噪与插损平移在作差中抵消，无需逐环境标定阈值</td></tr>
-  <tr><td>安全侧</td><td>Model B 否决 + 信任域投影 + 组梯度门控三重约束（百分比红线 25%）</td><td>候选点须先通过安全审查才允许落地；趋平即停，不产生负向移动</td></tr>
+  <tr><td>安全侧</td><td>Model B 否决 + 信任域投影 + 组梯度门控三道约束（百分比红线 25%）</td><td>候选点须先通过安全审查才允许落地；趋平即停，不产生负向移动</td></tr>
   <tr><td>复算侧</td><td>每一步的真实 BER_MLSE 全量落盘</td><td>可逐步核验是否出现退步，不依赖抽样或事后筛选</td></tr>
 </table>
 </div>
@@ -928,7 +928,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <li><strong>每行字段</strong>：6 维坐标、5-tap FFE、gDC/gDC2、driver_gain、驱动 RMS、真实 <span class="mono">mlse_ber</span> 与 <span class="mono">log10_ber_mlse</span>、<span class="mono">ber_std_log10</span>、7-tap FIR 形状。</li>
     <li><strong>并行一致性</strong>：<span class="mono">--jobs</span> 多进程与串行结果逐位一致（每点独立、种子固定，已实测校验）。</li>
     <li><strong>A/B 输入空间不同</strong>：Model A 吃 8 维探针，Model B 吃 7 维参数，同一标签、同一学习器。</li>
-    <li><strong>成本</strong>：2001 点 × 3 种子，14 进程并行约 55 分钟。</li>
+    <li><strong>成本</strong>：2001 点 × 3 种子，14 进程并行（每进程 OMP=1）约 5.6 小时。</li>
   </ul>
 </div>
 
@@ -938,9 +938,25 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <!--KPI_CARDS-->
 </div>
 
+<h3>6.0 种子点怎么定的，调优主要改了什么</h3>
+<div class="card">
+  <p><strong>种子点</strong>（第 2.2 节的 x₀）来自先前离线两阶段实验得到的"已知不错、但非最优"的次优点，不是零起点、也不是随机采样：</p>
+  <ul>
+    <li>Tx FFE 5 抽头：<span class="mono">[-0.034, -0.299, 0.609, 0, 0.058]</span>（主抽头 0.609 由 1 − Σ|旁瓣| 派生）；</li>
+    <li>Tx CTLE：gDC = 6 dB（中等高频补强，Rx 另有固定 6 dB）、gDC2 = 2 dB（低频 shelf，接近 SJTU 参考 1.91 dB）；</li>
+    <li>driver_gain 种子 = 标称值 0.4381（gain 倍率 1.0）。</li>
+  </ul>
+  <p>在这个种子上，各用例真实 BER 在 4e-5 ~ 1.9e-2（此时 gain 尚未按各用例的 RMS 目标标定）。在线调优实际改的是两件事：</p>
+  <ol>
+    <li><strong>第一步：gain 标定</strong>。把 gain 从统一标称值 0.4381 按该用例的 target_rms 解析缩放（倍率 1.0 → 0.30~1.09）。对种子 BER 在 1e-2 量级的用例（Base、CD、DGD、HighNoise 等 8 个），这一步就把 BER 拉到 ~2e-5——改善里的绝大部分（如 Base 的 ×826 里约 ×800）来自这一步。</li>
+    <li><strong>之后：6 维形状梯度</strong>。链式梯度在 4 个 FFE 旁瓣 + gDC + gDC2 上微调：gDC 从 6 dB 小移到 4.9~6.0 dB（已接近最优）、gDC2 从 2 dB 收敛到 0~1.7 dB、旁瓣小幅移动；这部分贡献剩余的 ~×1.06（2e-5 → 1.9e-5）。</li>
+  </ol>
+  <p class="mut" style="margin-bottom:0">所以图 6 里最显眼的下降段主要来自 gain 标定；FFE/CTLE 搜索是"微调"，量虽小，却决定最终那几个 dB 的差异。</p>
+</div>
+
 <h3>6.1 严格泛化：只用 10 dB 基线训练 → 跨 15 个环境</h3>
 <p>训练集只含 Base_IL10x10 邻域 2001 行。模型冻结后，对 15 个漂移环境逐个执行 Stage-2 在线调优，零重训、零校准。</p>
-<p class="win"><strong>结论</strong>：15/15 用例相对种子全部正向改善，平均 <!--MEAN_IMP-->（最高 <!--MAX_IMP-->），
+<p class="win"><strong>结论</strong>：15/15 用例相对种子全部正向改善，几何平均 <!--MEAN_IMP-->（最高 <!--MAX_IMP-->），
 全程 <!--TOTAL_STEPS--> 步真实 BER，<strong><!--TOTAL_WORSE--> 步劣于种子</strong>。6 维空间下 2001 行基线数据足够让代理在信任域内保持方向可信。</p>
 <div class="tw">
 <table class="wide" id="tbl-core">
@@ -963,27 +979,50 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <!--ABLATION_ROWS-->
 </table>
 </div>
-<p class="mut">如果 A-only 就 0 劣化步，说明 Model A 方向已足够好，B 的价值是"保险"；如果 A-only 有劣化步而 A+B 没有，说明 B 确实拦住了错误方向。</p>
+<p class="mut">本次结果是前者：A-only 15 用例 0 劣化步，且与 A+B 收敛到同一最优点（Model B 全程未触发）。两组各自的收敛 / gain / 预测 / 最难用例图见 6.2 与 6.2b。</p>
 
-<h3>6.2 收敛轨迹与物理量变化</h3>
+<h3>6.2 收敛轨迹与物理量变化 — A+B（完整流程）</h3>
+<p>对应第 6.1 节 A+B 的 15 用例。收敛图里曲线起点（step −1）是种子点（gain 尚未按用例标定），第一步（step 0）是 gain 标定后的位置，之后的下行来自 6 维形状梯度。</p>
 <figure>
-  <div class="fig-scroll"><img src="{{IMG_CONV}}" alt="15 用例收敛轨迹三曲线"></div>
-  <figcaption>图 6 · 15 用例在线调优收敛轨迹（Model A 预测 / Model B 预测 / 实测 BER_MLSE，对数纵轴；虚线为种子）。</figcaption>
+  <div class="fig-scroll"><img src="{{IMG_CONV}}" alt="A+B 15 用例收敛轨迹"></div>
+  <figcaption>图 6 · A+B 收敛轨迹（Model A 预测 / Model B 预测 / 实测 BER_MLSE，对数纵轴；虚线为种子）。</figcaption>
 </figure>
 
 <figure>
-  <div class="fig-scroll"><img src="{{IMG_GAIN}}" alt="gain 与 drive_rms 物理驱动轨迹"></div>
-  <figcaption>图 7 · gain 维物理驱动轨迹：drive_rms 锁定到 per-case target_rms，gain 倍率随环境自适应（强信号约 0.30、弱信号约 1.0）。</figcaption>
+  <div class="fig-scroll"><img src="{{IMG_GAIN}}" alt="A+B gain 与 drive_rms 轨迹"></div>
+  <figcaption>图 7 · A+B 的 gain 维轨迹：drive_rms 锁定到 per-case target_rms，gain 倍率随环境自适应（强信号约 0.30、弱信号约 1.0）。</figcaption>
 </figure>
 
 <figure>
-  <div class="fig-scroll"><img src="{{IMG_TRACK}}" alt="预测变化量 vs 实测变化量"></div>
-  <figcaption>图 8 · 左：Δ预测 vs Δ实测散点（逐用例逐步）；右：逐用例相关系数。</figcaption>
+  <div class="fig-scroll"><img src="{{IMG_TRACK}}" alt="A+B 预测变化量 vs 实测变化量"></div>
+  <figcaption>图 8 · A+B：左 Δ预测 vs Δ实测散点（逐用例逐步）；右逐用例相关系数。</figcaption>
 </figure>
 
 <figure>
-  <div class="fig-scroll"><img src="{{IMG_CASE_HARD}}" alt="最难用例四联图"></div>
-  <figcaption>图 9 · 最难用例四联图：收敛轨迹、Tx FFE 抽头（种子 vs 最优）、Tx CTLE |H(f)| 频响、Tx 物理探针 7-tap FIR（Model A 输入特征）。</figcaption>
+  <div class="fig-scroll"><img src="{{IMG_CASE_HARD}}" alt="A+B 最难用例四联图"></div>
+  <figcaption>图 9 · A+B 最难用例四联图：收敛轨迹、Tx FFE 抽头（种子 vs 最优）、Tx CTLE |H(f)| 频响、Tx 探针 7-tap FIR。</figcaption>
+</figure>
+
+<h3>6.2b 同款图 — A-only（只用 Model A 梯度，不查 B、不走安全拦截）</h3>
+<p>A-only 与 A+B 同一种子点、同一步数（15 步），区别只是不启用 Model B。A-only 的收敛图里没有 Model B 线与安全红线。</p>
+<figure>
+  <div class="fig-scroll"><img src="{{IMG_CONV_AO}}" alt="A-only 15 用例收敛轨迹"></div>
+  <figcaption>图 10 · A-only 收敛轨迹（Model A 预测 / 实测 BER_MLSE；虚线为种子）。</figcaption>
+</figure>
+
+<figure>
+  <div class="fig-scroll"><img src="{{IMG_GAIN_AO}}" alt="A-only gain 与 drive_rms 轨迹"></div>
+  <figcaption>图 11 · A-only 的 gain 维轨迹（与 A+B 相同：gain 由 per-case target_rms 物理驱动，不经过 Model B）。</figcaption>
+</figure>
+
+<figure>
+  <div class="fig-scroll"><img src="{{IMG_TRACK_AO}}" alt="A-only 预测变化量 vs 实测变化量"></div>
+  <figcaption>图 12 · A-only：左 Δ预测 vs Δ实测散点；右逐用例相关系数。</figcaption>
+</figure>
+
+<figure>
+  <div class="fig-scroll"><img src="{{IMG_CASE_HARD_AO}}" alt="A-only 最难用例四联图"></div>
+  <figcaption>图 13 · A-only 最难用例四联图：收敛轨迹、Tx FFE 抽头（种子 vs 最优）、Tx CTLE |H(f)| 频响、Tx 探针 7-tap FIR。</figcaption>
 </figure>
 
 <h3>6.3 安全性核验（逐步记账）</h3>
@@ -1002,18 +1041,12 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <h2 id="s7"><span class="num">7</span>结论</h2>
 
 <div class="card">
-  <h4 style="margin-top:0">已确认的结论</h4>
+  <h4 style="margin-top:0">结论</h4>
   <ol style="margin-bottom:0">
-    <li><strong>A=探针->BER + B=参数->BER 架构有效</strong>：Model A（8 维波形域）给出方向，
-      Model B（7 维参数域）给风险控制，A/B 输入空间不同、误差独立。
-      15/15 用例正向改善，平均 <!--MEAN_IMP-->，<!--TOTAL_WORSE--> 步劣于种子。</li>
-    <li><strong>链式梯度可行</strong>：扰动 6 维参数 -> 重算探针 -> 查 A -> 得 ΔBER。
-      每步 7 次评估（1 基准 + 6 维扰动），耗时 ≈0.4 s，与评估符号数无关。</li>
-    <li><strong>per-case target_rms 物理驱动 gain 有效</strong>：gain 不在模型搜索向量里，
-      由发端 RMS 物理目标驱动，解析出的 gain 倍率随信号强度自适应
-     （强信号约 0.30、弱信号约 1.0）。</li>
-    <li><strong>跨环境泛化成立</strong>：只用 Base_IL10x10 训练的探针->BER 方向映射，
-      可指导 15 个漂移环境的在线调优。信道频响差异被探针吸收。</li>
+    <li>只用 Base_IL10x10 邻域 2001 行训练，15 个漂移环境全部改善（15/15），几何平均 <!--MEAN_IMP-->，<!--TOTAL_WORSE--> 步劣于种子。</li>
+    <li>下降方向走 Model A 的链式法则（扰动 6 维参数 → 重算探针 → 查 A），每步 7 次评估、约 0.4 秒，与评估符号数无关。</li>
+    <li>gain 不进任何模型，由 per-case target_rms 物理求解：强信号环境倍率约 0.30，弱信号约 1.0。</li>
+    <li>改善的大头来自 gain 标定（见 6.0）：高 seed BER 的用例标定后从 ~1e-2 降到 ~2e-5，6 维形状梯度再贡献剩余 ~×1.06。Model B 在 15 用例中从未触发拦截，其价值是"保险"而非被依赖的拦截。</li>
   </ol>
 </div>
 
@@ -1038,13 +1071,13 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   </tr>
   <tr>
     <td>CTLE peaking 增益维</td>
-    <td>Tx CTLE 在种子点 gDC=6 dB 已接近最优：优化时 gDC 仅在 5~6 dB 微调、gDC2 收敛到 0~1.7 dB，peaking 整形主要由 FFE 旁瓣与 gain 承担</td>
+    <td>Tx CTLE 在种子点 gDC=6 dB 已接近最优：优化时 gDC 仅在 4.9~6.0 dB 微调、gDC2 收敛到 0~1.7 dB，peaking 整形主要由 FFE 旁瓣与 gain 承担</td>
     <td>若需更强整形能力，把 CTLE 零极点比例也纳入搜索空间</td>
   </tr>
   <tr>
     <td>代理是局部模型</td>
     <td>信任域外预测不可信</td>
-    <td>梯度门控 + 信任域投影 + Model B 相对红线三重约束；趋平即停</td>
+    <td>梯度门控 + 信任域投影 + Model B 相对红线三道约束；趋平即停</td>
   </tr>
   <tr>
     <td>用例覆盖有限</td>
@@ -1304,6 +1337,13 @@ def main():
     hard_env = max(order, key=lambda e: summary[e]['seed_ber'])
     hard_png = os.path.join(report_dir, f'ddps_v6_case_{hard_env}_a.png')
 
+    # A-only 同款图（report_ddps_v6.py 对 ddps_v6_1_aonly 生成）
+    ao_report_dir = os.path.join(aonly_dir, 'report')
+    img_conv_ao = os.path.join(ao_report_dir, 'ddps_v6_convergence.png')
+    img_gain_ao = os.path.join(ao_report_dir, 'ddps_v6_gain_rms.png')
+    img_track_ao = os.path.join(ao_report_dir, 'ddps_v6_tracking.png')
+    hard_ao_png = os.path.join(ao_report_dir, f'ddps_v6_case_{hard_env}_a.png')
+
     # 统计
     imp_arr = np.array([summary[e]['seed_ber'] / summary[e]['best_ber'] for e in order])
     imp_geo = float(10 ** np.mean(np.log10(imp_arr)))   # 几何均值（避免被个别大改善拉高）
@@ -1355,6 +1395,10 @@ def main():
         '{{IMG_GAIN}}': _img_tag(img_gain) if os.path.exists(img_gain) else '',
         '{{IMG_TRACK}}': _img_tag(img_track) if os.path.exists(img_track) else '',
         '{{IMG_CASE_HARD}}': _img_tag(hard_png) if os.path.exists(hard_png) else '',
+        '{{IMG_CONV_AO}}': _img_tag(img_conv_ao) if os.path.exists(img_conv_ao) else '',
+        '{{IMG_GAIN_AO}}': _img_tag(img_gain_ao) if os.path.exists(img_gain_ao) else '',
+        '{{IMG_TRACK_AO}}': _img_tag(img_track_ao) if os.path.exists(img_track_ao) else '',
+        '{{IMG_CASE_HARD_AO}}': _img_tag(hard_ao_png) if os.path.exists(hard_ao_png) else '',
     }
     for k, v in repl.items():
         html = html.replace(k, v)
