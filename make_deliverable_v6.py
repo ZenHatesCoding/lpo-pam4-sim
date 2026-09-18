@@ -251,36 +251,41 @@ TEMPLATE = r'''<!DOCTYPE html>
     <text class="tw2" x="866" y="187" text-anchor="middle">MZM</text>
     <text class="ts" x="866" y="204" text-anchor="middle">ER 25 dB / Vπ 3 V</text>
 
-    <rect class="bx" x="676" y="163" width="116" height="54" rx="8"/>
-    <text class="tw2" x="734" y="187" text-anchor="middle">光纤 + PIN</text>
-    <text class="ts" x="734" y="204" text-anchor="middle">CD 复场 / DGD 实功率</text>
+    <rect class="bx" x="698" y="163" width="102" height="54" rx="8"/>
+    <text class="tw2" x="749" y="187" text-anchor="middle">光纤 + PIN</text>
+    <text class="ts" x="749" y="204" text-anchor="middle">CD 复场 / DGD 实功率</text>
 
-    <rect class="bx" x="546" y="163" width="116" height="54" rx="8"/>
-    <text class="tw2" x="604" y="187" text-anchor="middle">TIA</text>
-    <text class="ts" x="604" y="204" text-anchor="middle">720 Ω / 16 pA/√Hz</text>
+    <rect class="bx" x="584" y="163" width="102" height="54" rx="8"/>
+    <text class="tw2" x="635" y="187" text-anchor="middle">TIA</text>
+    <text class="ts" x="635" y="204" text-anchor="middle">720 Ω / 16 pA/√Hz</text>
 
-    <rect class="bx" x="416" y="163" width="116" height="54" rx="8"/>
-    <text class="tw2" x="474" y="187" text-anchor="middle">Rx 电插损</text>
-    <text class="ts" x="474" y="204" text-anchor="middle">S4P，Rx IL</text>
+    <rect class="bx" x="470" y="163" width="102" height="54" rx="8"/>
+    <text class="tw2" x="521" y="187" text-anchor="middle">Rx 电插损</text>
+    <text class="ts" x="521" y="204" text-anchor="middle">S4P，Rx IL</text>
 
-    <rect class="bx" x="286" y="163" width="116" height="54" rx="8"/>
-    <text class="tw2" x="344" y="187" text-anchor="middle">ADC</text>
-    <text class="ts" x="344" y="204" text-anchor="middle">ENOB 5.5</text>
+    <rect class="bx" x="356" y="163" width="102" height="54" rx="8"/>
+    <text class="tw2" x="407" y="187" text-anchor="middle">Rx CTLE</text>
+    <text class="ts" x="407" y="204" text-anchor="middle">固定 6/3 dB</text>
 
-    <rect class="bx" x="156" y="163" width="116" height="54" rx="8"/>
-    <text class="tw2" x="214" y="187" text-anchor="middle">22-tap Rx FFE</text>
-    <text class="ts" x="214" y="204" text-anchor="middle">LMS 自适应</text>
+    <rect class="bx" x="242" y="163" width="102" height="54" rx="8"/>
+    <text class="tw2" x="293" y="187" text-anchor="middle">ADC</text>
+    <text class="ts" x="293" y="204" text-anchor="middle">ENOB 5.5</text>
 
-    <rect class="bx" x="14" y="163" width="128" height="54" rx="8"/>
-    <text class="tw2" x="78" y="187" text-anchor="middle">Burg + MLSE</text>
-    <text class="ts" x="78" y="204" text-anchor="middle">memory = 1</text>
+    <rect class="bx" x="128" y="163" width="102" height="54" rx="8"/>
+    <text class="tw2" x="179" y="187" text-anchor="middle">22-tap Rx FFE</text>
+    <text class="ts" x="179" y="204" text-anchor="middle">LMS 自适应</text>
 
-    <line class="ln" x1="806" y1="190" x2="794" y2="190" marker-end="url(#ah1)"/>
-    <line class="ln" x1="676" y1="190" x2="664" y2="190" marker-end="url(#ah1)"/>
-    <line class="ln" x1="546" y1="190" x2="534" y2="190" marker-end="url(#ah1)"/>
-    <line class="ln" x1="416" y1="190" x2="404" y2="190" marker-end="url(#ah1)"/>
-    <line class="ln" x1="286" y1="190" x2="274" y2="190" marker-end="url(#ah1)"/>
-    <line class="ln" x1="156" y1="190" x2="144" y2="190" marker-end="url(#ah1)"/>
+    <rect class="bx" x="14" y="163" width="102" height="54" rx="8"/>
+    <text class="tw2" x="65" y="187" text-anchor="middle">Burg + MLSE</text>
+    <text class="ts" x="65" y="204" text-anchor="middle">memory = 1</text>
+
+    <line class="ln" x1="806" y1="190" x2="800" y2="190" marker-end="url(#ah1)"/>
+    <line class="ln" x1="698" y1="190" x2="686" y2="190" marker-end="url(#ah1)"/>
+    <line class="ln" x1="584" y1="190" x2="572" y2="190" marker-end="url(#ah1)"/>
+    <line class="ln" x1="470" y1="190" x2="458" y2="190" marker-end="url(#ah1)"/>
+    <line class="ln" x1="356" y1="190" x2="344" y2="190" marker-end="url(#ah1)"/>
+    <line class="ln" x1="242" y1="190" x2="230" y2="190" marker-end="url(#ah1)"/>
+    <line class="ln" x1="128" y1="190" x2="116" y2="190" marker-end="url(#ah1)"/>
 
     <line class="ln" x1="78" y1="217" x2="78" y2="244" marker-end="url(#ah1)"/>
     <rect class="bx-ok" x="14" y="246" width="128" height="44" rx="8"/>
@@ -654,7 +659,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <p>gain 不在 A/B 搜索向量里。每个用例单独细粒度扫描 MZM 输入 RMS（0.06~0.22V，步长 0.005），
 取最优 RMS 作为该用例的 target_rms。在线调优时每步解析调到该值：</p>
 <pre><code>gain_new = gain_ref × (target_rms / rms_measured)</code></pre>
-<p>解析出的 gain 倍率（相对种子 gain）随信号强度自适应：强信号环境约 0.48，弱信号环境约 1.27——
+<p>解析出的 gain 倍率（相对种子 gain）随信号强度自适应：强信号环境约 0.30~0.49，弱信号环境约 0.84~1.09——
 即"锁定发端 RMS 给每个用例配 gain"，目标值经全环境扫描设计而非拍脑袋。</p>
 <div class="tw">
 <table class="wide">
@@ -690,11 +695,11 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
     <rect class="bx" x="34" y="196" width="472" height="46" rx="7"/>
     <text class="t" x="48" y="216">每点：真实 BER_MLSE 评估 + 物理探针</text>
-    <text class="ts" x="48" y="232">2097152 符号 × 3 仿真实例种子取 log10 均值；探针取 FIR 形状 + 驱动 RMS</text>
+    <text class="ts" x="48" y="232">1048576 符号 × 3 仿真实例种子取 log10 均值；探针取 FIR 形状 + 驱动 RMS</text>
 
     <rect class="bx" x="34" y="258" width="472" height="46" rx="7"/>
     <text class="t" x="48" y="278">二阶多项式 Ridge 闭式解训练</text>
-    <text class="ts" x="48" y="294">α = 1.0，80/20 划分，seed 42（A: 8 维探针 / B: 7 维参数）</text>
+    <text class="ts" x="48" y="294">α_A=1.0 / α_B=0.5，80/20 划分，seed 42（A: 8 维探针 / B: 7 维参数）</text>
 
     <rect class="bx-ok" x="34" y="320" width="472" height="46" rx="7"/>
     <text class="t" x="48" y="340">输出并冻结：Model A（波形+驱动 → BER）/ Model B（配置 → BER）</text>
@@ -736,7 +741,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
     <rect class="bx" x="574" y="382" width="472" height="46" rx="7"/>
     <text class="t" x="588" y="402">接受 x_(k+1)，记录真实 BER_MLSE 与代理预测</text>
-    <text class="ts" x="588" y="418">终止：|Δx| &lt; 1e-4 或达到步数上限</text>
+    <text class="ts" x="588" y="418">终止：|Δx| &lt; 1e-6 或达到步数上限</text>
 
     <line class="ln" x1="810" y1="118" x2="810" y2="132" marker-end="url(#ah4)"/>
     <line class="ln" x1="810" y1="180" x2="810" y2="194" marker-end="url(#ah4)"/>
@@ -764,7 +769,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
     <rect class="bx" x="20" y="40" width="320" height="54" rx="7"/>
     <text class="t" x="32" y="60">起点 x₀（种子工作点）</text>
-    <text class="ts" x="32" y="78">[-0.034,-0.299,0.609,0,0.058] / 0 / 0 dB</text>
+    <text class="ts" x="32" y="78">[-0.034,-0.299,0.609,0,0.058] / gDC=6 dB, gDC2=2 dB</text>
 
     <rect class="bx" x="20" y="106" width="320" height="54" rx="7"/>
     <text class="t" x="32" y="126">信任域内 LHS 采样（d = 6）</text>
@@ -772,11 +777,11 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
     <rect class="bx" x="20" y="172" width="320" height="54" rx="7"/>
     <text class="t" x="32" y="192">每点：真实 BER + 物理探针</text>
-    <text class="ts" x="32" y="210">2097152 符号 × 3 种子；FIR 形状 + 驱动 RMS</text>
+    <text class="ts" x="32" y="210">1048576 符号 × 3 种子；FIR 形状 + 驱动 RMS</text>
 
     <rect class="bx" x="20" y="238" width="320" height="54" rx="7"/>
     <text class="t" x="32" y="258">二阶多项式 Ridge 闭式解</text>
-    <text class="ts" x="32" y="276">α = 1.0，80/20，seed 42（A 8 维 / B 7 维）</text>
+    <text class="ts" x="32" y="276">α_A=1.0 / α_B=0.5，80/20，seed 42（A 8 维 / B 7 维）</text>
 
     <rect class="bx-ok" x="20" y="304" width="320" height="54" rx="7"/>
     <text class="t" x="32" y="324">冻结 Model A / Model B</text>
@@ -812,7 +817,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
     <rect class="bx" x="20" y="770" width="320" height="54" rx="7"/>
     <text class="t" x="32" y="790">接受 x_(k+1)，记录真实 BER_MLSE</text>
-    <text class="ts" x="32" y="808">终止：|Δx| &lt; 1e-4 或步数上限</text>
+    <text class="ts" x="32" y="808">终止：|Δx| &lt; 1e-6 或步数上限</text>
 
     <line class="ln" x1="180" y1="494" x2="180" y2="504" marker-end="url(#an4)"/>
     <line class="ln" x1="180" y1="560" x2="180" y2="570" marker-end="url(#an4)"/>
@@ -855,7 +860,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <tr><td>物理探针（含驱动 RMS）</td><td>单位脉冲 + 短 PAM4 序列过发送链</td><td class="n">≈30 ms</td><td>与评估符号数无关</td></tr>
   <tr><td><strong>Stage-2 单步决策</strong></td><td>7 次探针 + 7 次 A 前向 + ≤20 次 B 前向</td><td class="n win">≈0.4 s</td><td>与评估符号数无关</td></tr>
   <tr><td>一次真实 BER 评估</td><td>2097152 符号 × 3 种子（全链路 + LMS + Viterbi）</td><td class="n">≈120 s</td><td>与符号数线性</td></tr>
-  <tr><td>离线数据集</td><td>2001 点 ×（BER 评估 + 探针）</td><td class="n">≈55 min（14 进程并行）</td><td>一次性</td></tr>
+  <tr><td>离线数据集</td><td>2001 点 ×（2^20 符号 × 3 种子 + 探针）</td><td class="n">≈5.6 h（14 进程，OMP=1）</td><td>一次性</td></tr>
 </table>
 </div>
 <p>决策链路本身不含任何真实 BER 评估；在线测试中每步执行的那次 BER 评估只是“如实记账”，其耗时不影响下一步决策。</p>
@@ -968,7 +973,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
 <figure>
   <div class="fig-scroll"><img src="{{IMG_GAIN}}" alt="gain 与 drive_rms 物理驱动轨迹"></div>
-  <figcaption>图 7 · gain 维物理驱动轨迹：drive_rms 锁定到 per-case target_rms，gain 倍率随环境自适应（强信号约 0.48、弱信号约 1.27）。</figcaption>
+  <figcaption>图 7 · gain 维物理驱动轨迹：drive_rms 锁定到 per-case target_rms，gain 倍率随环境自适应（强信号约 0.30、弱信号约 1.0）。</figcaption>
 </figure>
 
 <figure>
@@ -1006,7 +1011,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
       每步 7 次评估（1 基准 + 6 维扰动），耗时 ≈0.4 s，与评估符号数无关。</li>
     <li><strong>per-case target_rms 物理驱动 gain 有效</strong>：gain 不在模型搜索向量里，
       由发端 RMS 物理目标驱动，解析出的 gain 倍率随信号强度自适应
-     （强信号约 0.48、弱信号约 1.27）。</li>
+     （强信号约 0.30、弱信号约 1.0）。</li>
     <li><strong>跨环境泛化成立</strong>：只用 Base_IL10x10 训练的探针->BER 方向映射，
       可指导 15 个漂移环境的在线调优。信道频响差异被探针吸收。</li>
   </ol>
@@ -1018,7 +1023,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <tr><th>边界</th><th>表现</th><th>对策</th></tr>
   <tr>
     <td>BER 绝对值依赖评估协议</td>
-    <td>块长每翻倍，绝对 BER 系统性变化约 −0.15～−0.25 dex</td>
+    <td>块长每翻倍，绝对 BER 系统性变化约 −0.3 dex（LMS/MLSE 收敛效应）</td>
     <td>全流程固定 2097152 符号 × 3 种子；结果表标注协议</td>
   </tr>
   <tr>
@@ -1029,11 +1034,11 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <tr>
     <td><code>driver_gain</code> 最优区间依赖摆幅标定</td>
     <td>每用例扫描标定 target_rms（0.06~0.22V）</td>
-    <td>更换器件时需重跑 per-case RMS 扫描（≈10 min）</td>
+    <td>更换器件时需重跑 per-case RMS 扫描（≈20 min）</td>
   </tr>
   <tr>
     <td>CTLE peaking 增益维</td>
-    <td>gDC/gDC2 通过频响整形改变 ISI，与 FFE 旁瓣效果类似但杠杆较弱（梯度幅值约为 FFE 的 1/10）；12/15 用例 CTLE 组被激活</td>
+    <td>Tx CTLE 在种子点 gDC=6 dB 已接近最优：优化时 gDC 仅在 5~6 dB 微调、gDC2 收敛到 0~1.7 dB，peaking 整形主要由 FFE 旁瓣与 gain 承担</td>
     <td>若需更强整形能力，把 CTLE 零极点比例也纳入搜索空间</td>
   </tr>
   <tr>
@@ -1044,7 +1049,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <tr>
     <td>用例覆盖有限</td>
     <td>15 个用例覆盖 10/14/16/20 dB 插损组合与 CD/DGD/噪声应力</td>
-    <td>超出范围时重跑离线数据集（≈55 min）并重训（&lt;0.1 s），算法本身无需修改</td>
+    <td>超出范围时重跑离线数据集（≈5.6 h）并重训（&lt;0.1 s），算法本身无需修改</td>
   </tr>
 </table>
 </div>
@@ -1301,13 +1306,14 @@ def main():
 
     # 统计
     imp_arr = np.array([summary[e]['seed_ber'] / summary[e]['best_ber'] for e in order])
+    imp_geo = float(10 ** np.mean(np.log10(imp_arr)))   # 几何均值（避免被个别大改善拉高）
     n_pos = int((imp_arr > 1.0).sum())
     hard = summary[hard_env]
     safety_rows, total_steps, total_worse = _rows_safety(summary, a.baseline)
 
     headline = '\n'.join([
         f"<tr><td><strong>v6 在线调优</strong>（A=探针->BER 方向 + B=参数->BER 风险控制 + gain per-case RMS）</td>"
-        f"<td><strong>{n_pos}/{len(order)} 用例正向改善</strong>，平均 x{imp_arr.mean():.2f}"
+        f"<td><strong>{n_pos}/{len(order)} 用例正向改善</strong>，几何平均 x{imp_geo:.2f}"
         f"（最高 x{imp_arr.max():.2f}）；全程 {total_steps} 步真实 BER，"
         f"<strong>{total_worse} 步劣于种子</strong> -> <span class=\"win\">可交付</span></td></tr>",
         f"<tr><td>Model A（方向代理）</td>"
@@ -1325,7 +1331,7 @@ def main():
     ])
 
     kpis = '\n'.join([
-        f'<div class="kpi"><div class="v">x{imp_arr.mean():.2f}</div><div class="l">平均改善（{n_pos}/{len(order)} 正向）</div></div>',
+        f'<div class="kpi"><div class="v">x{imp_geo:.2f}</div><div class="l">几何平均改善（{n_pos}/{len(order)} 正向）</div></div>',
         f'<div class="kpi"><div class="v">{total_worse} / {total_steps}</div><div class="l">劣于种子的步数</div></div>',
         f'<div class="kpi"><div class="v">{meta["model_a"]["spearman_test"]:.3f}</div><div class="l">Model A Spearman（探针->BER）</div></div>',
         f'<div class="kpi"><div class="v">{meta["model_b"]["spearman_test"]:.3f}</div><div class="l">Model B Spearman（参数->BER）</div></div>',
@@ -1341,7 +1347,7 @@ def main():
         '<!--ABLATION_ROWS-->': aonly_rows,
         '<!--TARGET_RMS_ROWS-->': _rows_target_rms(rms_data, order),
         '<!--SAFETY_ROWS-->': safety_rows,
-        '<!--MEAN_IMP-->': f'x{imp_arr.mean():.2f}',
+        '<!--MEAN_IMP-->': f'x{imp_geo:.2f}',
         '<!--MAX_IMP-->': f'x{imp_arr.max():.2f}',
         '<!--TOTAL_STEPS-->': str(total_steps),
         '<!--TOTAL_WORSE-->': str(total_worse),
@@ -1359,7 +1365,7 @@ def main():
     print(f'[deliverable] written {a.out}  ({os.path.getsize(a.out)/1024:.0f} KB)')
     print(f'[deliverable] baseline={a.baseline} model={a.model_dir}')
     print(f'[deliverable] envs={len(order)} positive={n_pos} steps={total_steps} worse={total_worse}')
-    print(f'[deliverable] mean improvement: x{imp_arr.mean():.2f}')
+    print(f'[deliverable] mean improvement (geomean): x{imp_geo:.2f}')
     print(f'[deliverable] hardest={hard_env}; unused tokens left: {left}')
 
 
