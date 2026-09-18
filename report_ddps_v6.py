@@ -69,14 +69,22 @@ def _summary(test_dir):
 
 def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True):
     steps = tr['step'].values
-    ax.semilogy(steps, 10.0 ** tr['pred_a'].values, marker='^', ms=3.2, ls='--',
+    # 种子点（step -1）作为曲线起点：trace 从梯度第 1 步开始记录，
+    # 种子点（gain 未标定）的 BER 远高于第 1 步（gain 标定后），
+    # 不 prepend 的话曲线全程贴底、种子线高高在上，看不到"种子→最优"的下降。
+    seed = float(row['seed_ber'])
+    seed_lb = float(row['seed_lb'])
+    steps_ext = np.concatenate([[-1], steps])
+    real_ber_ext = np.concatenate([[seed], tr['real_ber'].values])
+    pred_a_ext = np.concatenate([[seed_lb], tr['pred_a'].values])
+    pred_b_ext = np.concatenate([[seed_lb], tr['pred_b'].values])
+    ax.semilogy(steps_ext, 10.0 ** pred_a_ext, marker='^', ms=3.2, ls='--',
                 lw=1.1, color=C_PREDA, label='Model A 预测（方向代理）')
     if 'pred_b' in tr.columns and tr['pred_b'].abs().sum() > 0:
-        ax.semilogy(steps, 10.0 ** tr['pred_b'].values, marker='s', ms=3.0, ls=':',
+        ax.semilogy(steps_ext, 10.0 ** pred_b_ext, marker='s', ms=3.0, ls=':',
                     lw=1.1, color=C_PREDB, label='Model B 预测（风险控制）')
-    ax.semilogy(steps, tr['real_ber'].values, marker='o', ms=3.6, lw=1.5,
+    ax.semilogy(steps_ext, real_ber_ext, marker='o', ms=3.6, lw=1.5,
                 color=C_REAL, label='实测 BER_MLSE')
-    seed = row['seed_ber']
     ax.axhline(seed, color=C_SEED, ls='--', lw=0.9, alpha=0.8,
                label='种子 BER（起点）')
     # 安全红线：如果从不触发（B 单调下降），不画——画一条没人碰的线只会干扰
@@ -158,12 +166,20 @@ def figure_gain_rms(test_dir, report_dir, envs):
             ax.axis('off')
             continue
         steps = tr['step'].values
-        ax.plot(steps, tr['gain_ratio'].values, marker='o', ms=4, lw=1.5,
+        # 种子点（step -1）：gain_ratio = 1.0（未标定），drive_rms = rms_ref（反算）
+        # trace 从梯度第 1 步（gain 已按 per-case target_rms 标定）开始记录，
+        # 不 prepend 的话看不到"种子 gain 1.0 → 标定后"的跳跃。
+        target = float(tr['drive_rms'].iloc[0])   # per-case target_rms（drive_rms 锁定值）
+        gr0 = float(tr['gain_ratio'].iloc[0])
+        rms_ref = target / gr0 if gr0 > 1e-6 else target
+        steps_ext = np.concatenate([[-1], steps])
+        gr_ext = np.concatenate([[1.0], tr['gain_ratio'].values])
+        dr_ext = np.concatenate([[rms_ref], tr['drive_rms'].values])
+        ax.plot(steps_ext, gr_ext, marker='o', ms=4, lw=1.5,
                 color=C_GAIN, label='gain 倍率（左轴）')
         ax2 = ax.twinx()
-        ax2.plot(steps, tr['drive_rms'].values, marker='s', ms=3, ls='--',
+        ax2.plot(steps_ext, dr_ext, marker='s', ms=3, ls='--',
                  lw=1.0, color=C_REAL, label='drive_rms (V)（右轴）')
-        target = float(tr['target_rms'].iloc[0]) if 'target_rms' in tr.columns else D.TARGET_DRIVE_RMS
         ax2.axhline(target, color=C_LIMIT, ls=':', lw=0.8, alpha=0.7,
                     label='target_rms 目标')
         ax.set_title(f'{env}', fontsize=9)
