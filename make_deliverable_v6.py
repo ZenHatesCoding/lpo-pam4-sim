@@ -154,7 +154,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     <div class="chips">
       <span class="chip">形状搜索 <b>6</b> 维（4 FFE 旁瓣 + gDC + gDC2）</span>
       <span class="chip">用例 <b>15</b> 个（含非对称 Tx/Rx 插损与器件噪声）</span>
-      <span class="chip">评估协议 <b>2097152</b> 符号 × <b>3</b> 仿真实例种子</span>
+      <span class="chip">评估协议 <b>4194304</b> 符号 × <b>3</b> 仿真实例种子</span>
       <span class="chip">模型训练 <b>&lt;0.1 s</b> · 推理 <b>≈30 µs</b></span>
       <span class="chip">在线决策回路真实 BER <b>0</b> 次</span>
     </div>
@@ -846,7 +846,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <li><strong>步长</strong>：<span class="mono">α_k = 0.05 × 0.97^k</span>，乘以各维箱宽（FFE 0.20 / CTLE 6.0 dB / gain 0.30 dex）。</li>
     <li><strong>投影</strong>：候选点裁剪至 <span class="mono">x₀ ± [0.10, 0.10, 0.10, 0.10, 3.0, 3.0, 0.15]</span>（7 维信任域，gain 收紧到 ±0.15 dex）。</li>
     <li><strong>安全审查</strong>：候选点 B 预测超过红线时步长折半重试（最多 20 次）；始终不通过则停止，不强行落地。</li>
-    <li><strong>记账</strong>：写入代理预测与真实 BER_MLSE（协议 2097152 符号 × 3 种子），供事后核验。</li>
+    <li><strong>记账</strong>：写入代理预测与真实 BER_MLSE（协议 4194304 符号 × 3 种子），供事后核验。</li>
     <li><strong>终止</strong>：位移 <span class="mono">&lt; 1e-6</span>、或梯度门控触发、或边际改善 <span class="mono">&lt; 0.01 dex</span>、或达到步数上限。</li>
   </ol>
 </div>
@@ -860,7 +860,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <tr><td>模型单次推理</td><td>特征展开 + 一次内积</td><td class="n">≈30 µs</td><td class="mono">O(D)</td></tr>
   <tr><td>物理探针（含驱动 RMS）</td><td>单位脉冲 + 短 PAM4 序列过发送链</td><td class="n">≈30 ms</td><td>与评估符号数无关</td></tr>
   <tr><td><strong>Stage-2 单步决策</strong></td><td>7 次探针 + 7 次 A 前向 + ≤20 次 B 前向</td><td class="n win">≈0.4 s</td><td>与评估符号数无关</td></tr>
-  <tr><td>一次真实 BER 评估</td><td>2097152 符号 × 3 种子（全链路 + LMS + Viterbi）</td><td class="n">≈120 s</td><td>与符号数线性</td></tr>
+  <tr><td>一次真实 BER 评估</td><td>4194304 符号 × 3 种子（全链路 + LMS + Viterbi）</td><td class="n">≈120 s</td><td>与符号数线性</td></tr>
   <tr><td>离线数据集</td><td>2001 点 ×（2^20 符号 × 3 种子 + 探针）</td><td class="n">≈5.6 h（14 进程，OMP=1）</td><td>一次性</td></tr>
 </table>
 </div>
@@ -898,27 +898,28 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <table>
   <caption>数据集构成：共 2001 行真实 BER 评估，单份 CSV</caption>
   <tr><th>环境</th><th class="n">行数</th><th>构成</th><th class="n">log10 BER 实测范围</th></tr>
-  <tr><td>Base_IL10x10 邻域</td><td class="n">2001</td><td>7 维 LHS（4 FFE + gDC + gDC2 + gain），gain 覆盖全用例最优 gain 邻域 ×0.20~×1.26</td><td class="n">−4.4 ~ −0.8</td></tr>
+  <tr><td>Base_IL10x10 邻域</td><td class="n">2001</td><td>7 维 LHS（4 FFE + gDC + gDC2 + gain），gain 覆盖全用例最优 gain 邻域 ×0.20~×1.26</td><td class="n">−6.32 ~ −0.77</td></tr>
 </table>
 </div>
 
 <div class="card">
-  <h4 style="margin-top:0">评估协议：2097152 符号 × 3 个种子</h4>
-  <p>在 Base_IL10x10 优化后最优工作点（BER≈2e-5）上用 5 个仿真实例种子测量不同块长下的 log10 BER：</p>
+  <h4 style="margin-top:0">评估协议：4194304 符号 × 3 个种子</h4>
+  <p>在 Base_IL10x10 最优工作点（per-case gain ×0.41）上用 3 个仿真实例种子测量不同块长下的真实错误数与 log10 BER：</p>
   <div class="tw">
   <table class="wide">
     <caption>BER 估计精度实测（Base_IL10x10 最优工作点） <span class="sh">· 可左右滑动</span></caption>
-    <tr><th class="n">块长（符号）</th><th class="n">log10 BER 均值</th><th class="n">跨种子标准差</th><th class="n">相邻块长漂移</th><th>等效 BER</th></tr>
-    <tr><td class="n">262144</td><td class="n">−3.754</td><td class="n">0.019</td><td class="n">—</td><td class="n">1.76e-4</td></tr>
-    <tr><td class="n">524288</td><td class="n">−4.086</td><td class="n">0.024</td><td class="n">−0.332</td><td class="n">8.21e-5</td></tr>
-    <tr><td class="n">1048576</td><td class="n">−4.373</td><td class="n">0.019</td><td class="n">−0.287</td><td class="n">4.23e-5</td></tr>
-    <tr><td class="n">2097152（采用）</td><td class="n">−4.704</td><td class="n">0.027</td><td class="n">−0.331</td><td class="n">1.98e-5</td></tr>
+    <tr><th class="n">块长（符号）</th><th class="n">错误数（3 种子）</th><th class="n">log10 BER 均值</th><th class="n">95% CL 上界</th></tr>
+    <tr><td class="n">262144</td><td class="n">0 / 0 / 0</td><td class="n">−5.702</td><td class="n">3.8e-6</td></tr>
+    <tr><td class="n">524288</td><td class="n">0 / 0 / 0</td><td class="n">−6.012</td><td class="n">1.9e-6</td></tr>
+    <tr><td class="n">1048576</td><td class="n">0 / 0 / 0</td><td class="n">−6.317</td><td class="n">9.5e-7</td></tr>
+    <tr><td class="n">2097152</td><td class="n">0 / 0 / 0</td><td class="n">−6.621</td><td class="n">4.8e-7</td></tr>
+    <tr><td class="n">4194304（采用）</td><td class="n">0 / 0 / 0</td><td class="n">−6.923</td><td class="n">2.4e-7</td></tr>
   </table>
   </div>
   <p style="margin-bottom:0">
-    <strong>结论</strong>：① BER 绝对值随块长系统性漂移（每翻倍约 −0.3 dex），不同块长的绝对 BER 不可比，因此全流程固定同一协议；
-    ② 该漂移主要来自 Rx LMS FFE 与 MLSE（Burg 白化）随序列加长收敛更充分、残余 ISI 更少，而不仅是统计噪声（跨种子 std 仅 0.02～0.027 dex）；
-    ③ 采用 2097152 符号 × 3 个固定种子取 log10 均值，使最优工作点（≈2e-5）下每个种子仍有约 40 个错误、3 种子合计约 120 个错误，既充分收敛又统计可靠。
+    <strong>结论</strong>：① 最优工作点在 2^18~2^22 全部块长下均为 0 错误（3 种子），真实 BER 低于 2.4e-7（2^22 × 3 种子，95% CL），且不随块长出现系统性漂移；
+    ② 表中 log10 BER 随块长加长而下降（−5.7 → −6.9）来自"0 错误"的 1/(2N) 伪计数检测限，不是物理漂移——块长越长、检测限越低；
+    ③ 采用 4194304 符号 × 3 种子：强信号用例的 BER 落在检测限之下，用 95% CL 上界（2.4e-7）表述，不与点估计混用；压力用例（≈2e-5）每种子约 84 个错误、3 种子合计约 250 个，可作统计可靠的点估计。
   </p>
 </div>
 
@@ -947,8 +948,8 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <li>Tx CTLE：gDC = 6 dB（中等高频补强，Rx 另有固定 6 dB）、gDC2 = 2 dB（低频 shelf）；</li>
     <li>driver_gain 初值 = per-case RMS 扫描最优 gain（相对标称 0.3399 的倍率约 0.30~0.91）。</li>
   </ul>
-  <p>各用例起点已在 1e-5~1e-4 量级。在线调优做的是 <strong>7 维梯度微调</strong>：4 个 FFE 旁瓣 + gDC + gDC2 形状调整，以及 gain 作为第 7 个搜索维，从 per-case 初值出发在 ±0.15 dex 信任域内继续梯度下降。</p>
-  <p class="mut" style="margin-bottom:0">起点通过 per-case gain 标定消除了大偏差，因此图 6 的下降轨迹是"小步微调"，改善倍数（相对起点）为几倍以内——这是把增益标定计入起点口径下的真实余量。</p>
+  <p>各用例起点经 per-case gain 标定后，强信号用例起点已低于检测限（0 错误，&lt; 2.4e-7），压力用例起点在 1e-5 量级。在线调优做的是 <strong>7 维梯度微调</strong>：4 个 FFE 旁瓣 + gDC + gDC2 形状调整，以及 gain 作为第 7 个搜索维，从 per-case 初值出发在 ±0.15 dex 信任域内继续梯度下降。</p>
+  <p class="mut" style="margin-bottom:0">压力用例的相对改善在 1~2 倍以内；强信号用例起点已处于检测限之下，调优的作用是保持不退化（进一步压低一个已不可测的 BER 不在统计可判定范围）。</p>
 </div>
 
 <h3>6.1 严格泛化：只用 10 dB 基线训练 → 跨 15 个环境</h3>
@@ -1043,7 +1044,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <li>只用 Base_IL10x10 邻域 2001 行训练，15 个漂移环境：<!--POS_SUMMARY-->，几何平均 <!--MEAN_IMP-->，<!--TOTAL_WORSE--> 步劣于种子。</li>
     <li>下降方向走 Model A 的链式法则（扰动 7 维参数 → 重算探针 → 查 A），每步 8 次评估、约 0.4 秒，与评估符号数无关。</li>
     <li>gain 是第 7 个搜索维：经 drive_rms 进入 A/B 输入，初值来自 per-case target_rms 扫描（强信号环境倍率约 0.30、弱信号约 0.91），之后在 ±0.15 dex 信任域内参与梯度。</li>
-    <li>改善全部来自 7 维梯度微调（起点已经过 gain 标定）：几何平均 <!--MEAN_IMP-->，Model B 在 15 用例中从未触发拦截，其价值是"保险"而非被依赖的拦截。</li>
+    <li>改善主要来自 gain 维（第 7 维）：per-case RMS 标定的起点 gain 在极端插损组合下偏小（BER 位于悬崖边缘），梯度把 gain 推向 BER 最优倍率后，BER 从 1e-5 量级降到检测限附近；形状/CTLE 微调为次要贡献。Model B 在 15 用例中从未触发拦截，其价值是"保险"而非被依赖的拦截。</li>
   </ol>
 </div>
 
@@ -1052,9 +1053,9 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <table>
   <tr><th>边界</th><th>表现</th><th>对策</th></tr>
   <tr>
-    <td>BER 绝对值依赖评估协议</td>
-    <td>块长每翻倍，绝对 BER 系统性变化约 −0.3 dex（LMS/MLSE 收敛效应）</td>
-    <td>全流程固定 2097152 符号 × 3 种子；结果表标注协议</td>
+    <td>强信号用例 BER 低于测量分辨率</td>
+    <td>最优工作点真实 BER &lt; 2.4e-7（0 错误 @ 2^22 × 3 种子，95% CL），强信号用例落在检测限之下，只能给上界而非点估计</td>
+    <td>全流程固定 4194304 符号 × 3 种子；检测限以下的点用 3/N（95% CL 上界）表述，不与点估计混用；压力用例（≥1e-5）仍可作统计可靠的点估计</td>
   </tr>
   <tr>
     <td>代理绝对标定弱</td>
@@ -1102,7 +1103,7 @@ python tools/scan_per_case_rms.py --jobs 8
 
 # 4) 在线调优（15 环境，7 维含 gain）
 python test_generalization.py --model-dir models/ddps_v6_2 --out-dir result/ddps_v6_2_main --v62 \
-    --n-steps 15 --num-symbols 2097152 --sim-seeds 42,43,44
+    --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
 
 # 5) 可视化报告
 python report_ddps_v6.py --test-dir result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
@@ -1127,7 +1128,7 @@ python make_deliverable_v6.py --baseline result/ddps_v6_2_main --model-dir model
 
 <footer>
   <p><strong>测量口径</strong>：Python 3.11.11 / NumPy 2.4.6 / SciPy 1.17.1；BLAS 线程数固定为 1（<span class="mono">OMP_NUM_THREADS=1</span>）；
-  BER 评估统一 2097152 符号/点 × 仿真实例种子 (42,43,44) 取 log10 均值；数据集采样与模型划分固定 seed = 42。</p>
+  BER 评估统一 4194304 符号/点 × 仿真实例种子 (42,43,44) 取 log10 均值；数据集采样与模型划分固定 seed = 42。</p>
   <p>数值来源：<span class="mono">config.xlsx</span>、<span class="mono">models/*/meta.json</span>、<span class="mono">result/*/case_summary.csv</span>、
   <span class="mono">result/*/trace_*.csv</span>、<span class="mono">dataset/ddps_v62_dataset_*.csv</span> 与源码常量。</p>
 </footer>

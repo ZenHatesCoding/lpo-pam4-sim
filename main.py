@@ -125,8 +125,19 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_
     ffe_symbols[ffe_decisions == -3] = 0; ffe_symbols[ffe_decisions == -1] = 1
     ffe_symbols[ffe_decisions == 1] = 2; ffe_symbols[ffe_decisions == 3] = 3
     
+    train_len = int(config['rx']['train_len'])
+
+    # 尾缘截断修正：adaptive_ffe_dfe 里 FFE 输入索引 idx = 2*(n+sync_delay)+ffe_pre
+    # 一旦 >= len(rx_sps) 就 continue，使最后 ~sync_delay + ffe_pre/2 个符号的 rx_eq
+    # 保持 0（垃圾判决），会按固定错误数虚增 BER（块长越短越明显，表现为"每翻倍块长
+    # BER 约 -0.3 dex"）。这里只把 BER 窗口与 Burg 噪声估计限定在有效输出范围内。
+    ffe_pre_rx = int(config['rx']['ffe_pre'])
+    n_valid = (len(rx_adc[phase_offset:]) - ffe_pre_rx) // 2 - sync_delay
+    if n_valid <= train_len:
+        n_valid = train_len + 1
+
     # MLSE
-    err_ss = error_seq[int(config['rx']['train_len']):]
+    err_ss = error_seq[train_len:n_valid]
     ar_order = int(config['rx']['mlse_memory'])
     
     if ar_order > 0:
@@ -143,13 +154,20 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_
     rx_symbols[rx_decisions == 1] = 2; rx_symbols[rx_decisions == 3] = 3
     
     train_len = int(config['rx']['train_len'])
-    tx_aligned = tx_symbols[train_len:]
-    ffe_aligned = ffe_symbols[train_len:]
-    mlse_aligned = rx_symbols[train_len:]
-    
+    tx_aligned = tx_symbols[train_len:n_valid]
+    ffe_aligned = ffe_symbols[train_len:n_valid]
+    mlse_aligned = rx_symbols[train_len:n_valid]
+
     min_len = min(len(tx_aligned), len(ffe_aligned), len(mlse_aligned))
     ffe_ser, ffe_ber = calculate_ber(tx_aligned[:min_len], ffe_aligned[:min_len])
     mlse_ser, mlse_ber = calculate_ber(tx_aligned[:min_len], mlse_aligned[:min_len])
+
+    # 0 错误伪计数：BER 窗口内无错时，按 1/(2N) 记为"低于检测限"的点估计，
+    # 避免 log10(0)=-inf 破坏回归。N = 有效稳态符号数 min_len。
+    if mlse_ber <= 0.0:
+        mlse_ber = 1.0 / (2.0 * max(min_len, 1))
+    if ffe_ber <= 0.0:
+        ffe_ber = 1.0 / (2.0 * max(min_len, 1))
 
     if return_nodes:
         nodes = {

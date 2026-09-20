@@ -1,7 +1,7 @@
 {
   "model_dir": "C:\\DSPPlayground\\eLPO_antigravity\\models\\ddps_v6_2",
   "n_steps": 15,
-  "num_symbols": 2097152,
+  "num_symbols": 4194304,
   "cloud_n": 16,
   "sim_seeds": [
     42,
