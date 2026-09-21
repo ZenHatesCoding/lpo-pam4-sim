@@ -26,6 +26,10 @@
 - 交付件 6.0「起点怎么定的」、6.1 表题、结论、3.3 gain 标定（改为「参照」）、块长研究、适用边界、复现命令均按次优起点口径刷新。
 - `run_config.json` 的 gain 字段语义明确：`per_case_gain` = 本跑每用例实际作为 seed 的 gain（本版 ×0.80），`per_case_target_rms` = 离线 RMS 标定参照；`test_generalization.py` 写配置时不再把 per-case RMS 标定值误当 seed gain 写入。
 
+### 仓库清理（2026-09-21）
+- 历史产物（v2~v6.1 交付件、v6.0/v6.1 结果与模型、v4 历史数据集）归档到 `archive/20260921_repo_cleanup_v6_historical/`，git 远端只保留 v6.2 现役产物。
+- 删除冗余：`models/lim_3ck_01_0319_c2m.zip`（代码只读解压目录）、根目录历史统计输出 `proof_results.txt`；归档 `LPO_MSA_Specification_v1p01.txt`（pdf 提取物）与未引用的 `lim_3dj_03_230629.zip`。
+
 ## v6.2.1（已归档）
 
 ### BER 测量修正：BER 窗口排除 FFE 尾缘截断

@@ -29,6 +29,7 @@
 | `archive/20260911_ddps_v4_probe_polyRidge/` | v4 全部产物 |
 | `archive/20260915_ddps_v5_ab_input_merged_wrong/` | v5 全部产物 |
 | `archive/20260916_repo_cleanup/` | 仓库整理时归档的历史脚本、结果、模型、文档 |
+| `archive/20260921_repo_cleanup_v6_historical/` | v6.0/v6.1 历史结果、模型、数据集、交付件，及冗余备件（lim_3dj zip、LPO 规范 txt） |
 
 ## 版本变更记录
 
