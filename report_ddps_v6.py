@@ -444,7 +444,7 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
 
     L.append('## 3. 核心图\n\n')
     L.append(f'![三曲线收敛]({os.path.relpath(fig_conv, os.path.dirname(test_dir) or ".")})\n\n')
-    L.append(f'![gain 物理驱动]({os.path.relpath(fig_gain, os.path.dirname(test_dir) or ".")})\n\n')
+    L.append(f'![gain 倍率与 drive_rms 轨迹]({os.path.relpath(fig_gain, os.path.dirname(test_dir) or ".")})\n\n')
 
     L.append(f'## 4. 架构（{ver}：A=探针->BER，B=参数->BER）\n\n')
     L.append('**Model A（方向代理）**：输入 = [7-tap Tx FIR 探针, drive_rms]（8 维波形域）\n')

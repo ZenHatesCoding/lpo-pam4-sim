@@ -2,24 +2,24 @@
 
 > 本文件是所有要求的沉淀。每次重做前必读。不在这里的要求不复提。
 
-## 一、架构要求（v6，不可改）
+## 一、架构要求（v6.2，不可改）
 
 ### A/B 模型分工
 - **Model A（方向代理）**：输入 = [7-tap Tx FIR 探针, drive_rms]（8 维波形域）→ log10(BER) 条件均值。WhiteBoxRidge（二阶多项式 + L2 Ridge 闭式解，带解析梯度）。
 - **Model B（风险控制）**：输入 = [4 FFE 旁瓣, gDC, gDC2, drive_rms]（7 维参数域）→ log10(BER) 保守上包络。WhiteBoxRidge。
 - **A/B 输入空间不同**（波形域 vs 参数域），误差来源相互独立。
-- **梯度**：通过 A 的链式法则——扰动 6 维参数 → 重算探针（含 CTLE！）→ 查 A → 得 ΔBER（6 维中心差分，eps=0.01）。每步 7 次评估（1 基准 + 6 维扰动）。
-- **gain**：不在 A/B 搜索向量里。per-case target_rms 物理驱动（每用例离线扫描标定 0.06~0.22V）。
+- **梯度**：通过 A 的链式法则——扰动 7 维参数 → 重算探针（含 CTLE！）→ 查 A → 得 ΔBER（7 维中心差分，eps=0.01/0.05）。每步 8 次评估（1 基准 + 7 维扰动）。
+- **gain**：第 7 个搜索维（`u_gain = log10(gain / 0.3399)`），经 drive_rms 进入 A/B 输入，参数箱信任域 ±0.15 dex。per-case target_rms 扫描（0.06~0.22V）作为各用例最优 gain 的离线标定参照。
 
-### 物理层（v6.1 口径）
+### 物理层（v6.2 口径）
 PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → Tx CTLE(gDC,gDC2, peaking) → Driver(gain) → Driver BW(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx IL → +1mV 噪声 → Rx CTLE(固定 gDC=6/gDC2=3) → ADC → Rx FFE(22-tap,LMS) → Burg → MLSE(memory=1)。**无 VGA，无 RMS 归一化。**
 - Tx CTLE 为 OIF 2Z3P peaking 拓扑（`gDC` = 高频 peaking gain，直流增益恒 0 dB；`gDC2` = LF shelf gain），零极点比 `fz=2.862/fp1=1.884/fp2=1/flf=40`。
 - Rx CTLE 与 Tx 同一拓扑但参数固定（`gDC=6, gDC2=3`），不参与寻优。
 
 ### 关键常量
-- SEED_TAPS=[-0.034,-0.299,0.609,0,0.058]（5-tap，FFE_PRE=2，主抽头 t2）
-- SEED_GAIN=0.4381, DRIVER_GAIN_NOMINAL=0.4381
-- GD_LR=0.05, ALPHA_DECAY=0.97, GROUP_GATE=1e-3, MIN_GAIN_DEX=0.01
+- SEED_TAPS=[-0.034,-0.299,0.609,0,0.058]（5-tap，FFE_PRE=2，主抽头 t2）；次优起点的 FFE 见 `result/seed_config_bad_1e5.json`
+- DRIVER_GAIN_NOMINAL=0.3399；次优起点 driver_gain=0.2728（×0.80，u_gain=−0.0955）
+- 步骤：GD 步长 0.05 × 0.97^k × 箱宽（组内归一化），GROUP_GATE=1e-3，MIN_GAIN_DEX=0.01
 - MAX_DEGRADE_FRAC=0.25
 - 信任域 = 2.0 × ρ（ρ = 32nd nearest neighbor median in B's param domain）
 
@@ -39,16 +39,18 @@ PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → T
 ## 三、对比实验：A-only vs A+B（已实现）
 
 ### 实现
-- `ddps_optimizer.py` 新增 `_stage2_descent_v6_aonly()`：只用 A 梯度，不查 B，不走安全拦截
-- `test_generalization.py` 新增 `--a-only` 标志和 `run_case_v6_aonly()` 函数
-- 结果输出到 `result/ddps_v6_aonly/`
-- 交付件 §6.1b 显示逐用例对比表
+- `ddps_optimizer.py` 新增 `_stage2_descent_v62_aonly()`：只用 A 梯度，不查 B，不走安全拦截
+- `test_generalization.py` 新增 `--a-only` 标志和 `run_case_v62_aonly()` 函数
+- 结果输出到 `result/ddps_v6_2_aonly/`
+- 交付件 §6.1/6.2b 显示逐用例对比表与同款图
 
 ### 判读标准
 - 如果 A-only 就 0 劣化步，说明 Model A 方向已足够好，B 的价值是"保险"而非"必需"
 - 如果 A-only 有劣化步而 A+B 没有，说明 B 确实拦住了错误方向
 
-## 三b、对比实验：训练环境对比（已实现）
+## 三b、对比实验：训练环境对比（历史，v6.0 时代，已归档）
+
+> 该实验系 v6.0 时代三组训练对比（基线 vs IL20x20 两种种子），结果已归档在 `archive/`。当前版本（v6.2）只用基线训练单套模型，不再做训练环境对比。
 
 ### 实现
 - 三组：基线训练(IL10x10) vs IL20x20(BO种子) vs IL20x20(梯度下降种子)

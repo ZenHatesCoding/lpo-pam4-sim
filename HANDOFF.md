@@ -18,14 +18,13 @@
 5. **全量重跑**（主流程 + A-only，2^22 × 3 种子，4 jobs，实测各 ~7h）→ `result/ddps_v6_2_main`、`result/ddps_v6_2_aonly`。
 6. **报告 + 交付件**：`report_ddps_v6.py`（带 `--seed-config`）+ `make_deliverable_v6.py` → `deliverables/DDPS_v6.2_Deliverable.html`。
 7. **run_config 如实记录 seed gain**：`test_generalization.py` 写 `run_config.json` 时，`per_case_gain` 现在写的是本跑每个用例实际作为 seed 的 gain（`--seed-config` 覆盖时为覆盖值），不再误写 per-case RMS 标定值；`per_case_target_rms` 仍记离线标定参照。两处 `run_config.json` 已回填 ×0.80。
+8. **文档刷新到现状 + 去 AI 味**：修复交付件里 v6.1 残留（图 2/图 4 SVG 的 "gain 不在搜索向量""d=6""安全参考=Model B(x₀)" 等旧文字，参数表 gDC 范围）；刷新 README/BRANCHES/result SUMMARY/docs 01/02/DDPS_Method/DDPS_REQUIREMENTS 到 v6.2.2 口径（7 维含 gain、次优起点、2^22 协议、×186.7、标称 0.3399）。版本号维持对外 v6.2 / 内部 v6.2.2，不升 v7（架构/链路/搜索空间/算法均未变，只改演示起点与元数据）。
 
 ## 未提交变更（当前 working tree）
 
-- `test_generalization.py`（seed-config 覆盖 gain 维）
-- `report_ddps_v6.py`（新增 `--seed-config`）
-- `make_deliverable_v6.py`（次优起点叙事）
-- `docs/CHANGELOG.md`（v6.2.2 条目）
-- `result/seed_config_bad_1e5.json`（新增种子配置）
+> 本轮（元数据修复 + 文档刷新 + 去 AI 味）变更，提交后此节清空：`test_generalization.py`、`make_deliverable_v6.py`、`report_ddps_v6.py`、
+> `README.md`、`BRANCHES.md`、`result/SUMMARY.md`、`result/ddps_v6_2_{main,aonly}/report/*.md`、`result/ddps_v6_2_{main,aonly}/run_config.json`、
+> `docs/{CHANGELOG,DDPS_Method,DDPS_REQUIREMENTS,01_DSP_Architecture,02_Utility_Scripts}.md`、`deliverables/DDPS_v6.2_Deliverable.html`。
 - `result/ddps_v6_2_main/`、`result/ddps_v6_2_aonly/`（2^22 次优起点结果，含 report/）
 - `deliverables/DDPS_v6.2_Deliverable.html`（刷新）
 

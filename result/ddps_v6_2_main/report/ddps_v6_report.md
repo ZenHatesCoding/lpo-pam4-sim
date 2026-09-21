@@ -37,7 +37,7 @@
 
 ![三曲线收敛](ddps_v6_2_main\report\ddps_v6_convergence.png)
 
-![gain 物理驱动](ddps_v6_2_main\report\ddps_v6_gain_rms.png)
+![gain 倍率与 drive_rms 轨迹](ddps_v6_2_main\report\ddps_v6_gain_rms.png)
 
 ## 4. 架构（v6.2：A=探针->BER，B=参数->BER）
 

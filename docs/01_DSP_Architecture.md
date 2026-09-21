@@ -28,8 +28,8 @@
   `DAC(ZOH,ENOB 5.5) → Tx 电插损(S4P) → +1mV 噪声 → Tx 模拟 CTLE(gDC,gDC2 peaking) → Driver(gain) → Driver 带限(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx 电插损(S4P) → +1mV 噪声 → Rx 模拟 CTLE(固定 gDC=6/gDC2=3) → ADC → Rx FFE → MLSE`。
   **无 VGA，无 RMS 归一化。**
 - **接收端模拟均衡 (Rx Analog CTLE)**：与 Tx CTLE 同一 peaking 拓扑，但参数**固定**（`gDC=6 dB, gDC2=3 dB`，SJTU standard），位于 Rx 电插损之后、ADC 之前，作为静态均衡基座，**不参与寻优**。
-- **Driver 增益 (`driver_gain`)**：Driver 的**真实线性电压增益**，标定值 DRIVER_GAIN_NOMINAL=0.4381。gain **不是**寻优维度，由 per-case target_rms 物理驱动（每用例离线扫描标定最优发端 RMS，在线调优时每步解析调到该值：`gain = gain_ref × (target_rms / rms_measured)`）。
-- 因此 DDPS 寻优空间为 **6 维**：4 个 FFE 旁瓣 + gDC + gDC2。
+- **Driver 增益 (`driver_gain`)**：Driver 的**真实线性电压增益**，标定值 DRIVER_GAIN_NOMINAL=0.3399。gain 是 DDPS 的**第 7 个搜索维**（`u_gain = log10(gain / 0.3399)`），经 drive_rms 进入代理模型输入，参数箱信任域 ±0.15 dex；每用例最优 gain 倍率由 per-case target_rms 扫描标定作为参照（`gain = gain_scan × (target_rms / rms_measured)`）。
+- 因此 DDPS 寻优空间为 **7 维**：4 个 FFE 旁瓣 + gDC + gDC2 + u_gain。
 - **数字均衡 (Rx FFE)**：Host ASIC 接收端使用 22-tap T-spaced Rx FFE，内置 LMS 自适应收敛（DFE 默认 `dfe_taps=0` 全关，防高误码雪崩）。
 - **MLSE (默认开启, memory=1)**：Rx FFE 之后送入 **Viterbi MLSE（memory=1，4 状态）+ Burg AR 白化** 联合解码。当前配置 `mlse_memory = 1`，因此**全平台所有误码率报告统一为 `BER_MLSE`**（该 MLSE 判决输出的 Gray 映射 BER）。一旦开启 MLSE，系统自动锁死 DFE（见 `main.py`），避免 DFE 吃掉 MLSE 所需的残余 ISI。
 
@@ -84,7 +84,7 @@ graph LR
 ### [Stress Cases] 物理损伤应力配置
 `stress_cases` 是一个独立的二维表，每一行代表一个特定的物理应力环境，不设任何"全局 SNR"，全部由真实物理器件参数驱动：
 - `tx_pcb_loss_nyquist_db` / `rx_pcb_loss_nyquist_db`: 在 Nyquist 频率下的目标信道电插损，**Tx / Rx 可独立配置**（默认 10.0 dB，最差 20.0 dB，对齐 LPO MSA 7.2.1 die-to-die 上限）。
-- `driver_gain`: Driver **真实线性电压增益**（标定值 0.4381）。由 per-case target_rms 物理驱动，不是寻优维度。
+- `driver_gain`: Driver **真实线性电压增益**（标定值 0.3399）。DDPS 第 7 个搜索维；每用例最优倍率由 per-case target_rms 扫描标定作为参照。
 - `driver_bw`: Driver 带限带宽（默认 40 GHz）。
 - `dac_enob` / `adc_enob`: DAC/ADC 量化位数 ENOB（默认 5.5，0 为理想）。
 - `laser_linewidth_hz`: 激光器相位噪声线宽（默认 10 MHz，维纳相位随机游走）。
