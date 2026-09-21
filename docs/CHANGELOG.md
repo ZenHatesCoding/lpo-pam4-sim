@@ -28,7 +28,8 @@
 
 ### 仓库清理（2026-09-21）
 - 历史产物（v2~v6.1 交付件、v6.0/v6.1 结果与模型、v4 历史数据集）归档到 `archive/20260921_repo_cleanup_v6_historical/`，git 远端只保留 v6.2 现役产物。
-- 删除冗余：`models/lim_3ck_01_0319_c2m.zip`（代码只读解压目录）、根目录历史统计输出 `proof_results.txt`；归档 `LPO_MSA_Specification_v1p01.txt`（pdf 提取物）与未引用的 `lim_3dj_03_230629.zip`。
+- 删除冗余：`models/lim_3ck_01_0319_c2m.zip`（代码只读解压目录）、根目录历史统计输出 `proof_results.txt`；归档 `LPO_MSA_Specification_v1p01.txt`（pdf 提取物）。
+- 归档判据 = **现役 vs 历史**，与文件大小无关：v6.2 现役数据/模型/结果（含物理链路 s4p、`lim_3dj` 标准数据包）全部保持 git 跟踪。
 
 ## v6.2.1（已归档）
 
