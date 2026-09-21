@@ -17,6 +17,7 @@
 4. **交付件口径刷新**：`make_deliverable_v6.py` 6.0"起点"、6.1 表题、结论、3.3 gain 标定改"参照"、块长研究、复现命令，全部按"次优起点冷启动"口径重写。
 5. **全量重跑**（主流程 + A-only，2^22 × 3 种子，4 jobs，实测各 ~7h）→ `result/ddps_v6_2_main`、`result/ddps_v6_2_aonly`。
 6. **报告 + 交付件**：`report_ddps_v6.py`（带 `--seed-config`）+ `make_deliverable_v6.py` → `deliverables/DDPS_v6.2_Deliverable.html`。
+7. **run_config 如实记录 seed gain**：`test_generalization.py` 写 `run_config.json` 时，`per_case_gain` 现在写的是本跑每个用例实际作为 seed 的 gain（`--seed-config` 覆盖时为覆盖值），不再误写 per-case RMS 标定值；`per_case_target_rms` 仍记离线标定参照。两处 `run_config.json` 已回填 ×0.80。
 
 ## 未提交变更（当前 working tree）
 
@@ -30,7 +31,7 @@
 
 ## 已知边界 / 元数据缺口
 
-1. **run_config.json 不记录 seed-config 覆盖**：各 part 的 `per_case_gain` 字段存的是 per-case RMS 标定值，不是本跑实际生效的 ×0.80 种子 gain。真实种子以 `result/seed_config_bad_1e5.json` 与 CHANGELOG 为准。此为次要元数据缺口，未改运行中代码（改会致 15 part 不一致）。
+1. **run_config.json 的 gain 字段语义**：`per_case_gain` = 本跑每个用例实际作为 seed 的 gain（本版 = ×0.80 / 0.2728，已如实写入）；`per_case_target_rms` = 离线 RMS 标定参照（不随 seed 变化）。离线标定的完整扫描数据在 `result/per_case_target_rms.json` 与 `result/per_case_rms_scan.csv`。
 2. **极端插损组合的次优种子不在 1e-5**：IL20x20 / Comb_IL20x20 起点 ~1e-3（gain ×0.80 对高损信道偏小、BER 在悬崖边缘），梯度把 gain 推高（→×1.11）恢复；属预期，交付件诚实描述。
 3. 强信号用例调优后仍落在 0~1 错误检测限（1.19e-7 伪计数），改善倍数受限于检测底，用 95% CL 上界表述。
 4. 改善主要来自 gain 维（第 7 维），形状/CTLE 微调为次要贡献。

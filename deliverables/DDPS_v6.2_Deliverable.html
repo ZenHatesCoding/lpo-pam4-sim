@@ -652,6 +652,8 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <pre><code>gain_ref = gain_scan × (target_rms / rms_measured)</code></pre>
 <p>解析出的 gain 倍率（相对标称 gain 0.3399）随信号强度自适应：强信号环境约 0.30~0.49，弱信号环境约 0.88~0.91。
 本版在线调优演示刻意从次优起点（gain ×0.80，接近标称）出发，验证梯度在下落过程中能把 gain 推到各用例最优倍率附近（见 6.1）。</p>
+<p>结果目录 <span class="mono">run_config.json</span> 里两个字段分开记：<span class="mono">per_case_target_rms</span> 记录上表的离线标定参照（不随 seed 变化），
+<span class="mono">per_case_gain</span> 记录本跑每个用例实际作为 seed 的 gain（本版 = ×0.80，即 0.2728）。</p>
 <div class="tw">
 <table class="wide">
   <caption>per-case target_rms 扫描结果（15 用例；gain 倍率 = 扫描所得 gain / 标称 gain 0.3399） <span class="sh">· 可左右滑动</span></caption>

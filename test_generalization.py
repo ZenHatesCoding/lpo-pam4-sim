@@ -650,6 +650,9 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
 
     os.makedirs(out_dir, exist_ok=True)
     results, trace_dfs = [], {}
+    # v62：每个用例本跑实际用于初始化的 gain。给了 --seed-config 的 gain 覆盖时所有用例 = 覆盖值；
+    # 否则 = per-case target_rms 扫描解析出的最优 gain。用于如实写进 run_config.json（与种子点一致）。
+    seed_gain_per_case = {}
 
     cases = [e for e in ENV_CASES if (only_envs is None or e['name'] in only_envs)]
     for env in cases:
@@ -669,6 +672,7 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
                 case_gain = float(per_case_rms[env['name']]['gain'])
                 print(f"          per-case gain init = {case_gain:.4f} "
                       f"(x{case_gain / D.DRIVER_GAIN_NOMINAL:.3f})")
+            seed_gain_per_case[env['name']] = case_gain
             if a_only:
                 res, rows = run_case_v62_aonly(cfg, model_a, env, n_steps=n_steps,
                                                per_case_gain=case_gain)
@@ -729,9 +733,11 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
                    'freeze_extra': bool(freeze_extra), 'v5': bool(v5), 'v6': bool(v6),
                    'v62': bool(v62), 'a_only': bool(a_only),
                    'target_rms': float(target_rms) if (use_per_case and target_rms) else None,
+                    # per_case_target_rms = 离线 RMS 标定参照（每用例单独细扫，不随 seed 覆盖变化）；
+                    # per_case_gain = 本跑每用例实际作为 seed 的 gain（--seed-config 覆盖时为覆盖值，否则 per-case RMS 最优）。
                    'per_case_target_rms': ({k: v['target_rms'] for k, v in per_case_rms.items()}
                                            if per_case_rms else None),
-                   'per_case_gain': ({k: v['gain'] for k, v in per_case_rms.items()}
+                   'per_case_gain': (seed_gain_per_case if seed_gain_per_case else {k: v['gain'] for k, v in per_case_rms.items()}
                                      if per_case_rms else None),
                    'envs': [e['name'] for e in cases]},
                   f, indent=2, ensure_ascii=False)

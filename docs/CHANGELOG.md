@@ -24,6 +24,7 @@
 
 ### 交付件口径
 - 交付件 6.0「起点怎么定的」、6.1 表题、结论、3.3 gain 标定（改为「参照」）、块长研究、适用边界、复现命令均按次优起点口径刷新。
+- `run_config.json` 的 gain 字段语义明确：`per_case_gain` = 本跑每用例实际作为 seed 的 gain（本版 ×0.80），`per_case_target_rms` = 离线 RMS 标定参照；`test_generalization.py` 写配置时不再把 per-case RMS 标定值误当 seed gain 写入。
 
 ## v6.2.1（已归档）
 
