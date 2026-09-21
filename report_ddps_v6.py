@@ -86,8 +86,8 @@ def _ver(test_dir):
 def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True):
     steps = tr['step'].values
     # 种子点（step -1）作为曲线起点：trace 从梯度第 1 步开始记录，
-    # 种子点（gain 未标定）的 BER 远高于第 1 步（gain 标定后），
-    # 不 prepend 的话曲线全程贴底、种子线高高在上，看不到"种子→最优"的下降。
+    # 种子点（次优工作点，~1e-5）的 BER 高于后续各步，
+    # 不 prepend 的话看不到"种子→最优"的下降。
     seed = float(row['seed_ber'])
     seed_lb = float(row['seed_lb'])
     steps_ext = np.concatenate([[-1], steps])
@@ -181,7 +181,7 @@ def figure_gain_rms(test_dir, report_dir, envs):
     """逐用例 gain 倍率与 drive_rms 轨迹。
 
     v6：gain 锁定 per-case target_rms（验证物理驱动）；
-    v6.2：gain 纳入梯度（初值 = per-case 扫描最优 gain，之后放开走 7 维梯度）。
+    v6.2：gain 纳入梯度（第 7 维），从任意种子点出发走 7 维梯度。
     """
     os.makedirs(report_dir, exist_ok=True)
     v62 = _is_v62(test_dir)
@@ -200,7 +200,7 @@ def figure_gain_rms(test_dir, report_dir, envs):
             continue
         steps = tr['step'].values
         if v62:
-            # v6.2：种子（step -1）= per-case 扫描最优 gain 的初值点；drive_rms 用首步近似（= per-case target_rms 附近）
+            # v6.2：种子（step -1）= 次优工作点的 gain；drive_rms 用首步近似
             seed_gr = float(rows[env].get('seed_gain_ratio', tr['gain_ratio'].iloc[0]))
             seed_rms = float(tr['drive_rms'].iloc[0])
             steps_ext = np.concatenate([[-1], steps])
@@ -231,7 +231,7 @@ def figure_gain_rms(test_dir, report_dir, envs):
     label = 'A-only' if _is_aonly(test_dir) else 'A+B'
     if v62:
         title = (f'DDPS v6.2 gain / drive_rms 轨迹 — {label}'
-                 f'（gain 纳入梯度，初值来自 per-case RMS 扫描）')
+                 f'（gain 纳入梯度，第 7 维）')
     else:
         title = (f'DDPS v6 gain 维物理驱动轨迹 — {label}'
                  f'（drive_rms 锁定到 per-case target_rms）')
@@ -408,11 +408,11 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
     v62 = ver == 'v6.2'
     L.append(f'# DDPS {ver} 在线调优报告\n')
     if v62:
-        L.append(f'> 模型：`{model_dir}`（7 维 FFE+CTLE+gain 核岭代理；gain 纳入梯度，初值来自 per-case RMS 扫描）\n')
+        L.append(f'> 模型：`{model_dir}`（7 维 FFE+CTLE+gain 核岭代理；gain 纳入梯度，第 7 维）\n')
     else:
         L.append(f'> 模型：`{model_dir}`（6 维 FFE+CTLE 核岭代理；gain 维由发端 RMS 物理目标驱动）\n')
     L.append(f'> 评估协议：4194304 符号/点 × 3 仿真实例种子（42,43,44）取 log10 均值\n')
-    L.append(f'> gain 目标：MZM 输入 RMS = per-case 扫描标定（每个用例单独细扫）\n\n')
+    L.append(f'> gain 维：每用例最优倍率见 per-case target_rms 标定参照（每个用例单独细扫）\n\n')
 
     L.append('## 1. 逐用例结果\n\n')
     L.append('| 用例 | 物理条件 | 种子 BER | 最优 BER | 终点 BER | 改善 × | 单调? | gain 倍率 | gDC | gDC2 |\n')
@@ -459,9 +459,9 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
     L.append('-> log10(BER_MLSE) 保守上包络。按变差百分比拒绝候选，理想情况全程不触发。\n\n')
     L.append('**A/B 输入空间不同**（波形域 vs 参数域），误差来源相互独立。\n\n')
     if v62:
-        L.append('**gain 维**：通过 drive_rms 进入 A/B 输入，作为第 7 维走链式梯度。初值 = 每个用例\n')
-        L.append('单独扫描标定的最优 gain（per-case target_rms -> 解析 gain），信任域 ±0.15 dex，\n')
-        L.append('之后放开让 gain 在梯度下降里继续优化。\n\n')
+        L.append('**gain 维**：通过 drive_rms 进入 A/B 输入，作为第 7 维走链式梯度，信任域 ±0.15 dex；\n')
+        L.append('每用例最优倍率见 per-case target_rms 标定参照（per-case target_rms -> 解析 gain）。\n')
+        L.append('在线调优从次优起点（gain ×0.80）出发，随梯度下降把 gain 推到各用例最优倍率附近。\n\n')
     else:
         L.append('**gain 维**：不在 A/B 输入里。每个用例单独细粒度扫描标定 target_rms\n')
         L.append('（0.06~0.22V，步长 0.005），在线调优时每步解析调到该用例的 target_rms：\n')
@@ -501,7 +501,22 @@ if __name__ == '__main__':
     ap.add_argument('--model-dir', default='models/ddps_v6')
     ap.add_argument('--summary', default=None)
     ap.add_argument('--summary-out', default=None)
+    ap.add_argument('--seed-config', default=None,
+                    help='种子点 JSON（best_pre_post/best_gdc/best_gdc2，可选 best_u_gain/best_gain）；'
+                         '不提供则用默认 SEED_TAPS')
     a = ap.parse_args()
+    if a.seed_config:
+        with open(a.seed_config, 'r', encoding='utf-8') as _f:
+            _sc = _json.load(_f)
+        _pp = np.array(_sc['best_pre_post'], dtype=float)
+        D.SEED_TAPS = D.construct_taps(_pp, D.FFE_PRE).copy()
+        D.SEED_GDC = float(_sc['best_gdc'])
+        D.SEED_GDC2 = float(_sc['best_gdc2'])
+        if 'best_u_gain' in _sc:
+            D.SEED_GAIN = float(D.gain_from_u(float(_sc['best_u_gain'])))
+        elif 'best_gain' in _sc:
+            D.SEED_GAIN = float(_sc['best_gain'])
+        print(f'[report] 种子点覆盖: taps={np.round(D.SEED_TAPS,4)} gDC={D.SEED_GDC:.2f} gDC2={D.SEED_GDC2:.2f}')
     envs = [e['name'] for e in ENV_CASES]
     rd = os.path.join(a.test_dir, 'report')
     write_report(a.test_dir, rd, a.model_dir, envs,

@@ -26,6 +26,10 @@ import ddps_optimizer as D
 from train_surrogates import load_models
 from ddps_cases import ENV_CASES, apply_env_to_config
 
+# 种子点 gain 覆盖（配合 --seed-config）：非 None 时，v62 的 gain 初值用它替代 per-case RMS 扫描值，
+# 从而支持从一个"次优工作点"（形状 + gain 全部给定）出发做在线调优演示。
+SEED_GAIN_OVERRIDE = None
+
 
 def local_validity_cloud(cfg, model_a, model_b, n=16, seed=11, spread_ffe=None,
                          spread_ctle=None):
@@ -654,9 +658,14 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
         cfg = apply_env_to_config(base_cfg, env)
         cfg['system']['num_symbols'] = int(num_symbols)
         if v62:
-            # v6.2：gain 初值 = 该 case per-case 扫描最优 gain，之后放开走 7 维梯度
+            # v6.2：gain 初值 = 该 case per-case 扫描最优 gain，之后放开走 7 维梯度；
+            # 若通过 --seed-config 给了 gain 覆盖（次优种子演示），则用覆盖值替代 per-case RMS。
             case_gain = None
-            if env['name'] in per_case_rms:
+            if SEED_GAIN_OVERRIDE is not None:
+                case_gain = SEED_GAIN_OVERRIDE
+                print(f"          seed-config gain override = {case_gain:.4f} "
+                      f"(x{case_gain / D.DRIVER_GAIN_NOMINAL:.3f})")
+            elif env['name'] in per_case_rms:
                 case_gain = float(per_case_rms[env['name']]['gain'])
                 print(f"          per-case gain init = {case_gain:.4f} "
                       f"(x{case_gain / D.DRIVER_GAIN_NOMINAL:.3f})")
@@ -760,10 +769,10 @@ if __name__ == "__main__":
     ap.add_argument('--per-case-rms-path', type=str, default=None,
                     help='per-case target_rms JSON 路径（默认 result/per_case_target_rms.json）')
     ap.add_argument('--seed-config', type=str, default=None,
-                    help='BO 寻优种子点 JSON（含 best_pre_post/best_gdc/best_gdc2）；'
-                         '不提供则用默认 SEED_TAPS')
+                    help='种子点 JSON（best_pre_post/best_gdc/best_gdc2，可选 best_u_gain 或 best_gain）；'
+                         '不提供则用默认 SEED_TAPS + per-case RMS gain')
     a = ap.parse_args()
-    # 覆盖种子点（用于非基线环境训练的模型）
+    # 覆盖种子点（用于非基线环境训练的模型 / 次优种子演示）
     if a.seed_config:
         import json as _json
         with open(a.seed_config, 'r', encoding='utf-8') as _f:
@@ -773,7 +782,12 @@ if __name__ == "__main__":
         D.SEED_TAPS = D.construct_taps(_pp, _ffe_pre).copy()
         D.SEED_GDC = float(_sc['best_gdc'])
         D.SEED_GDC2 = float(_sc['best_gdc2'])
-        print(f"[test] 种子点覆盖: taps={np.round(D.SEED_TAPS,4)} gDC={D.SEED_GDC:.2f} gDC2={D.SEED_GDC2:.2f}")
+        if 'best_u_gain' in _sc:
+            SEED_GAIN_OVERRIDE = float(D.gain_from_u(float(_sc['best_u_gain'])))
+        elif 'best_gain' in _sc:
+            SEED_GAIN_OVERRIDE = float(_sc['best_gain'])
+        print(f"[test] 种子点覆盖: taps={np.round(D.SEED_TAPS,4)} gDC={D.SEED_GDC:.2f} gDC2={D.SEED_GDC2:.2f}"
+              + (f" gain={SEED_GAIN_OVERRIDE:.4f}" if SEED_GAIN_OVERRIDE is not None else ""))
     sim_seeds = tuple(int(s) for s in str(a.sim_seeds).split(',') if s.strip())
     cloud_seeds = tuple(int(s) for s in str(a.cloud_sim_seeds).split(',') if s.strip())
     only = tuple(s.strip() for s in a.only_envs.split(',')) if a.only_envs else None

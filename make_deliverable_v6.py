@@ -179,7 +179,7 @@ TEMPLATE = r'''<!DOCTYPE html>
   <ol style="margin-bottom:0">
     <li><strong>物理探针</strong>：向发送链注入单位脉冲，在 MZM 输入端截取 7-tap 等效发射 FIR <em>形状</em>，并把该点的<strong>绝对驱动 RMS</strong> 一并取出 —— 前者描述波形、后者描述驱动幅度。</li>
     <li><strong>双代理模型</strong>：Model A（7-tap FIR 形状 + 驱动 RMS → log10 BER_MLSE 条件均值，负责下降方向，带解析梯度）、Model B（4 旁瓣 + gDC + gDC2 + 驱动 RMS → log10 BER_MLSE 保守上包络，负责安全否决），均为二阶多项式 Ridge 闭式解，纯 NumPy。两者输入空间不同（波形域 / 参数域），误差来源相互独立。</li>
-    <li><strong>约束梯度下降</strong>：经 Model A 的链式法则求下降方向（扰动 7 维参数 = 4 FFE 旁瓣 + gDC + gDC2 + gain → 重算探针 → 查 A → 得 ΔBER），每步落地前须通过 Model B 的相对安全审查，并同时受信任域（2.0×ρ）与梯度幅值门控约束；gain 是第 7 个搜索维，初值来自 per-case RMS 扫描（见 3.3），之后放开参与梯度，信任域收窄到 ±0.15 dex。真实 BER 全量记录但不参与决策。</li>
+    <li><strong>约束梯度下降</strong>：经 Model A 的链式法则求下降方向（扰动 7 维参数 = 4 FFE 旁瓣 + gDC + gDC2 + gain → 重算探针 → 查 A → 得 ΔBER），每步落地前须通过 Model B 的相对安全审查，并同时受信任域（2.0×ρ）与梯度幅值门控约束；gain 是第 7 个搜索维（每用例最优倍率见 3.3 的 per-case RMS 标定参照），信任域收窄到 ±0.15 dex。真实 BER 全量记录但不参与决策。</li>
   </ol>
 </div>
 
@@ -233,7 +233,7 @@ TEMPLATE = r'''<!DOCTYPE html>
 
     <rect class="bx-hi" x="806" y="44" width="120" height="54" rx="8"/>
     <text class="tw2" x="866" y="68" text-anchor="middle">Driver</text>
-    <text class="ts" x="866" y="85" text-anchor="middle">per-case RMS 驱动</text>
+    <text class="ts" x="866" y="85" text-anchor="middle">RMS 驱动（gain 维）</text>
 
     <line class="ln" x1="130" y1="71" x2="146" y2="71" marker-end="url(#ah1)"/>
     <line class="ln" x1="264" y1="71" x2="280" y2="71" marker-end="url(#ah1)"/>
@@ -328,7 +328,7 @@ TEMPLATE = r'''<!DOCTYPE html>
 
     <rect class="bx-hi" x="10" y="302" width="340" height="38" rx="7"/>
     <text class="tw2" x="24" y="320">Driver</text>
-    <text class="ts" x="24" y="334">per-case RMS 驱动</text>
+    <text class="ts" x="24" y="334">RMS 驱动（gain 维）</text>
 
     <line class="ln" x1="180" y1="64" x2="180" y2="70" marker-end="url(#an1)"/>
     <line class="ln" x1="180" y1="110" x2="180" y2="116" marker-end="url(#an1)"/>
@@ -418,13 +418,13 @@ TEMPLATE = r'''<!DOCTYPE html>
     <text class="ts" x="179" y="186" text-anchor="middle">post-channel 高频 peaking（2 维）</text>
 
     <rect class="bx" x="360" y="146" width="250" height="52" rx="7"/>
-    <text class="tw2" x="485" y="168" text-anchor="middle">gain（第 7 维，初值 per-case RMS）</text>
+    <text class="tw2" x="485" y="168" text-anchor="middle">gain（第 7 维）</text>
     <text class="ts" x="485" y="186" text-anchor="middle">物理驱动，不在搜索向量里</text>
 
     <rect class="panel" x="626" y="146" width="440" height="150" rx="8"/>
     <text class="t" x="642" y="170">搜索向量：</text>
     <text class="mono" x="722" y="170" style="font-size:12.5px">x_shape ∈ R⁶ = [4 旁瓣, gDC, gDC2]</text>
-    <text class="ts" x="642" y="192">种子 x₀：FFE 旁瓣 [-0.034, -0.299, 0, 0.058]，gDC = 6 dB，gDC2 = 2 dB</text>
+    <text class="ts" x="642" y="192">种子 x₀：FFE 旁瓣 [-0.0654, -0.2834, -0.0045, 0.0880]，gDC = 5.73 dB，gDC2 = 1.45 dB</text>
     <text class="ts" x="642" y="212">信任域：FFE ±0.10 / CTLE ±3.0 dB / gain ±0.15 dex</text>
     <text class="ts" x="642" y="232">组内归一化步长：FFE 组与 CTLE 组各自归一化后乘箱宽</text>
     <text class="ts" x="642" y="256">主抽头不进入搜索向量 ⇒ 下降方向只作用于波形形状，</text>
@@ -454,12 +454,12 @@ TEMPLATE = r'''<!DOCTYPE html>
 
     <text class="tb" x="10" y="266">gain 维（第 7 搜索维）</text>
     <rect class="bx" x="10" y="276" width="340" height="50" rx="7"/>
-    <text class="tw2" x="24" y="296">gain 纳入梯度，初值 = per-case RMS 扫描</text>
-    <text class="ts" x="24" y="314">每用例扫描标定 target_rms（0.06~0.22V）→ 解析 gain 起步</text>
+    <text class="tw2" x="24" y="296">gain 纳入梯度（第 7 维）</text>
+    <text class="ts" x="24" y="314">见 3.3 per-case RMS 标定参照；演示用次优起点</text>
 
     <rect class="panel" x="10" y="340" width="340" height="80" rx="8"/>
     <text class="mono" x="24" y="362" style="font-size:12.3px">x_shape ∈ R⁶ = [4 旁瓣, gDC, gDC2]</text>
-    <text class="ts" x="24" y="382">种子：[-0.034,-0.299,0,0.058] / 6 / 2 dB</text>
+    <text class="ts" x="24" y="382">种子：[-0.0654,-0.2834,-0.0045,0.0880] / 5.73 / 1.45 dB</text>
     <text class="ts" x="24" y="400">信任域：±0.10 / ±3.0 dB（gain 不在向量里）</text>
   </svg>
 
@@ -488,7 +488,7 @@ TEMPLATE = r'''<!DOCTYPE html>
   <table>
     <caption>物理器件与信道</caption>
     <tr><th>参数</th><th class="n">取值</th></tr>
-    <tr><td>Driver gain / 带宽</td><td class="n">第 7 搜索维（初值 per-case RMS）/ 40 GHz</td></tr>
+    <tr><td>Driver gain / 带宽</td><td class="n">第 7 搜索维（每用例最优倍率见 3.3）/ 40 GHz</td></tr>
         <tr><td>DAC / ADC ENOB</td><td class="n">5.5 / 5.5</td></tr>
     <tr><td>激光器 RIN / 线宽</td><td class="n">−150 dB/Hz / 10 MHz</td></tr>
     <tr><td>MZM Vπ / 偏置 / 消光比</td><td class="n">3 V / 2.25 V / 25 dB</td></tr>
@@ -656,12 +656,12 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 </table>
 </div>
 
-<h3>3.3 gain 初值的 per-case target_rms 扫描</h3>
-<p>gain 是第 7 个搜索维，但它不从标称值出发盲找，而是先由每个用例单独细粒度扫描 MZM 输入 RMS
-（0.06~0.22V，步长 0.005）确定该用例的最优 RMS，再解析出对应 gain 作为梯度下降的初值：</p>
-<pre><code>gain_init = gain_ref × (target_rms / rms_measured)</code></pre>
+<h3>3.3 gain 维的 per-case target_rms 标定（参照）</h3>
+<p>gain 是第 7 个搜索维。为刻画每个用例的最优 gain（供初始化与验收参照），离线按用例单独细粒度扫描 MZM 输入 RMS
+（0.06~0.22V，步长 0.005）确定该用例的最优 RMS，再解析出对应 gain：</p>
+<pre><code>gain_ref = gain_scan × (target_rms / rms_measured)</code></pre>
 <p>解析出的 gain 倍率（相对标称 gain 0.3399）随信号强度自适应：强信号环境约 0.30~0.49，弱信号环境约 0.88~0.91。
-扫描只是给初值；之后 gain 放开，在 ±0.15 dex 信任域内随链式梯度继续优化（见 4.1）。</p>
+本版在线调优演示刻意从次优起点（gain ×0.80，接近标称）出发，验证梯度在下落过程中能把 gain 推到各用例最优倍率附近（见 6.1）。</p>
 <div class="tw">
 <table class="wide">
   <caption>per-case target_rms 扫描结果（15 用例；gain 倍率 = 扫描所得 gain / 标称 gain 0.3399） <span class="sh">· 可左右滑动</span></caption>
@@ -687,8 +687,8 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <text class="tb" x="34" y="58">Stage 1 · 离线标定（一次性）</text>
 
     <rect class="bx" x="34" y="72" width="472" height="46" rx="7"/>
-    <text class="t" x="48" y="92">起点 x₀（种子形状 + per-case gain 初值）</text>
-    <text class="ts" x="48" y="108">主抽头 0.6091，gDC = 6 dB，gDC2 = 2 dB；gain 初值 = per-case RMS 扫描值</text>
+    <text class="t" x="48" y="92">起点 x₀（次优工作点，基线实测 ~1e-5）</text>
+    <text class="ts" x="48" y="108">主抽头 0.5587，gDC = 5.73 dB，gDC2 = 1.45 dB；gain = ×0.80（接近标称）</text>
 
     <rect class="bx" x="34" y="134" width="472" height="46" rx="7"/>
     <text class="t" x="48" y="154">信任域内 LHS 采样（d = 7，含 gain）</text>
@@ -708,7 +708,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
     <rect class="bx" x="34" y="382" width="472" height="72" rx="7"/>
     <text class="t" x="48" y="402">A/B 输入空间不同（波形域 vs 参数域），误差独立</text>
-    <text class="ts" x="48" y="420">gain 经 drive_rms 进入 A/B 输入，初值来自 per-case RMS 扫描，</text>
+    <text class="ts" x="48" y="420">gain 经 drive_rms 进入 A/B 输入，每用例最优倍率见 3.3 标定参照，</text>
     <text class="ts" x="48" y="436">之后放开走 7 维链式梯度（4 FFE + gDC + gDC2 + gain），gain 信任域 ±0.15 dex。</text>
 
     <line class="ln" x1="270" y1="118" x2="270" y2="132" marker-end="url(#ah4)"/>
@@ -770,7 +770,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
     <rect class="bx" x="20" y="40" width="320" height="54" rx="7"/>
     <text class="t" x="32" y="60">起点 x₀（种子工作点）</text>
-    <text class="ts" x="32" y="78">[-0.034,-0.299,0.609,0,0.058] / gDC=6 dB, gDC2=2 dB</text>
+    <text class="ts" x="32" y="78">[-0.0654,-0.2834,0.5587,-0.0045,0.0880] / gDC=5.73, gDC2=1.45 dB</text>
 
     <rect class="bx" x="20" y="106" width="320" height="54" rx="7"/>
     <text class="t" x="32" y="126">信任域内 LHS 采样（d = 6）</text>
@@ -786,7 +786,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
     <rect class="bx-ok" x="20" y="304" width="320" height="54" rx="7"/>
     <text class="t" x="32" y="324">冻结 Model A / Model B</text>
-    <text class="ts" x="32" y="342">单套：只用基线 2001 行；gain 纳入梯度（初值 per-case RMS 扫描）</text>
+    <text class="ts" x="32" y="342">单套：只用基线 2001 行；gain 纳入梯度（第 7 维）</text>
 
     <line class="ln" x1="180" y1="94" x2="180" y2="104" marker-end="url(#an4)"/>
     <line class="ln" x1="180" y1="160" x2="180" y2="170" marker-end="url(#an4)"/>
@@ -904,7 +904,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
 <div class="card">
   <h4 style="margin-top:0">评估协议：4194304 符号 × 3 个种子</h4>
-  <p>在 Base_IL10x10 最优工作点（per-case gain ×0.41）上用 3 个仿真实例种子测量不同块长下的真实错误数与 log10 BER：</p>
+  <p>在 Base_IL10x10 的 0 错误最优工作点上用 3 个仿真实例种子测量不同块长下的真实错误数与 log10 BER：</p>
   <div class="tw">
   <table class="wide">
     <caption>BER 估计精度实测（Base_IL10x10 最优工作点） <span class="sh">· 可左右滑动</span></caption>
@@ -919,7 +919,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <p style="margin-bottom:0">
     <strong>结论</strong>：① 最优工作点在 2^18~2^22 全部块长下均为 0 错误（3 种子），真实 BER 低于 2.4e-7（2^22 × 3 种子，95% CL），且不随块长出现系统性漂移；
     ② 表中 log10 BER 随块长加长而下降（−5.7 → −6.9）来自"0 错误"的 1/(2N) 伪计数检测限，不是物理漂移——块长越长、检测限越低；
-    ③ 采用 4194304 符号 × 3 种子：强信号用例的 BER 落在检测限之下，用 95% CL 上界（2.4e-7）表述，不与点估计混用；压力用例（≈2e-5）每种子约 84 个错误、3 种子合计约 250 个，可作统计可靠的点估计。
+    ③ 采用 4194304 符号 × 3 种子：收敛后（最优工作点）的 BER 落在检测限之下，用 95% CL 上界（2.4e-7）表述，不与点估计混用；次优起点（~1e-5）每种子约 42 个错误、3 种子合计约 126 个，极端插损的次优起点（~1e-3）每种子约 4200 个错误，均可作统计可靠的点估计。
   </p>
 </div>
 
@@ -942,23 +942,22 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
 <h3>6.0 起点怎么定的，调优主要改了什么</h3>
 <div class="card">
-  <p><strong>起点 x₀</strong> 由两部分确定（第 2.2 节）：形状来自离线两阶段实验得到的"已知不错、但非最优"的次优点；gain 先由每个用例单独扫描最优 RMS 解析得到（方法见 3.3）。因此每个用例的起点都已经过增益标定，不是零起点、也不是随机采样：</p>
+  <p><strong>起点 x₀</strong> 取一个明确的<strong>次优工作点</strong>（7 维全部给定），来自训练数据集中的一个实测点，其真实 BER 在基线环境约 1e-5、在极端插损组合约 1e-3——刻意选在可测、且留有充分下降空间的范围，以便完整展示在线调优从冷启动到收敛的下降过程（而非从已标定最优附近微调）：</p>
   <ul>
-    <li>Tx FFE 5 抽头：<span class="mono">[-0.034, -0.299, 0.609, 0, 0.058]</span>（主抽头 0.609 由 1 − Σ|旁瓣| 派生）；</li>
-    <li>Tx CTLE：gDC = 6 dB（中等高频补强，Rx 另有固定 6 dB）、gDC2 = 2 dB（低频 shelf）；</li>
-    <li>driver_gain 初值 = per-case RMS 扫描最优 gain（相对标称 0.3399 的倍率约 0.30~0.91）。</li>
+    <li>Tx FFE 5 抽头：<span class="mono">[-0.0654, -0.2834, 0.5587, -0.0045, 0.0880]</span>（主抽头 0.5587 由 1 − Σ|旁瓣| 派生）；</li>
+    <li>Tx CTLE：gDC = 5.73 dB、gDC2 = 1.45 dB；</li>
+    <li>driver_gain = 0.2728（相对标称 0.3399 的倍率 ×0.80，u = −0.096）：驱动摆幅未按用例标定、接近标称值，是次优的主要来源。</li>
   </ul>
-  <p>各用例起点经 per-case gain 标定后，强信号用例起点已低于检测限（0 错误，&lt; 2.4e-7），压力用例起点在 1e-5 量级。在线调优做的是 <strong>7 维梯度微调</strong>：4 个 FFE 旁瓣 + gDC + gDC2 形状调整，以及 gain 作为第 7 个搜索维，从 per-case 初值出发在 ±0.15 dex 信任域内继续梯度下降。</p>
-  <p class="mut" style="margin-bottom:0">压力用例的相对改善在 1~2 倍以内；强信号用例起点已处于检测限之下，调优的作用是保持不退化（进一步压低一个已不可测的 BER 不在统计可判定范围）。</p>
+  <p>在线调优做 <strong>7 维梯度下降</strong>：4 个 FFE 旁瓣 + gDC + gDC2 形状调整，以及 gain 作为第 7 个搜索维（信任域 ±0.15 dex）。从该次优点出发，各用例的真实 BER 在数步内显著下降，逼近各自环境的最优工作点。</p>
 </div>
 
 <h3>6.1 严格泛化：只用 10 dB 基线训练 → 跨 15 个环境</h3>
 <p>训练集只含 Base_IL10x10 邻域 2001 行。模型冻结后，对 15 个漂移环境逐个执行 Stage-2 在线调优，零重训、零校准。</p>
 <p class="win"><strong>结论</strong>：<!--POS_SUMMARY-->，几何平均 <!--MEAN_IMP-->（最高 <!--MAX_IMP-->），
-全程 <!--TOTAL_STEPS--> 步真实 BER，<strong><!--TOTAL_WORSE--> 步劣于起点</strong>。7 维空间下 2001 行基线数据足够让代理在信任域内保持方向可信。</p>
+全程 <!--TOTAL_STEPS--> 步真实 BER，<strong><!--TOTAL_WORSE--> 步劣于起点</strong>。从次优起点出发，7 维空间下 2001 行基线数据足够让代理在信任域内保持方向可信、将各用例压到其环境的最优工作点附近。</p>
 <div class="tw">
 <table class="wide" id="tbl-core">
-  <caption>起点 = x₀（形状种子 + per-case gain 初值）的真实 BER_MLSE；最优 = 全轨迹中真实 BER_MLSE 的最小值（步序为该最小值出现于第几步） <span class="sh">· 可左右滑动</span></caption>
+  <caption>起点 = x₀（次优工作点，基线环境实测 ~1e-5）的真实 BER_MLSE；最优 = 全轨迹中真实 BER_MLSE 的最小值（步序为该最小值出现于第几步） <span class="sh">· 可左右滑动</span></caption>
   <tr><th>用例</th><th>物理条件</th><th class="n">起点 BER_MLSE</th><th class="n">最优 BER_MLSE（步序）</th><th class="n">Δlog10 BER</th><th class="n">改善倍数</th><th class="n">gain（起点→最优）</th></tr>
   <!--CORE_ROWS-->
 </table>
@@ -980,7 +979,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <p class="mut">本次结果是前者：A-only 15 用例 0 劣化步，且与 A+B 收敛到同一最优点（Model B 全程未触发）。两组各自的收敛 / gain / 预测 / 最难用例图见 6.2 与 6.2b。</p>
 
 <h3>6.2 收敛轨迹与物理量变化 — A+B（完整流程）</h3>
-<p>对应第 6.1 节 A+B 的 15 用例。收敛图里曲线起点（step −1）是 x₀（已经过 per-case gain 标定），之后的下行来自 7 维链式梯度（含 gain 维）。</p>
+<p>对应第 6.1 节 A+B 的 15 用例。收敛图里曲线起点（step −1）是 x₀（次优工作点，基线实测 ~1e-5），之后的下行来自 7 维链式梯度（含 gain 维）。</p>
 <figure>
   <div class="fig-scroll"><img src="{{IMG_CONV}}" alt="A+B 15 用例收敛轨迹"></div>
   <figcaption>图 6 · A+B 收敛轨迹（Model A 预测 / Model B 预测 / 实测 BER_MLSE，对数纵轴；虚线为起点）。</figcaption>
@@ -988,7 +987,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
 <figure>
   <div class="fig-scroll"><img src="{{IMG_GAIN}}" alt="A+B gain 与 drive_rms 轨迹"></div>
-  <figcaption>图 7 · A+B 的 gain 维轨迹：gain 纳入梯度（初值来自 per-case RMS 扫描），drive_rms 随之小幅漂移（虚线为起点 gain 倍率）。</figcaption>
+  <figcaption>图 7 · A+B 的 gain 维轨迹：gain 纳入梯度（第 7 维），drive_rms 随之小幅漂移（虚线为起点 gain 倍率 ×0.80）。</figcaption>
 </figure>
 
 <figure>
@@ -1010,7 +1009,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
 <figure>
   <div class="fig-scroll"><img src="{{IMG_GAIN_AO}}" alt="A-only gain 与 drive_rms 轨迹"></div>
-  <figcaption>图 11 · A-only 的 gain 维轨迹（与 A+B 相同：gain 纳入梯度，初值来自 per-case RMS 扫描，不经过 Model B）。</figcaption>
+  <figcaption>图 11 · A-only 的 gain 维轨迹（与 A+B 相同：gain 纳入梯度（第 7 维），不经过 Model B）。</figcaption>
 </figure>
 
 <figure>
@@ -1043,8 +1042,8 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <ol style="margin-bottom:0">
     <li>只用 Base_IL10x10 邻域 2001 行训练，15 个漂移环境：<!--POS_SUMMARY-->，几何平均 <!--MEAN_IMP-->，<!--TOTAL_WORSE--> 步劣于种子。</li>
     <li>下降方向走 Model A 的链式法则（扰动 7 维参数 → 重算探针 → 查 A），每步 8 次评估、约 0.4 秒，与评估符号数无关。</li>
-    <li>gain 是第 7 个搜索维：经 drive_rms 进入 A/B 输入，初值来自 per-case target_rms 扫描（强信号环境倍率约 0.30、弱信号约 0.91），之后在 ±0.15 dex 信任域内参与梯度。</li>
-    <li>改善主要来自 gain 维（第 7 维）：per-case RMS 标定的起点 gain 在极端插损组合下偏小（BER 位于悬崖边缘），梯度把 gain 推向 BER 最优倍率后，BER 从 1e-5 量级降到检测限附近；形状/CTLE 微调为次要贡献。Model B 在 15 用例中从未触发拦截，其价值是"保险"而非被依赖的拦截。</li>
+    <li>gain 是第 7 个搜索维：经 drive_rms 进入 A/B 输入，可在 ±0.15 dex 信任域内参与梯度；本版在线调优从次优起点（gain ×0.80、接近标称）出发，梯度在数步内把 gain 推到各环境 BER 最优倍率。</li>
+    <li>改善主要来自 gain 维（第 7 维）+ 形状（FFE/gDC/gDC2）协同：从 ~1e-5 的次优点出发，梯度把 BER 由 1e-5 量级压到检测限附近（强信号）或 1e-6 量级（极端插损）。Model B 全程未触发拦截，其价值是"保险"而非被依赖的拦截。</li>
   </ol>
 </div>
 
@@ -1098,16 +1097,16 @@ python -c "from train_surrogates import train_v6; import glob; \
   train_v6(sorted(glob.glob('dataset/ddps_v62_dataset_*.csv'))[-1], 'models/ddps_v6_2', \
            pipeline_tag='ddps_v6_2', gain_mode='gradient_with_rms_init')"
 
-# 3) per-case target_rms 扫描（gain 初值）
+# 3) per-case target_rms 扫描（gain 维标定参照）
 python tools/scan_per_case_rms.py --jobs 8
 
-# 4) 在线调优（15 环境，7 维含 gain）
+# 4) 在线调优（15 环境，7 维含 gain；次优起点 = 训练数据中的 1e-5 工作点）
 python test_generalization.py --model-dir models/ddps_v6_2 --out-dir result/ddps_v6_2_main --v62 \
-    --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
+    --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
 
 # 5) 可视化报告
 python report_ddps_v6.py --test-dir result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
-    --summary-out result/SUMMARY_v6_2.md
+    --seed-config result/seed_config_bad_1e5.json --summary-out result/SUMMARY_v6_2.md
 
 # 6) 交付件
 python make_deliverable_v6.py --baseline result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
@@ -1368,8 +1367,8 @@ def main():
         f"<tr><td>A/B 输入空间不同</td>"
         f"<td>波形域 vs 参数域，误差来源相互独立。梯度通过 A 的链式法则：扰动 7 维参数（含 gain）->重算探针->查A。</td></tr>",
         f"<tr><td>gain 维</td>"
-        f"<td>第 7 个搜索维，经 drive_rms 进入 A/B 输入；初值 = per-case RMS 扫描最优 gain（0.06~0.22V），"
-        f"之后在 ±0.15 dex 信任域内随链式梯度继续优化。</td></tr>",
+        f"<td>第 7 个搜索维，经 drive_rms 进入 A/B 输入；每用例最优倍率见 3.3 per-case RMS 标定（0.06~0.22V），"
+        f"在线调优从次优起点（gain ×0.80）出发，在 ±0.15 dex 信任域内随链式梯度下降。</td></tr>",
         f"<tr><td>在线决策是否使用真实收端误码</td><td><strong>不使用</strong>，仅旁路记录用于事后核验</td></tr>",
     ])
 
