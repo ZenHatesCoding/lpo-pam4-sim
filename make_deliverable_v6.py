@@ -139,6 +139,29 @@ TEMPLATE = r'''<!DOCTYPE html>
     h2{page-break-after:avoid}
     figure,table{page-break-inside:avoid}
   }
+  .tabs{margin:14px 0}
+  .tab-bar{display:flex;gap:6px;border-bottom:2px solid var(--line);margin-bottom:12px;flex-wrap:wrap}
+  .tab-btn{background:#eef2f7;border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;padding:8px 16px;font-size:13.5px;font-weight:700;color:var(--ink-2);cursor:pointer;font-family:inherit}
+  .tab-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .tab-btn:hover:not(.active){background:#e2ebf5}
+  .tab-panel{display:none}
+  .tab-panel.active{display:block}
+  details.fold{border:1px solid var(--line);border-radius:11px;background:#fff;margin:12px 0;overflow:hidden}
+  details.fold>summary{cursor:pointer;list-style:none;padding:12px 16px;font-weight:700;color:var(--ink-2);font-size:14px;background:#f2f6fb;user-select:none;-webkit-user-select:none}
+  details.fold>summary::-webkit-details-marker{display:none}
+  details.fold>summary::before{content:"▸";color:var(--accent);margin-right:8px;display:inline-block;transition:transform .15s}
+  details.fold[open]>summary::before{transform:rotate(90deg)}
+  details.fold>summary:hover{background:#eaf1fa}
+  details.fold .fold-body{padding:8px 16px 14px}
+  @media (max-width:820px){
+    details.fold>summary{padding:10px 13px}
+    details.fold .fold-body{padding:4px 12px 10px}
+    .tab-btn{padding:7px 12px;font-size:12.8px}
+  }
+  @media print{
+    .tab-panel{display:block !important}
+    .tab-bar{display:none}
+  }
 </style>
 </head>
 <body>
@@ -842,7 +865,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <div class="card">
   <ol style="margin-bottom:0">
     <li><strong>安全红线</strong>：红线 = 当前已知最优点的 Model B 预测 BER × 1.25。每步若 B 预测改善，红线跟着下移；若 B 预测突然变差（方向错），红线挡住该步。</li>
-    <li><strong>梯度</strong>：对 Model A 做 7 维链式梯度（扰动参数→重算探针→查A），<span class="mono">eps = 0.01（shape）/ 0.05（gain）</span>，共 8 次评估（每次 = 1 探针 + 1 A 前向）。</li>
+    <li><strong>梯度</strong>：对 Model A 做 7 维链式梯度，逐维<strong>双边中心差分</strong>（±eps 扰动参数 → 重算探针 → 查 A → <span class="mono">gᵢ = (A⁺ − A⁻) / (2·eps)</span>）。eps 分档：<span class="mono">0.01（4 FFE 旁瓣）/ 0.1（gDC、gDC2）/ 0.05（u_gain）</span>，共 <strong>14 次探针 + 14 次 A 前向</strong>。</li>
     <li><strong>梯度门控</strong>：<span class="mono">|g| &lt; 1e-3</span> 时某组梯度低于门控，冻结该组，避免沿拟合噪声继续移动。</li>
     <li><strong>方向</strong>：组内归一化方向（FFE 组 / CTLE 组 / gain 组各自归一化）。</li>
     <li><strong>步长</strong>：<span class="mono">α_k = 0.05 × 0.97^k</span>，乘以各维箱宽（FFE 0.20 / CTLE 6.0 dB / gain 0.30 dex）。</li>
@@ -852,8 +875,12 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <li><strong>终止</strong>：位移 <span class="mono">&lt; 1e-6</span>、或梯度门控触发、或边际改善 <span class="mono">&lt; 0.01 dex</span>、或达到步数上限。</li>
   </ol>
 </div>
+<p>端到端实操走查（读者视角：训练完有什么 → 第一个梯度怎么来 → 怎么迭代）见 §4.6。</p>
 
 <h3>4.3 复杂度与实测耗时</h3>
+<details class="fold">
+<summary>各环节计算内容 · 实测耗时 · 复杂度</summary>
+<div class="fold-body">
 <div class="tw">
 <table class="wide">
   <caption>本机实测：Python 3.11.11 / NumPy 2.4.6，BLAS 线程固定为 1 <span class="sh">· 可左右滑动</span></caption>
@@ -861,14 +888,19 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <tr><td>模型训练</td><td>ΦᵀΦ 与 D×D 线性方程组求解</td><td class="n">≈0.02 s（1601 训练行，A D=45 / B D=36）</td><td class="mono">O(N·D² + D³)</td></tr>
   <tr><td>模型单次推理</td><td>特征展开 + 一次内积</td><td class="n">≈30 µs</td><td class="mono">O(D)</td></tr>
   <tr><td>物理探针（含驱动 RMS）</td><td>单位脉冲 + 短 PAM4 序列过发送链</td><td class="n">≈30 ms</td><td>与评估符号数无关</td></tr>
-  <tr><td><strong>Stage-2 单步决策</strong></td><td>7 次探针 + 7 次 A 前向 + ≤20 次 B 前向</td><td class="n win">≈0.4 s</td><td>与评估符号数无关</td></tr>
+  <tr><td><strong>Stage-2 单步决策</strong></td><td>14 次探针 + 14 次 A 前向（梯度）+ ≤20 次 B 前向（回溯线搜索）</td><td class="n win">≈0.4 s</td><td>与评估符号数无关</td></tr>
   <tr><td>一次真实 BER 评估</td><td>4194304 符号 × 3 种子（全链路 + LMS + Viterbi）</td><td class="n">≈120 s</td><td>与符号数线性</td></tr>
   <tr><td>离线数据集</td><td>2001 点 ×（2^20 符号 × 3 种子 + 探针）</td><td class="n">≈5.6 h（14 进程，OMP=1）</td><td>一次性</td></tr>
 </table>
 </div>
+</div>
+</details>
 <p>决策链路本身不含任何真实 BER 评估；在线测试中每步执行的那次 BER 评估只是“如实记账”，其耗时不影响下一步决策。</p>
 
 <h3>4.4 可靠性依据</h3>
+<details class="fold">
+<summary>四道可靠性机制（特征 / 决策 / 安全 / 复算）</summary>
+<div class="fold-body">
 <div class="tw">
 <table>
   <tr><th>环节</th><th>机制</th><th>效果</th></tr>
@@ -878,6 +910,8 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <tr><td>复算侧</td><td>每一步的真实 BER_MLSE 全量落盘</td><td>可逐步核验是否出现退步，不依赖抽样或事后筛选</td></tr>
 </table>
 </div>
+</div>
+</details>
 
 <h3>4.5 安全红线：随最优点下移</h3>
 <p>安全红线的作用是<strong>防止代理方向错误导致 BER 变差</strong>。逻辑：</p>
@@ -892,6 +926,49 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <h4 style="margin-top:0">Model B 的价值</h4>
   <p style="margin-bottom:0">在本实验的 15 个环境中，Model B 安全红线全程未触发；B 的角色是保险，不是必需。对比实验（A-only vs A+B）见 §6.1。</p>
 </div>
+
+<h3>4.6 部署走一遍：训练完到第一个梯度再到迭代</h3>
+<p>把本方案部署到一个新环境，主线是「训练离线一次、调优逐环境在线跑」。下面按时间顺序走一遍。</p>
+
+<h4>4.6.1 训练完成后，手上有什么（离线产物）</h4>
+<div class="card">
+<ul style="margin-bottom:0">
+  <li><strong>两个冻结代理</strong>：<span class="mono">model_a.pkl</span>（波形 + 驱动 → log10 BER）、<span class="mono">model_b.pkl</span>（配置 → log10 BER）。此后不再重训。</li>
+  <li><strong>一个统一种子 x₀</strong>（7 维全给定，含 gain = ×0.80）：15 个环境同一起点，不随环境再标定。</li>
+  <li><strong>离线标定参照</strong> <span class="mono">per_case_target_rms</span>（§3.3）：仅作参照记录，不参与次优起点的 gain 初值。</li>
+</ul>
+</div>
+
+<h4>4.6.2 第一步：在 x₀ 立起安全基准</h4>
+<p>进环境拿到 x₀ 后，第一步不是算梯度，而是给红线一个初始值：</p>
+<ol style="margin-bottom:0">
+  <li>由 x₀ 构造 5 抽头 FFE，测一次驱动 RMS（1 次探针）；</li>
+  <li>该配置查 Model B，得 <span class="mono">B(x₀)</span>（1 次 B 前向）；</li>
+  <li>初始红线 = <span class="mono">10^B(x₀) × 1.25</span>（当前最优点允许恶化 25%，§4.5）。</li>
+</ol>
+
+<h4>4.6.3 第一个梯度：7 维双边差分</h4>
+<p>红线立好后，逐维算 g ∈ R⁷（§4.2）：</p>
+<ol style="margin-bottom:0">
+  <li>第 i 维取 <span class="mono">x⁺ = x₀ + epsᵢ·eᵢ</span>、<span class="mono">x⁻ = x₀ − epsᵢ·eᵢ</span>；</li>
+  <li>各自重算探针（FIR 形状 + 驱动 RMS）后查 Model A，得 <span class="mono">A(x⁺)</span>、<span class="mono">A(x⁻)</span>；</li>
+  <li><span class="mono">gᵢ = (A(x⁺) − A(x⁻)) / (2·epsᵢ)</span>，<span class="mono">epsᵢ = 0.01（FFE×4）/ 0.1（gDC、gDC2）/ 0.05（u_gain）</span>。</li>
+</ol>
+<p>一共 14 次探针 + 14 次 A 前向，约 0.4 s，<strong>期间没有一次真实 BER 评估</strong>。</p>
+<div class="card" style="border-left:4px solid #0f8a4a">
+<h4 style="margin-top:0">第一个梯度告诉你什么</h4>
+<p style="margin-bottom:0">g 的每个分量是该参数对 log10 BER 的局部斜率（负值 = 加大该参数使 BER 下降）。7 个数里模越大的维越值得动；本实验 gain 维（第 7 维）是主导项（§6.0）。</p>
+</div>
+
+<h4>4.6.4 第一次迭代到收敛</h4>
+<ol style="margin-bottom:0">
+  <li><strong>组方向</strong>：g 乘各维箱宽后按 FFE / CTLE / gain 三组归一化成单位方向；<span class="mono">|g·span| &lt; 1e-3</span> 的组冻结。</li>
+  <li><strong>步长</strong>：<span class="mono">α = 0.05 × 0.97^k</span>；候选点 <span class="mono">x₁ = clip(x₀ − α·span·方向, 信任域)</span>。</li>
+  <li><strong>Model B 审查</strong>：候选点 B 预测超红线则步长折半重试（≤20 次），始终不过则本环境停止。</li>
+  <li><strong>落地记账</strong>：对 x₁ 做一次真实 BER（2^22 × 3 种子）写进 trace；B 改善则红线随之下移。</li>
+  <li><strong>下一轮</strong>：以 x₁ 为新起点回到「第一个梯度」，直到位移 &lt; 1e-6、梯度门控触发、边际改善 &lt; 0.01 dex 或步数到 15。</li>
+</ol>
+<p>整条链路真实 BER 只记账、不回传决策——下一步往哪走由探针 + A/B 给出，真实评估留给事后核验。</p>
 
 <h2 id="s5"><span class="num">5</span>数据集与评估协议</h2>
 
@@ -924,9 +1001,10 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   </p>
 </div>
 
-<div class="card">
-  <h4 style="margin-top:0">采样与标注口径</h4>
-  <ul style="margin-bottom:0">
+<details class="fold">
+<summary>采样与标注口径（采样器 / 字段 / 并行一致性 / 成本）</summary>
+<div class="fold-body">
+<ul style="margin-bottom:0">
     <li><strong>采样器</strong>：<span class="mono">LatinHypercube(d = 7, seed = 42)</span>，逐环境独立且可复现；采样盒 = 信任域（FFE ±0.10 / CTLE ±3.0 dB），gain 在 u 空间均匀覆盖全用例最优 gain 邻域（×0.20~×1.26）。</li>
     <li><strong>每行字段</strong>：7 维坐标、5-tap FFE、gDC/gDC2、driver_gain、驱动 RMS、真实 <span class="mono">mlse_ber</span> 与 <span class="mono">log10_ber_mlse</span>、<span class="mono">ber_std_log10</span>、7-tap FIR 形状。</li>
     <li><strong>并行一致性</strong>：<span class="mono">--jobs</span> 多进程与串行结果逐位一致（每点独立、种子固定，已实测校验）。</li>
@@ -934,6 +1012,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <li><strong>成本</strong>：2001 点 × 3 种子（1048576 符号/点），12 进程并行（每进程 OMP=1）。</li>
   </ul>
 </div>
+</details>
 
 <h2 id="s6"><span class="num">6</span>实测结果</h2>
 
@@ -977,51 +1056,57 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <!--ABLATION_ROWS-->
 </table>
 </div>
-<p class="mut">本次结果是前者：A-only 15 用例 0 劣化步，且与 A+B 收敛到同一最优点（Model B 全程未触发）。两组各自的收敛 / gain / 预测 / 最难用例图见 6.2 与 6.2b。</p>
+<p class="mut">本次结果是前者：A-only 15 用例 0 劣化步，且与 A+B 收敛到同一最优点（Model B 全程未触发）。两组各自的收敛 / gain / 预测 / 最难用例图见 6.2（A+B / A-only 切换）。</p>
 
-<h3>6.2 收敛轨迹与物理量变化 — A+B（完整流程）</h3>
-<p>对应第 6.1 节 A+B 的 15 用例。收敛图里曲线起点（step −1）是 x₀（次优工作点，基线实测 ~1e-5），之后的下行来自 7 维链式梯度（含 gain 维）。</p>
-<figure>
-  <div class="fig-scroll"><img src="{{IMG_CONV}}" alt="A+B 15 用例收敛轨迹"></div>
-  <figcaption>图 6 · A+B 收敛轨迹（Model A 预测 / Model B 预测 / 实测 BER_MLSE，对数纵轴；虚线为起点）。</figcaption>
-</figure>
+<h3>6.2 收敛轨迹与物理量变化 — A+B / A-only 切换</h3>
+<p>A+B 与 A-only 同一起点、同一步数（15 步），唯一区别是是否启用 Model B 安全拦截。点下方按钮切换两组图：</p>
 
-<figure>
-  <div class="fig-scroll"><img src="{{IMG_GAIN}}" alt="A+B gain 与 drive_rms 轨迹"></div>
-  <figcaption>图 7 · A+B 的 gain 维轨迹：gain 纳入梯度（第 7 维），drive_rms 随之小幅漂移（虚线为起点 gain 倍率 ×0.80）。</figcaption>
-</figure>
+<div class="tabs">
+  <div class="tab-bar" role="tablist">
+    <button class="tab-btn active" data-tab="tab-ab" role="tab" aria-selected="true">A+B（完整流程）</button>
+    <button class="tab-btn" data-tab="tab-aonly" role="tab" aria-selected="false">A-only（消融）</button>
+  </div>
 
-<figure>
-  <div class="fig-scroll"><img src="{{IMG_TRACK}}" alt="A+B 预测变化量 vs 实测变化量"></div>
-  <figcaption>图 8 · A+B：左 Δ预测 vs Δ实测散点（逐用例逐步）；右逐用例相关系数。</figcaption>
-</figure>
+  <div class="tab-panel active" id="tab-ab">
+    <p class="mut">收敛图曲线起点（step −1）是 x₀（次优工作点，基线实测 ~1e-5），之后的下行来自 7 维链式梯度（含 gain 维）。</p>
+    <figure>
+      <div class="fig-scroll"><img src="{{IMG_CONV}}" alt="A+B 15 用例收敛轨迹"></div>
+      <figcaption>图 6 · A+B 收敛轨迹（Model A 预测 / Model B 预测 / 实测 BER_MLSE，对数纵轴；虚线为起点）。</figcaption>
+    </figure>
+    <figure>
+      <div class="fig-scroll"><img src="{{IMG_GAIN}}" alt="A+B gain 与 drive_rms 轨迹"></div>
+      <figcaption>图 7 · A+B 的 gain 维轨迹：gain 纳入梯度（第 7 维），drive_rms 随之小幅漂移（虚线为起点 gain 倍率 ×0.80）。</figcaption>
+    </figure>
+    <figure>
+      <div class="fig-scroll"><img src="{{IMG_TRACK}}" alt="A+B 预测变化量 vs 实测变化量"></div>
+      <figcaption>图 8 · A+B：左 Δ预测 vs Δ实测散点（逐用例逐步）；右逐用例相关系数。</figcaption>
+    </figure>
+    <figure>
+      <div class="fig-scroll"><img src="{{IMG_CASE_HARD}}" alt="A+B 最难用例四联图"></div>
+      <figcaption>图 9 · A+B 最难用例四联图：收敛轨迹、Tx FFE 抽头（起点 vs 最优）、Tx CTLE |H(f)| 频响、Tx 探针 7-tap FIR。</figcaption>
+    </figure>
+  </div>
 
-<figure>
-  <div class="fig-scroll"><img src="{{IMG_CASE_HARD}}" alt="A+B 最难用例四联图"></div>
-  <figcaption>图 9 · A+B 最难用例四联图：收敛轨迹、Tx FFE 抽头（起点 vs 最优）、Tx CTLE |H(f)| 频响、Tx 探针 7-tap FIR。</figcaption>
-</figure>
-
-<h3>6.2b 同款图 — A-only（只用 Model A 梯度，不查 B、不走安全拦截）</h3>
-<p>A-only 与 A+B 同一起点、同一步数（15 步），区别只是不启用 Model B。A-only 的收敛图里没有 Model B 线与安全红线。</p>
-<figure>
-  <div class="fig-scroll"><img src="{{IMG_CONV_AO}}" alt="A-only 15 用例收敛轨迹"></div>
-  <figcaption>图 10 · A-only 收敛轨迹（Model A 预测 / 实测 BER_MLSE；虚线为起点）。</figcaption>
-</figure>
-
-<figure>
-  <div class="fig-scroll"><img src="{{IMG_GAIN_AO}}" alt="A-only gain 与 drive_rms 轨迹"></div>
-  <figcaption>图 11 · A-only 的 gain 维轨迹（与 A+B 相同：gain 纳入梯度（第 7 维），不经过 Model B）。</figcaption>
-</figure>
-
-<figure>
-  <div class="fig-scroll"><img src="{{IMG_TRACK_AO}}" alt="A-only 预测变化量 vs 实测变化量"></div>
-  <figcaption>图 12 · A-only：左 Δ预测 vs Δ实测散点；右逐用例相关系数。</figcaption>
-</figure>
-
-<figure>
-  <div class="fig-scroll"><img src="{{IMG_CASE_HARD_AO}}" alt="A-only 最难用例四联图"></div>
-  <figcaption>图 13 · A-only 最难用例四联图：收敛轨迹、Tx FFE 抽头（起点 vs 最优）、Tx CTLE |H(f)| 频响、Tx 探针 7-tap FIR。</figcaption>
-</figure>
+  <div class="tab-panel" id="tab-aonly">
+    <p class="mut">A-only 的收敛图里没有 Model B 线与安全红线。</p>
+    <figure>
+      <div class="fig-scroll"><img src="{{IMG_CONV_AO}}" alt="A-only 15 用例收敛轨迹"></div>
+      <figcaption>图 10 · A-only 收敛轨迹（Model A 预测 / 实测 BER_MLSE；虚线为起点）。</figcaption>
+    </figure>
+    <figure>
+      <div class="fig-scroll"><img src="{{IMG_GAIN_AO}}" alt="A-only gain 与 drive_rms 轨迹"></div>
+      <figcaption>图 11 · A-only 的 gain 维轨迹（与 A+B 相同：gain 纳入梯度（第 7 维），不经过 Model B）。</figcaption>
+    </figure>
+    <figure>
+      <div class="fig-scroll"><img src="{{IMG_TRACK_AO}}" alt="A-only 预测变化量 vs 实测变化量"></div>
+      <figcaption>图 12 · A-only：左 Δ预测 vs Δ实测散点；右逐用例相关系数。</figcaption>
+    </figure>
+    <figure>
+      <div class="fig-scroll"><img src="{{IMG_CASE_HARD_AO}}" alt="A-only 最难用例四联图"></div>
+      <figcaption>图 13 · A-only 最难用例四联图：收敛轨迹、Tx FFE 抽头（起点 vs 最优）、Tx CTLE |H(f)| 频响、Tx 探针 7-tap FIR。</figcaption>
+    </figure>
+  </div>
+</div>
 
 <h3>6.3 安全性核验（逐步记账）</h3>
 <div class="card">
@@ -1087,6 +1172,12 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
 <h2 id="s9"><span class="num">9</span>复现与产物</h2>
 
+<p>部署本方案的 6 步命令与产物清单如下（展开查看完整命令）：</p>
+
+<details class="fold">
+<summary>完整流水线：数据集 → 训练 → 标定 → 在线调优 → 报告 → 交付件</summary>
+<div class="fold-body">
+
 <div class="card">
   <h4 style="margin-top:0">完整流水线</h4>
   <pre><code># 1) 数据集（2001 点；7 维 LHS；只用 Base_IL10x10；gain 覆盖全用例最优 gain 邻域 ×0.20~×1.26）
@@ -1126,6 +1217,9 @@ python make_deliverable_v6.py --baseline result/ddps_v6_2_main --model-dir model
 </table>
 </div>
 
+</div>
+</details>
+
 <footer>
   <p><strong>测量口径</strong>：Python 3.11.11 / NumPy 2.4.6 / SciPy 1.17.1；BLAS 线程数固定为 1（<span class="mono">OMP_NUM_THREADS=1</span>）；
   BER 评估统一 4194304 符号/点 × 仿真实例种子 (42,43,44) 取 log10 均值；数据集采样与模型划分固定 seed = 42。</p>
@@ -1134,6 +1228,34 @@ python make_deliverable_v6.py --baseline result/ddps_v6_2_main --model-dir model
 </footer>
 
 </div>
+<script>
+(function(){
+  function switchTab(btn){
+    var bar = btn.parentElement, tabs = bar.parentElement, id = btn.getAttribute('data-tab');
+    bar.querySelectorAll('.tab-btn').forEach(function(b){
+      var on = b === btn;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    tabs.querySelectorAll('.tab-panel').forEach(function(p){
+      p.classList.toggle('active', p.id === id);
+    });
+  }
+  document.querySelectorAll('.tab-btn').forEach(function(b){
+    b.addEventListener('click', function(){ switchTab(b); });
+  });
+  var wasClosed = [];
+  window.addEventListener('beforeprint', function(){
+    document.querySelectorAll('details.fold:not([open])').forEach(function(d){
+      d.setAttribute('open',''); wasClosed.push(d);
+    });
+  });
+  window.addEventListener('afterprint', function(){
+    wasClosed.forEach(function(d){ d.removeAttribute('open'); });
+    wasClosed = [];
+  });
+})();
+</script>
 </body>
 </html>
 
