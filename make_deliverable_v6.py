@@ -162,6 +162,14 @@ TEMPLATE = r'''<!DOCTYPE html>
     .tab-panel{display:block !important}
     .tab-bar{display:none}
   }
+  .sect{cursor:pointer}
+  .sect::before{content:"▾";display:inline-block;width:16px;margin-left:2px;color:var(--accent);font-size:.8em;transition:transform .15s}
+  .sect.collapsed::before{content:"▸"}
+  h2.sect:hover,h3.sect:hover,h4.sect:hover{color:var(--accent)}
+  @media print{
+    .sect{cursor:default}
+    .sect::before{display:none}
+  }
 </style>
 </head>
 <body>
@@ -1264,13 +1272,44 @@ python make_deliverable_v6.py --baseline result/ddps_v6_2_main --model-dir model
   document.querySelectorAll('.tab-btn').forEach(function(b){
     b.addEventListener('click', function(){ switchTab(b); });
   });
-  var wasClosed = [];
+
+  // 标题级折叠：h2/h3/h4 点击收起其下属内容（到下一个同级或更高级标题为止）
+  function sectLevel(el){
+    var m = /^H([1-6])$/.exec(el.tagName);
+    return m ? parseInt(m[1], 10) : 0;
+  }
+  function sectChildren(h){
+    var lvl = sectLevel(h), list = [], el = h.nextElementSibling;
+    while (el){
+      if (el.tagName === 'FOOTER') break;
+      if (sectLevel(el) && sectLevel(el) <= lvl) break;
+      list.push(el);
+      el = el.nextElementSibling;
+    }
+    return list;
+  }
+  function show(h){ sectChildren(h).forEach(function(n){ n.removeAttribute('data-sect'); n.style.display=''; }); }
+  function hide(h){ sectChildren(h).forEach(function(n){ n.setAttribute('data-sect','1'); n.style.display='none'; }); }
+  document.querySelectorAll('h2,h3,h4').forEach(function(h){
+    h.classList.add('sect');
+    h.addEventListener('click', function(){
+      if (h.classList.toggle('collapsed')){ hide(h); } else { show(h); }
+    });
+  });
+
+  // 打印：展开所有标题折叠与 details，打印后恢复
+  var wasClosed = [], wasCollapsed = [];
   window.addEventListener('beforeprint', function(){
+    document.querySelectorAll('.sect.collapsed').forEach(function(h){
+      wasCollapsed.push(h); h.classList.remove('collapsed'); show(h);
+    });
     document.querySelectorAll('details.fold:not([open])').forEach(function(d){
       d.setAttribute('open',''); wasClosed.push(d);
     });
   });
   window.addEventListener('afterprint', function(){
+    wasCollapsed.forEach(function(h){ h.classList.add('collapsed'); hide(h); });
+    wasCollapsed = [];
     wasClosed.forEach(function(d){ d.removeAttribute('open'); });
     wasClosed = [];
   });
