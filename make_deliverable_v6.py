@@ -454,10 +454,10 @@ TEMPLATE = r'''<!DOCTYPE html>
 
     <rect class="panel" x="626" y="146" width="440" height="150" rx="8"/>
     <text class="t" x="642" y="170">搜索向量：</text>
-    <text class="mono" x="722" y="170" style="font-size:12.5px">x_shape ∈ R⁶ = [4 旁瓣, gDC, gDC2]</text>
-    <text class="ts" x="642" y="192">种子 x₀：FFE 旁瓣 [-0.0654, -0.2834, -0.0045, 0.0880]，gDC = 5.73 dB，gDC2 = 1.45 dB</text>
+    <text class="mono" x="722" y="170" style="font-size:12.5px">x ∈ R⁷ = [4 旁瓣, gDC, gDC2, u_gain]</text>
+    <text class="ts" x="642" y="192">种子 x₀：旁瓣 [-0.0654,-0.2834,-0.0045,0.0880]，gDC 5.73，gDC2 1.45，gain ×0.80</text>
     <text class="ts" x="642" y="212">信任域：FFE ±0.10 / CTLE ±3.0 dB / gain ±0.15 dex</text>
-    <text class="ts" x="642" y="232">组内归一化步长：FFE 组与 CTLE 组各自归一化后乘箱宽</text>
+    <text class="ts" x="642" y="232">组内归一化步长：FFE / CTLE / gain 三组各自归一化后乘箱宽</text>
     <text class="ts" x="642" y="256">主抽头不进入搜索向量 ⇒ 下降方向只作用于波形形状，</text>
     <text class="ts" x="642" y="272">不会用“整体变亮/变暗”这类伪自由度降 BER。</text>
 
@@ -489,8 +489,8 @@ TEMPLATE = r'''<!DOCTYPE html>
     <text class="ts" x="24" y="314">见 3.3 per-case RMS 标定参照；起点为次优点</text>
 
     <rect class="panel" x="10" y="340" width="340" height="80" rx="8"/>
-    <text class="mono" x="24" y="362" style="font-size:12.3px">x_shape ∈ R⁶ = [4 旁瓣, gDC, gDC2]</text>
-    <text class="ts" x="24" y="382">种子：[-0.0654,-0.2834,-0.0045,0.0880] / 5.73 / 1.45 dB</text>
+    <text class="mono" x="24" y="362" style="font-size:12.3px">x ∈ R⁷ = [4 旁瓣, gDC, gDC2, u_gain]</text>
+    <text class="ts" x="24" y="382">种子：[-0.0654,-0.2834,-0.0045,0.0880] / 5.73 / 1.45 dB / ×0.80</text>
     <text class="ts" x="24" y="400">信任域：FFE ±0.10 / CTLE ±3.0 dB / gain ±0.15 dex</text>
   </svg>
 
@@ -731,7 +731,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
     <rect class="bx" x="34" y="72" width="472" height="46" rx="7"/>
     <text class="t" x="48" y="92">起点 x₀（次优工作点，基线实测 ~1e-5）</text>
-    <text class="ts" x="48" y="108">主抽头 0.5587，gDC = 5.73 dB，gDC2 = 1.45 dB；gain = ×0.80（接近标称）</text>
+    <text class="ts" x="48" y="108">主抽头 0.5587，gDC = 5.73 dB，gDC2 = 1.45 dB；gain = ×0.80</text>
 
     <rect class="bx" x="34" y="134" width="472" height="46" rx="7"/>
     <text class="t" x="48" y="154">信任域内 LHS 采样（d = 7，含 gain）</text>
@@ -813,7 +813,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
     <rect class="bx" x="20" y="40" width="320" height="54" rx="7"/>
     <text class="t" x="32" y="60">起点 x₀（种子工作点）</text>
-    <text class="ts" x="32" y="78">[-0.0654,-0.2834,0.5587,-0.0045,0.0880] / gDC=5.73, gDC2=1.45 dB</text>
+    <text class="ts" x="32" y="78">[-0.0654,-0.2834,0.5587,-0.0045,0.0880] / 5.73 / 1.45 dB / ×0.80</text>
 
     <rect class="bx" x="20" y="106" width="320" height="54" rx="7"/>
     <text class="t" x="32" y="126">信任域内 LHS 采样（d = 7，含 gain）</text>
@@ -1237,7 +1237,7 @@ python make_deliverable_v6.py --baseline result/ddps_v6_2_main --model-dir model
 <table>
   <caption>产物清单</caption>
   <tr><th>类别</th><th>路径</th><th>内容</th></tr>
-  <tr><td>数据集</td><td class="mono">dataset/ddps_v62_dataset_&lt;ts&gt;.csv</td><td>2001 行 × 45 列（7 维 x_shape + 5-tap FFE + 驱动 RMS + 7-tap FIR 探针 + 真实 BER）</td></tr>
+  <tr><td>数据集</td><td class="mono">dataset/ddps_v62_dataset_&lt;ts&gt;.csv</td><td>2001 行 × 45 列（7 维 x = 4 FFE 旁瓣 + gDC + gDC2 + u_gain；另含 5-tap FFE、驱动 RMS、7-tap FIR 探针、真实 BER）</td></tr>
   <tr><td>核心模型</td><td class="mono">models/ddps_v6_2/</td><td>A=探针 8 维 / B=参数 7 维 + meta.json</td></tr>
     <tr><td>核心结果</td><td class="mono">result/ddps_v6_2_main/</td><td>case_summary.csv/json、trace_&lt;用例&gt;.csv、run_config.json、report/</td></tr>
       <tr><td>跨实验汇总</td><td class="mono">result/SUMMARY.md</td><td>15 用例结果汇总</td></tr>
