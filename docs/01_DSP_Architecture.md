@@ -28,7 +28,7 @@
   `DAC(ZOH,ENOB 5.5) → Tx 电插损(S4P) → +1mV 噪声 → Tx 模拟 CTLE(gDC,gDC2 peaking) → Driver(gain) → Driver 带限(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx 电插损(S4P) → +1mV 噪声 → Rx 模拟 CTLE(固定 gDC=6/gDC2=3) → ADC → Rx FFE → MLSE`。
   **Tx driver 路径无 VGA、无 RMS 归一化**（gain 是链路最后一个不被下游吸收的线性乘子，故可作独立搜索维）；**Rx 侧只有 TIA 一层物理 AGC**（RMS 归一化到归一化 PAM4 的参考 √5/3 ≈ 0.7454 V，见 `channel_imdd.py`），ADC 数字域不再有第二层 AGC。
 - **接收端模拟均衡 (Rx Analog CTLE)**：与 Tx CTLE 同一 peaking 拓扑，但参数**固定**（`gDC=6 dB, gDC2=3 dB`，SJTU standard），位于 Rx 电插损之后、ADC 之前，作为静态均衡基座，**不参与寻优**。
-- **Driver 增益 (`driver_gain`)**：Driver 的**真实线性电压增益**，标定值 DRIVER_GAIN_NOMINAL=1.0197。gain 是 DDPS 的**第 7 个搜索维**（`u_gain = log10(gain / 1.0197)`），经 drive_rms 进入代理模型输入，参数箱信任域 ±0.15 dex；每用例最优 gain 倍率由 per-case target_rms 扫描标定作为参照（`gain = gain_scan × (target_rms / rms_measured)`）。数字域 PAM4 归一化 ±1（电平 [-1,-1/3,1/3,1]），driver 增益是把 ±1 DAC 输出放大到 MZM 驱动摆幅的桥梁。
+- **Driver 增益 (`driver_gain`)**：Driver 的**真实线性电压增益**，标定值 DRIVER_GAIN_NOMINAL=1.0197。gain 是 DDPS 的**第 7 个搜索维**（`u_gain = log10(gain / 1.0197)`），经 drive_rms 进入代理模型输入，参数箱信任域 ±0.30 dex；每用例最优 gain 倍率由 per-case target_rms 扫描标定作为参照（`gain = gain_scan × (target_rms / rms_measured)`）。数字域 PAM4 归一化 ±1（电平 [-1,-1/3,1/3,1]），driver 增益是把 ±1 DAC 输出放大到 MZM 驱动摆幅的桥梁。
 - 因此 DDPS 寻优空间为 **7 维**：4 个 FFE 旁瓣 + gDC + gDC2 + u_gain。
 - **数字均衡 (Rx FFE)**：Host ASIC 接收端使用 22-tap T-spaced Rx FFE，内置 LMS 自适应收敛（DFE 默认 `dfe_taps=0` 全关，防高误码雪崩）。
 - **MLSE (默认开启, memory=1)**：Rx FFE 之后送入 **Viterbi MLSE（memory=1，4 状态）+ Burg AR 白化** 联合解码。当前配置 `mlse_memory = 1`，因此**全平台所有误码率报告统一为 `BER_MLSE`**（该 MLSE 判决输出的 Gray 映射 BER）。一旦开启 MLSE，系统自动锁死 DFE（见 `main.py`），避免 DFE 吃掉 MLSE 所需的残余 ISI。

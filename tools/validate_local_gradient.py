@@ -43,9 +43,9 @@ def main():
     ap.add_argument('--sim-seeds', default='42,43,44')
     ap.add_argument('--out', default='result/ddps_local_gradient.csv')
     ap.add_argument('--steps', default='0.05,0.05,0.05,0.05,1.0,1.0',
-                    help='各轴中心差分步长（FFE 4 个、CTLE 2 个），逗号分隔；6 维 v5 模型')
+                    help='各轴中心差分步长（FFE 4 个、CTLE 2 个），逗号分隔（6 维形状）')
     ap.add_argument('--seed-config', default=None,
-                    help='BO 寻优种子点 JSON（覆盖 SEED_TAPS/SEED_GDC/SEED_GDC2）')
+                    help='次优起点 seed_config JSON（覆盖 taps/gDC/gDC2/gain）')
     args = ap.parse_args()
 
     if args.seed_config:
@@ -61,7 +61,7 @@ def main():
     ffe_pre = D._ffe_pre(cfg)
     model_a, model_b = load_models(args.model_dir)
 
-    # v5: 6 维 x_shape = [4 旁瓣, gDC, gDC2]；gain 用种子值（不在 shape 里）
+    # 6 维 x_shape = [4 旁瓣, gDC, gDC2]；gain 用种子值（不在 shape 里）
     seed_pre_post = np.concatenate([D.SEED_TAPS[:ffe_pre], D.SEED_TAPS[ffe_pre + 1:]])
     x0 = np.concatenate([seed_pre_post, [D.SEED_GDC, D.SEED_GDC2]])
     gain0 = float(D.SEED_GAIN)
@@ -72,7 +72,7 @@ def main():
         return D._physical_eval(cfg, taps, float(x[D.N_SIDE]), float(x[D.N_SIDE + 1]), gain0)
 
     lb0, ber0 = ev(x0)
-    # v6: A 吃探针 8 维，梯度走链式法则；B 吃参数 7 维（x_shape+drive_rms）
+    # A 吃探针 8 维，梯度走链式法则；B 吃参数 7 维（x_shape+drive_rms）
     if hasattr(D, '_grad_a_chain'):
         g_a = D._grad_a_chain(model_a, cfg, x0, gain0, ffe_pre, eps=0.01)
         rms0 = D._measure_drive_rms(cfg, D.construct_taps(x0[:D.N_SIDE], ffe_pre),
