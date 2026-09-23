@@ -30,7 +30,7 @@
 | `tools/verify_trace.py` | trace 记账复核：独立重仿真逐点核对记录值 |
 | `tools/scan_per_case_rms.py` | 每用例扫描标定最优发端 RMS（0.06~0.22V，步长 0.005） |
 | `tools/scan_env_optimal.py` | 全环境最优参数扫描 |
-| `tools/block_length_study.py` | BER 估计精度：块长漂移与可分辨性 |
+| `tools/block_length_study.py` | BER 估计精度：块长变化与可分辨性 |
 | `tools/calibrate_driver_gain.py` | Driver gain 标定工具 |
 | `tools/run_length_replay.py` | 运行长度回放 |
 | `tools/merge_test_parts.py` | 测试结果合并 |

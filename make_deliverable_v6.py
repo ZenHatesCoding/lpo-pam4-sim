@@ -419,7 +419,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     <text class="ts" x="360" y="924">Tx / Rx 电插损可独立配置（不对称）。</text>
   </svg>
 
-  <figcaption>物理探针与真实链路共用同一段实现（<span class="mono">channel_imdd.tx_frontend_lti</span>），因此链路顺序只有一处定义，探针不会与真实链路漂移。</figcaption>
+  <figcaption>物理探针取 MZM 输入端的线性冲激响应（7-tap FIR + 驱动 RMS）。它与真实链路共用同一个 Tx 模拟前端函数 <span class="mono">tx_frontend_lti</span>，因此探针反映的 Tx 前端与真实链路一致；差别只在探针取线性响应（不含 DAC ENOB 量化与 1 mV 前端噪声）。</figcaption>
 </figure>
 
 <h3>2.2 优化空间与参数化</h3>
@@ -668,7 +668,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     <line class="ln" x1="180" y1="430" x2="180" y2="440" marker-end="url(#an3)"/>
 
     <text class="ts" x="10" y="522">两者使用相同学习器与标签，输入特征不同（波形域 / 参数域），</text>
-    <text class="ts" x="10" y="538">因此误差来源相互独立，构成“方向 + 刹车”的分工。</text>
+    <text class="ts" x="10" y="538">因此误差来源相互独立：A 提供下降方向，B 提供安全否决。</text>
   </svg>
 
   <figcaption>两个模型使用相同学习器与训练标签，唯一区别是输入特征：A 走物理探针（波形域 + 驱动幅度），B 直接用配置（参数域），因此误差来源相互独立。</figcaption>
@@ -677,10 +677,9 @@ TEMPLATE = r'''<!DOCTYPE html>
 <div class="card">
   <h4 style="margin-top:0">Model A 的第 8 个特征：绝对驱动 RMS</h4>
   <p style="margin-bottom:0">
-    <code>driver_gain</code> 在纯线性 Tx 链中只是一个标量乘子，而 7-tap FIR <strong>形状</strong>对整体尺度不变。
-    若 Model A 只看形状，它对 <code>driver_gain</code> 的偏导数恒为 0 —— 归一化梯度在该维上没有分量，
-    Stage-2 永远无法移动它。因此探针做绝对标定，并额外返回 MZM 输入端的真实驱动 RMS 作为第 8 个特征
-    （与真实链路实测吻合，误差 &lt; 0.3%）。
+    <code>driver_gain</code> 在线性 Tx 链中只是标量乘子，只整体缩放波形；7-tap FIR 若只看<strong>形状</strong>（峰值归一化）则对它不敏感，梯度在该维恒为 0。
+    因此探针把 7-tap FIR 保留绝对量纲（除以常数 <span class="mono">DRIVE_RMS_NOMINAL</span>），并把 MZM 输入端的真实驱动 RMS 作为第 8 个特征，
+    <code>driver_gain</code> 的变化同时体现在抽头幅度与驱动 RMS 上，使该维拿到非零梯度。
   </p>
 </div>
 
@@ -701,7 +700,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <p>gain 是第 7 个搜索维。为刻画每个用例的最优 gain（供初始化与验收参照），离线按用例单独细粒度扫描 MZM 输入 RMS
 （0.06~0.22V，步长 0.005）确定该用例的最优 RMS，再解析出对应 gain：</p>
 <pre><code>gain_ref = gain_scan × (target_rms / rms_measured)</code></pre>
-<p>解析出的 gain 倍率（相对标称 gain 0.3399）随信号强度自适应：强信号环境约 0.30~0.49，弱信号环境约 0.88~0.91。
+<p>解析出的 gain 倍率（相对标称 gain 0.3399）随信道总插损升高而增大，范围约 0.30（10 dB 低插损）到 0.90（20 dB 极端插损）。
 在线调优从次优起点（gain ×0.80）出发，梯度把 gain 推到各用例最优倍率附近（见 6.1）。</p>
 <p>结果目录 <span class="mono">run_config.json</span> 里两个字段分开记：<span class="mono">per_case_target_rms</span> 记录上表的离线标定参照（不随 seed 变化），
 <span class="mono">per_case_gain</span> 记录本跑每个用例实际作为 seed 的 gain（= ×0.80，即 0.2728）。</p>
@@ -935,14 +934,14 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <p>安全红线的作用是<strong>防止代理方向错误导致 BER 变差</strong>。逻辑：</p>
 <ul>
   <li>红线 = 当前已知最优点的 Model B 预测 BER × 1.25（不是种子点的 B 预测）；</li>
-  <li>每步若 B 预测改善，红线跟着下移——B 单调下降时红线永不触发；</li>
+  <li>每步若 B 预测改善，红线跟着下移——B 预测单调下降时红线不会触发；</li>
   <li>若 B 预测突然变差（方向错），候选点 B 预测超过红线，步长折半重试，始终不过则停止；</li>
-  <li>用"相对最优点变差 25%"而非绝对 BER 阈值：代理绝对标定不可信（Model B 用基线训练，漂移环境预测的绝对值偏差大），但"相对最优点变差多少倍"是可比的；</li>
+  <li>用"相对最优点变差 25%"而非绝对 BER 阈值：代理绝对标定不可信（Model B 用基线训练，在非基线环境预测的绝对值偏差大），但"相对最优点变差多少倍"是可比的；</li>
   <li>实测 15 用例 <!--TOTAL_STEPS--> 步中 <!--TOTAL_WORSE--> 步劣于种子——红线全程未触发拦截（B 预测单调下降，方向与 A 一致）。</li>
 </ul>
 <div class="card" style="border-left:4px solid #0f8a4a">
   <h4 style="margin-top:0">Model B 的价值</h4>
-  <p style="margin-bottom:0">在本实验的 15 个环境中，Model B 安全红线全程未触发；B 的角色是保险，不是必需。对比实验（A-only vs A+B）见 §6.1。</p>
+  <p style="margin-bottom:0">本次实验的 15 个用例中，Model B 安全红线全程未否决任何一步（仅起保护作用，未被使用）。A-only 与 A+B 的对比见 §6.1b。</p>
 </div>
 
 <h3>4.6 部署走一遍：训练完到第一个梯度再到迭代</h3>
@@ -1018,8 +1017,8 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   </div>
   </details>
   <p style="margin-bottom:0">
-    <strong>结论</strong>：① 最优工作点在 2^18~2^22 全部块长下均为 0 错误（3 种子），真实 BER 低于 2.4e-7（2^22 × 3 种子，95% CL），且不随块长出现系统性漂移；
-    ② 表中 log10 BER 随块长加长而下降（−5.7 → −6.9）来自"0 错误"的 1/(2N) 伪计数检测限，不是物理漂移——块长越长、检测限越低；
+    <strong>结论</strong>：① 最优工作点在 2^18~2^22 全部块长下均为 0 错误（3 种子），真实 BER 低于 2.4e-7（2^22 × 3 种子，95% CL），且不随块长出现系统性变化；
+    ② 表中 log10 BER 随块长加长而下降（−5.7 → −6.9）来自"0 错误"的 1/(2N) 伪计数检测限，不是物理上的 BER 变化——块长越长、检测限越低；
     ③ 采用 4194304 符号 × 3 种子：收敛后（最优工作点）的 BER 落在检测限之下，用 95% CL 上界（2.4e-7）表述，不与点估计混用；次优起点（~1e-5）每种子约 42 个错误、3 种子合计约 126 个，极端插损的次优起点（~1e-3）每种子约 4200 个错误，均可作统计可靠的点估计。
   </p>
 </div>
@@ -1043,7 +1042,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <!--KPI_CARDS-->
 </div>
 
-<h3>6.0 起点怎么定的，调优主要改了什么</h3>
+<h3>6.0 起点工作点与调优的主要改动</h3>
 <div class="card">
   <p><strong>起点 x₀</strong> 取一个明确的<strong>次优工作点</strong>（7 维全部给定），来自训练数据集中的一个实测点，其真实 BER 在基线环境约 1e-5、在极端插损组合约 1e-3。选这个量级，是因为起点 BER 高于检测限（可统计）、又低于信道失效区（有下降空间），在线调优的下降过程因此可测可见：</p>
   <ul>
@@ -1055,7 +1054,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 </div>
 
 <h3>6.1 严格泛化：只用 10 dB 基线训练 → 跨 15 个环境</h3>
-<p>训练集只含 Base_IL10x10 邻域 2001 行。模型冻结后，对 15 个漂移环境逐个执行 Stage-2 在线调优，不重训、不重新标定。</p>
+<p>训练集只含 Base_IL10x10 邻域 2001 行。模型冻结后，对 15 个用例环境逐个执行 Stage-2 在线调优，不重训、不重新标定。</p>
 <p class="win"><strong>结论</strong>：<!--POS_SUMMARY-->，几何平均 <!--MEAN_IMP-->（最高 <!--MAX_IMP-->），
 全程 <!--TOTAL_STEPS--> 步真实 BER，<strong><!--TOTAL_WORSE--> 步劣于起点</strong>。代理只在 Base_IL10x10 邻域训练，冻结后在其余 14 个环境信任域内方向仍正确，把各用例压到其环境的最优工作点附近。</p>
 <div class="tw">
@@ -1098,7 +1097,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     </figure>
     <figure>
       <div class="fig-scroll"><img src="{{IMG_GAIN}}" alt="A+B gain 与 drive_rms 轨迹"></div>
-      <figcaption>图 7 · A+B 的 gain 维轨迹：gain 纳入梯度（第 7 维），drive_rms 随之小幅漂移（虚线为起点 gain 倍率 ×0.80）。</figcaption>
+      <figcaption>图 7 · A+B 的 gain 维轨迹：gain 纳入梯度（第 7 维），drive_rms 随之小幅变化（虚线为起点 gain 倍率 ×0.80）。</figcaption>
     </figure>
     <figure>
       <div class="fig-scroll"><img src="{{IMG_TRACK}}" alt="A+B 预测变化量 vs 实测变化量"></div>
@@ -1154,10 +1153,10 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <div class="card">
   <h4 style="margin-top:0">结论</h4>
   <ol style="margin-bottom:0">
-    <li>只用 Base_IL10x10 邻域 2001 行训练，15 个漂移环境：<!--POS_SUMMARY-->，几何平均 <!--MEAN_IMP-->，<!--TOTAL_WORSE--> 步劣于种子。</li>
+    <li>只用 Base_IL10x10 邻域 2001 行训练，15 个用例环境：<!--POS_SUMMARY-->，几何平均 <!--MEAN_IMP-->，<!--TOTAL_WORSE--> 步劣于种子。</li>
     <li>下降方向走 Model A 的链式法则（扰动 7 维参数 → 重算探针 → 查 A），每步 14 次探针 + 14 次 A 前向、约 0.4 秒，与评估符号数无关。</li>
     <li>gain 是第 7 个搜索维：经 drive_rms 进入 A/B 输入，在 ±0.15 dex 信任域内参与梯度，梯度把它从次优起点（×0.80）推到各环境 BER 最优倍率。</li>
-    <li>改善主要来自 gain 维（第 7 维），形状（FFE/gDC/gDC2）为次要贡献：梯度把 BER 从 ~1e-5 压到检测限附近（强信号）或 1e-6 量级（极端插损）。Model B 全程未触发拦截，是保险，不是必需。</li>
+    <li>改善主要来自 gain 维（第 7 维），形状（FFE/gDC/gDC2）为次要贡献：梯度把 BER 从 ~1e-5 压到检测限附近（强信号）或 1e-6 量级（极端插损）。Model B 全程未否决任何一步（仅起保护作用，未被使用）。</li>
   </ol>
 </div>
 

@@ -221,7 +221,7 @@ def tx_frontend_lti(x, config, baud_rate, fs_analog, nyquist, rng=None):
     - driver_gain 的标定值 `DRIVER_GAIN_NOMINAL` 定义为：**在基线环境（Tx/Rx IL = 10 dB）
       与种子 FFE/CTLE 下，恰好把 MZM 摆幅标定到 0.617 Vpp**（延续 SJTU 的标定口径）。
     - 该函数被 channel_imdd.apply_channel 与 tx_channel_extract 物理探针共用，
-      保证"真实链路"与"探针"永不漂移。
+      探针取到的 Tx 前端响应与实际送到 MZM 的波形来自同一段实现。
     """
     config_ch = config['channel']
     config_tx = config['tx']
@@ -312,8 +312,8 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
         return x, x_noisy, x_adc_out
     # -------------------------------
     
-    # [Host Tx to Module Tx] -> 1 mV 前端噪声 -> VGA -> Tx 模拟 CTLE -> Driver(真增益 + 带限)
-    # 与物理探针共用同一实现（tx_frontend_lti），保证"探针 = 真实链路"，永不漂移。
+    # [Host Tx to Module Tx] -> 1 mV 前端噪声 -> Tx 模拟 CTLE -> Driver(真增益 + 带限)
+    # 与物理探针共用同一实现（tx_frontend_lti），探针与实际链路使用相同前端。
     x = tx_frontend_lti(x, config, baud_rate, fs_analog, nyquist, rng=rng)
 
     x_analog = x.copy()
