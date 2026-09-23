@@ -1,5 +1,7 @@
 # HANDOFF — DDPS
 
+> **新 session 必读**：下一轮要做的全部事，看下方 **「## 待办：v7 全流程重做」+「## v7 开工检查清单」**。上面的「当前状态 / session 做的事 / 物理层 / 架构 / 复现命令」是背景与上下文。动手前先读 `AGENTS.md`。
+
 ## 当前状态（本次 session 结束点）
 
 在线调优演示改用**次优工作点冷启动**（v6.2.2）。上一版从 per-case RMS 标定 gain 出发，gain 已接近各用例最优，多个强信号用例起点即 0 错误（检测限下），看不到在线调优的下降过程；本版改为从一个基线约 1e-5 的次优点出发，让 15 用例全部可见下降。
@@ -35,7 +37,7 @@
 2. **历史死代码归档**：`archive/20260923_code_versioned_snapshot/` 快照了去版本号前的全部 DDPS 代码（现版本 + v2~v6.1 历史函数）；死脚本 `compare_surrogates.py`、`make_deliverable_compare.py`、`make_result_summary.py` 移入 archive 并移出远端。
 3. **去版本号命名**：函数 `train_v6→train`、`_stage2_descent_v62→_stage2_descent`、`_stage2_descent_v62_aonly→_stage2_descent_aonly`、`_bounds7→_bounds`、`_grad_a_chain7→_grad_a_chain`、`run_case_v62→run_case`、`run_case_v62_aonly→run_case_aonly`；脚本 `report_ddps_v6.py→report_ddps.py`、`make_deliverable_v6.py→make_deliverable.py`；`test_generalization.py` / `tools/run_parallel_envs.py` 删除 `--v5/--v6/--v62/--target-rms/--cloud-*/--freeze-extra` 等死参数（现役管线即默认）；`dataset_generator.py` 删除 `--v62/--v5` 开关（gain 宽口径采样即默认）。规则写入 AGENTS.md。
 4. **现役产物去版本号**：目录/文件 `result/ddps_v6_2_main→result/ddps_main`、`result/ddps_v6_2_aonly→result/ddps_aonly`、`models/ddps_v6_2→models/ddps`、`dataset/ddps_v62_dataset_*→dataset/ddps_dataset_*`、`deliverables/DDPS_v6.2_Deliverable.html→deliverables/DDPS_Deliverable.html`、`result/ddps_v6_2_block_length.csv→result/ddps_block_length.csv`、报告图 `ddps_v6_*.png/md→ddps_*.png/md`；所有引用（README/HANDOFF/docs/交付件/复现命令）同步更新，冻结 meta/run_config 里的版本串一并替换。
-4. **冒烟验证**：`train()` 在现有数据集上复现冻结 meta.json（A R²=0.6729 / B R²=0.6874 / rho=1.7525）；`load_models` 正常加载冻结模型；单用例 1 步端到端跑通（含 MLSE 快速分支）。
+5. **冒烟验证**：`train()` 在现有数据集上复现冻结 meta.json（A R²=0.6729 / B R²=0.6874 / rho=1.7525）；`load_models` 正常加载冻结模型；单用例 1 步端到端跑通（含 MLSE 快速分支）。
 
 ## 未提交变更（当前 working tree）
 
@@ -50,7 +52,7 @@
 
 ## 待办：v7 全流程重做（13 条处置方案 · 已评审定案）
 
-> 下一版本 **v7**。执行顺序：先改完所有代码并逐条验证（第 6 条需真值验证），最后全流程重跑（数据生成 → 训练 → 在线调优 → 报告 → 交付件）。被取代的 v6.2.2 全套产物（结果/模型/数据集/交付件）归档进 `archive/`（归档目录名带版本号）；重跑后的现役产物仍用不带版本号的名字（`result/ddps_main`、`models/ddps`、`dataset/ddps_dataset_*`、`deliverables/DDPS_Deliverable.html`）。「v7」只记进 CHANGELOG/HANDOFF 正文。
+> 下一版本 **v7**。执行顺序：先改完所有代码并逐条验证（第 6 条用**合成单测**验证 Burg 还原 `a1`；第 10 条等价测试转正），最后全流程重跑（数据生成 → 训练 → 在线调优 → 报告 → 交付件）。被取代的 v6.2.2 全套产物（结果/模型/数据集/交付件）归档进 `archive/`（归档目录名带版本号）；重跑后的现役产物仍用不带版本号的名字（`result/ddps_main`、`models/ddps`、`dataset/ddps_dataset_*`、`deliverables/DDPS_Deliverable.html`）。「v7」只记进 CHANGELOG/HANDOFF 正文。
 
 ### 1. 真逐位 BER（`metrics.calculate_ber`）
 - **现状**：`ber = ser / 2.0`，注释写「Approximation for Gray mapped PAM4」。溯源：`a989e95`（2026-07-01 初始提交，作者 Hermes Agent）第 6–15 行就存在，v1→v6.2.2 全程未改，所有结果与交付件数字都基于它。
@@ -78,8 +80,8 @@
 ### 6. MLSE 的 a1 估计（Burg 定噪声白化抽头）
 - **正确结构（简单，不是 Forney 谱分解那套）**：Viterbi 只需要 `[1, a1]` 里的 `a1`；`a1` 用 Burg 从**噪声**里定；同一个 `a1` 既当白化滤波器抽头、又当 Viterbi 目标（记忆长 1）。
 - **现状**（`main.py` 139–154）：`err_ss = error_seq[train_len:n_valid]`（FFE 判决反馈段误差 `= slicer(y) − y`）→ `burg_ar(err_ss)` 得 `a1` → `pr_taps = [1, a1]` → `convolve` 白化 + Viterbi 用 `[1, a1]` 当目标。结构对，白化/目标同用同一个 `a1`、同号。
-- **关键点（要考虑噪声）**：`a1` 的正确估计应来自「均衡输出相对**真实符号**的误差」（= 噪声 + 残余 ISI），即训练段 `error = tx_ref − y`。现在用的是判决反馈段 `slicer(y) − y`——判决正确时 ≈ 噪声，但**判决错误时会赛进大尖峰污染 AR 估计**；这是白盒仿真，`tx_ref` 全程已知，应用真实符号误差做干净噪声估计。
-- **处置（定案）**：① 把喂给 Burg 的噪声改成「对真实符号的均衡误差」（冻结权重后用 `tx_ref − y` 重算，或直接用训练段误差），保证 `a1` 是「考虑噪声」的干净估计；② 加合成有色噪声单测，验证 Burg 能还原真实 `a1`（Burg 算法本体已逐行核对正确）；③ `E` = 白化后噪声方差 σ²，作输出保留（硬判决时 σ² 常数抵消、不影响判决方向）。
+- **噪声源（定案）**：MLSE 实现时**没有真实符号**，现网只有**判决误差** `slicer(y) − y`。所以喂给 Burg 的噪声 = 判决误差 = FFE 判决反馈段误差，这正是现有代码 `error_seq[train_len:]` 在做的——**不改**。
+- **处置（定案）**：① 加合成有色噪声单测——生成已知 AR(1) 系数的有色噪声 → 走「判决误差 → Burg」流程 → 验证能还原真实 `a1`（Burg 算法本体已逐行核对正确，用测试钉死）；② `E` = 白化后噪声方差 σ²，作输出**保留**（硬判决时 σ² 常数抵消、不影响判决方向，但它是 Burg 的正经输出，不丢）。
 
 ### 7. `tx_dsp.tx_ctle` 旧 CTLE
 - **处置**：归档，现役只保留 `channel_imdd.apply_ctle`；`eval(custom_taps)` 注入点一并清除。
@@ -102,9 +104,22 @@
 - **处置（干净重构）**：收敛成「**主进程在 spawn 任何 worker 之前统一生成/校验一次，worker 只 `load_config` 只读**」，删掉所有「缺了就就地生成」分支。并发写入口只剩主进程，从根上消除竞态。
 
 ### 13. 次优起点机制显式化（干净方案）
-- **本意**：在线调优从「不那么好的起点」出发（基线 ~1e-4 量级）。
-- **现状**：模块级 `SEED_TAPS`（名义默认）+ 一堆 `--seed-config` 覆盖逻辑；`tools/verify_tail_fix.py` 第 20 行还有一份重复 taps 常量。
-- **处置（干净重构）**：把「次优起点」做成显式一等公民——`seed_config`（tap + gDC + gDC2 + gain/drive_rms）；`SEED_TAPS` 降级为「未提供 seed_config 时的兜底」并写清注释；删除重复常量、统一引用。
+- **本意（用户原话）**：在线调优从「不那么好的起点」出发，**对基线来说 ~1e-4 量级的起点**。
+- **现状**：模块级 `SEED_TAPS`（名义默认）+ 一堆 `--seed-config` 覆盖逻辑；当前 `seed_config_bad_1e5.json` 基线 Base 约 1.2e-5（比本意的 ~1e-4 好约 10×）；`tools/verify_tail_fix.py` 第 20 行还有一份重复 taps 常量。
+- **处置（干净重构）**：① 把「次优起点」做成显式一等公民——`seed_config`（tap + gDC + gDC2 + gain/drive_rms）；② 按本意做出**基线 ~1e-4** 的次优点；③ `SEED_TAPS` 降级为「未提供 seed_config 时的兜底」并写清注释；④ 删除重复常量、统一引用。
+
+## v7 开工检查清单（新 session 照此顺序执行）
+
+1. **读** `AGENTS.md`（交付件原则 / 归档判据 / 代码命名）+ 本 HANDOFF 全部。
+2. **代码改动（由小到大，每步 `py_compile` + import + 冒烟）**：
+   - 第 8（`metrics.py` import 上移）→ 第 9（`main.py` 命名）→ 第 6（Burg 合成单测 + `E` 保留）→ 第 10（等价测试转正进 `tests/`）
+   - 第 5（`report_ddps.py` 6 维 else 归档删）→ 第 7（`tx_dsp.tx_ctle` 归档）→ 第 11（`optimizers/` 转 UTF-8 + 理清 `run_ddps` stub）
+   - 第 12（config.xlsx 主进程统一生成、worker 只读）→ 第 13（次优起点显式化，基线 ~1e-4）
+   - 第 2 + 4（ENOB 固定 ±1 + 去双重 AGC，driver/TIA 增益做桥梁）——**注意：改完物理层后 driver 标称增益、`u_gain` 网格、gain 采样带、per-case target 全变**
+   - 第 1（真逐位 Gray BER）
+3. **全量验证**：第 6 条合成单测绿、第 10 条 fast/ref 等价绿、全链路冒烟（含 MLSE + 真 BER）。
+4. **全流程重跑**：生成训练数据 → 训练 → 在线调优（主 + A-only）→ 报告 → 交付件。
+5. **收尾**：v6.2.2 产物归档进 `archive/`（目录名带版本号）；新产物 track 进 git；CHANGELOG 记 v7；`deliverables/DDPS_Deliverable.html` 用 present 发给用户。
 
 ## 物理层
 
