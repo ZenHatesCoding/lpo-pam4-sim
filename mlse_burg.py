@@ -36,11 +36,11 @@ def burg_ar(x, order):
         
     return a[1:] # returns [a_1, ..., a_p]
 
-def viterbi_mlse_pam4(y, pr_taps):
-    """
-    Viterbi MLSE for PAM4 signal with Partial Response target.
-    Supports memory length up to 2.
-    pr_taps: [1, a_1] or [1, a_1, a_2]
+
+def _viterbi_mlse_pam4_ref(y, pr_taps):
+    """原始标量实现（参考分支，禁止改动）。
+
+    与 _viterbi_mlse_pam4_fast 逐位等价；仅在 fast=False 回退时使用。
     """
     L = len(pr_taps)
     memory = L - 1
@@ -133,3 +133,62 @@ def viterbi_mlse_pam4(y, pr_taps):
         return decisions
     else:
         raise NotImplementedError("MLSE Memory > 2 not implemented")
+
+
+def _viterbi_mlse_pam4_fast(y, pr_taps):
+    """向量化等价实现（与 _viterbi_mlse_pam4_ref 逐位一致）。
+
+    memory=0/1 用 NumPy 向量化 ACS；memory=2 沿用原始标量实现（当前配置未使用，
+    因此不向量化，避免在未使用路径上引入差异）。
+    """
+    L = len(pr_taps)
+    memory = L - 1
+    levels = np.array([-3.0, -1.0, 1.0, 3.0])
+    y = np.asarray(y, dtype=float)
+    N = len(y)
+
+    if memory == 0:
+        # 向量化切片器：与原始 for 循环逐位一致（argmin 取第一个最小，平手同左）
+        idx = np.argmin(np.abs(levels[:, None] - y[None, :]), axis=0)
+        return levels[idx]
+
+    if memory == 1:
+        # 4 状态。ACS 向量化：expected[next_state, prev_state] 一次性算 4×4 分支度量，
+        # 对每个 next_state 沿 prev 轴取 min/argmin，与原始三重循环逐位一致。
+        pr0 = pr_taps[0]
+        pr1 = pr_taps[1]
+        expected = pr0 * levels[:, None] + pr1 * levels[None, :]
+        path_metrics = np.zeros(4)
+        pointers = np.zeros((4, N), dtype=int)
+
+        for n in range(N):
+            sq = (y[n] - expected) ** 2
+            metric = path_metrics[None, :] + sq
+            pointers[:, n] = np.argmin(metric, axis=1)
+            path_metrics = metric.min(axis=1)
+
+        # Traceback（与原始实现一致）
+        decisions = np.zeros(N)
+        curr_state = int(np.argmin(path_metrics))
+        for n in range(N - 1, -1, -1):
+            decisions[n] = levels[curr_state]
+            curr_state = pointers[curr_state, n]
+
+        return decisions
+
+    # memory == 2：当前配置未使用；沿用原始标量实现保证一致。
+    return _viterbi_mlse_pam4_ref(y, pr_taps)
+
+
+def viterbi_mlse_pam4(y, pr_taps, fast=True):
+    """Viterbi MLSE for PAM4 signal with Partial Response target.
+
+    Supports memory length up to 2.
+    pr_taps: [1, a_1] or [1, a_1, a_2]
+
+    fast=True（默认）使用向量化等价实现；fast=False 回退到原始标量参考实现。
+    两条分支输出逐位一致，仅计算路径不同。
+    """
+    if fast:
+        return _viterbi_mlse_pam4_fast(y, pr_taps)
+    return _viterbi_mlse_pam4_ref(y, pr_taps)

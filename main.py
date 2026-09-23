@@ -147,7 +147,11 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_
         pr_taps = [1.0]
         
     rx_eq_whitened = np.convolve(rx_eq, pr_taps, mode='full')[:len(rx_eq)]
-    rx_decisions = viterbi_mlse_pam4(rx_eq_whitened, pr_taps)
+    # MLSE 实现开关：config['system']['mlse_fast'] = False 可回退到原始标量实现；
+    # 默认 True 走向量化等价实现（两条分支输出逐位一致）。
+    mlse_fast = str(config.get('system', {}).get('mlse_fast', True)).strip().lower() \
+                not in ('false', '0', 'no', 'off')
+    rx_decisions = viterbi_mlse_pam4(rx_eq_whitened, pr_taps, fast=mlse_fast)
     
     rx_symbols = np.zeros_like(rx_decisions)
     rx_symbols[rx_decisions == -3] = 0; rx_symbols[rx_decisions == -1] = 1
