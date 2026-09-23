@@ -16,7 +16,7 @@ import pandas as pd
 # 搜索空间：7 维（4 FFE 旁瓣 + gDC + gDC2 + u_gain）。
 #   gain 初值 = 每个用例 per-case RMS 扫描最优 gain（per_case_gain），之后放开走梯度。
 # ============================================================================
-import create_config, utils_config
+import utils_config
 import ddps_optimizer as D
 from train_surrogates import load_models
 from ddps_cases import ENV_CASES, apply_env_to_config
@@ -191,10 +191,8 @@ def run_case_aonly(cfg, model_a, env, n_steps=25, per_case_gain=None):
 def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
                        sim_seeds=(42,), only_envs=None, a_only=False,
                        per_case_rms_path=None):
-    # 只在缺失时生成配置：config.xlsx 是受版本管理的唯一配置源，多进程并发重写会造成
-    # 文件损坏竞态（实测三进程同时 generate_config() 会把 xlsx 写坏）。
-    if not os.path.exists('config.xlsx'):
-        create_config.generate_config()
+    # config.xlsx 由主进程入口（__main__ / run_parallel_envs）在 spawn worker 前统一
+    # 生成/校验；此处只 load_config 只读，绝不在 worker 里就地生成（避免多进程写坏 xlsx）。
     model_a, model_b = load_models(model_dir)
     try:
         with open(os.path.join(model_dir, 'meta.json'), encoding='utf-8') as f:
@@ -285,8 +283,8 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument('--model-dir', default='models/ddps_v3', help='Frozen model dir')
-    ap.add_argument('--out-dir', default='result/ddps_v3')
+    ap.add_argument('--model-dir', default='models/ddps', help='Frozen model dir')
+    ap.add_argument('--out-dir', default='result/ddps_main')
     ap.add_argument('--n-steps', type=int, default=25)
     ap.add_argument('--num-symbols', type=int, default=262144)
     ap.add_argument('--sim-seeds', type=str, default='42,43,44',
@@ -300,22 +298,12 @@ if __name__ == "__main__":
                     help='种子点 JSON（best_pre_post/best_gdc/best_gdc2，可选 best_u_gain 或 best_gain）；'
                          '不提供则用默认 SEED_TAPS + per-case RMS gain')
     a = ap.parse_args()
-    # 覆盖种子点（用于非基线环境训练的模型 / 次优种子演示）
+    # 覆盖种子点（用于非基线环境训练的模型 / 次优种子演示）：统一走 apply_seed_config。
     if a.seed_config:
-        import json as _json
-        with open(a.seed_config, 'r', encoding='utf-8') as _f:
-            _sc = _json.load(_f)
-        _ffe_pre = int(D.FFE_PRE)
-        _pp = np.array(_sc['best_pre_post'], dtype=float)
-        D.SEED_TAPS = D.construct_taps(_pp, _ffe_pre).copy()
-        D.SEED_GDC = float(_sc['best_gdc'])
-        D.SEED_GDC2 = float(_sc['best_gdc2'])
-        if 'best_u_gain' in _sc:
-            SEED_GAIN_OVERRIDE = float(D.gain_from_u(float(_sc['best_u_gain'])))
-        elif 'best_gain' in _sc:
-            SEED_GAIN_OVERRIDE = float(_sc['best_gain'])
+        SEED_GAIN_OVERRIDE = D.apply_seed_config(a.seed_config)
         print(f"[test] 种子点覆盖: taps={np.round(D.SEED_TAPS,4)} gDC={D.SEED_GDC:.2f} gDC2={D.SEED_GDC2:.2f}"
               + (f" gain={SEED_GAIN_OVERRIDE:.4f}" if SEED_GAIN_OVERRIDE is not None else ""))
+    utils_config.ensure_config()
     sim_seeds = tuple(int(s) for s in str(a.sim_seeds).split(',') if s.strip())
     only = tuple(s.strip() for s in a.only_envs.split(',')) if a.only_envs else None
     run_generalization(a.model_dir, a.out_dir, n_steps=a.n_steps,

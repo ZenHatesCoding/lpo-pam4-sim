@@ -9,8 +9,8 @@
 据此给出推荐运行长度（收益饱和、劣化步开始累积的拐点）。
 
 用法：
-    python tools/run_length_replay.py --main result/ddps_v4_main \
-        --ablation result/ddps_v4_abl_ffe --out result/ddps_v4_run_length.csv
+    python tools/run_length_replay.py --main result/ddps_main \
+        --ablation result/ddps_aonly --out result/ddps_run_length.csv
 """
 import argparse
 import os
@@ -54,9 +54,9 @@ def _stats(summary, traces, order, K):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--main', default='result/ddps_v4_main')
+    ap.add_argument('--main', default='result/ddps_main')
     ap.add_argument('--ablation', default=None, help='可选的对照实验目录（不给则只输出主实验列）')
-    ap.add_argument('--out', default='result/ddps_v4_run_length.csv')
+    ap.add_argument('--out', default='result/ddps_run_length.csv')
     a = ap.parse_args()
 
     order = [c['name'] for c in ENV_CASES]

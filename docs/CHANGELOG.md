@@ -2,7 +2,30 @@
 
 > 本文件记录每个版本的核心变化。只记"变了什么"，不记排错过程。
 
-## v6.2.2（当前版本）
+## v7（当前版本）
+
+### 物理层全流程重做（HANDOFF 13 条处置）
+- **真逐位 Gray BER**：`metrics.calculate_ber` 改为 `g = s ^ (s >> 1)` 逐位 Gray 映射、逐位比较（`ber = 位错误数/总位数`），替换 SER/2 近似；`ser` 保留作诊断。0 错误伪计数 = 0.5/(2N) 位（= 1/(4N)）。
+- **PAM4 数字域归一化 ±1**：电平 `[-3,-1,1,3]` → `[-1,-1/3,1/3,1]`，峰值满量程 = 1；Tx FFE / Rx 判决 / MLSE 参考同步切换。
+- **固定 ±1 DAC/ADC 量化**：`quantize` 用固定满量程（±1）mid-tread 确定性取整，不再按块 max|x| 反推满量程。
+- **单层 TIA AGC**：删除 ADC 后数字域 √5 AGC，只保留 TIA 侧一层（目标 RMS = √5/3 ≈ 0.7454 V）；driver/TIA 增益成为 ±1 数字域与物理域的桥梁。
+- **driver 标称增益重标定**：`DRIVER_GAIN_NOMINAL` 0.3399 → **1.0197**（±1 满量程下 driver 增益 ≈ 1）。
+- **Tx CTLE 收敛**：`tx_dsp.tx_ctle` 旧实现归档，`eval(custom_taps)` 注入点清除（改 `ast.literal_eval`），现役只留 `channel_imdd.apply_ctle`。
+- **Burg a1 输出 E 保留 + 合成单测**：`burg_ar` 返回 `(a[1:], E)`，E = 白化噪声方差 σ²；`tests/test_burg_a1.py` 钉死「a1 = 白化抽头 = −φ（AR(1) 系数 φ）」符号约定；`tests/test_viterbi_equiv.py` 转正进 git。
+- **report_ddps 单一路径**：删除 6 维 else 分支（报表现役只留「7 维 gain 入梯度」）。
+- **config.xlsx 单写者**：`utils_config.ensure_config()` 统一「主进程 spawn 前生成一次、worker 只读」，删除散落各处的「缺了就就地生成」TOCTOU 分支。
+- **次优起点一等公民**：`ddps_optimizer.apply_seed_config()` 统一装载 seed_config（tap + gDC + gDC2 + gain）；`SEED_TAPS` 降级为未提供 seed_config 时的兜底；`tools/verify_tail_fix.py` 重复 taps 常量删除、统一引用。
+- **optimizers/**：`optimize_tx.py` 等转 UTF-8，`run_ddps` 占位 stub 删除（三阶段管线接口明确）。
+
+### 结果（15 用例，4194304 符号 × 3 种子 42/43/44）
+- **次优起点 x₀**：FFE `[0.0342, -0.3222, 0.6173, -0.0148, 0.0115]`（主抽头 0.6173）、gDC=5.66 dB、gDC2=1.57 dB、gain=0.6277（×0.616，u_gain=−0.2107），取自训练数据实测点 `Base_IL10x10:915`。
+- **起点种子 BER**：基线 Base_IL10x10 1.36e-4，整体 5.97e-8 ~ 1.09e-2（强信号用例起点即检测底）。
+- **调优后最优 BER**：12/15 用例下降、1 用例持平（IL14x14 起点即检测底 5.97e-8）、2 用例退步（IL20x20 ×1.87、Comb_IL20x20_CD15_DGD5 ×1.61，均 40 dB 总插损）。
+- **几何平均改善 ×18.69**（15 用例全部计入，含 2 退步拉低）；最深恢复：Base ×2279（1.36e-4→5.97e-8）、CD15ps ×1274、CD28ps ×493、HighNoise_IL10x10 ×317、IL10x20_RxHeavy ×223。
+- **gain 维**：所有用例从 ×0.616 出发被梯度推到各用例最优倍率附近（强信号 ×0.66~×0.82、高损/高噪声 ×0.70~×0.85）；2 个 40 dB 总插损用例代理方向失效、gain 推到 ×0.9 附近仍退化。
+- **A-only 一致性**：15 用例最优 BER 与主流程逐点一致（B 红线全程未触发，仅起保险作用）；2 个 40 dB 用例 A/B 同时方向失效、红线未拦截。全程真实 BER 217 步中 86 步劣于起点（超调 + 极端插损方向失效）。
+
+## v6.2.2（已归档）
 
 ### 代码去版本号 + 历史死代码归档 + MLSE 向量化（2026-09-23）
 - **MLSE 向量化（算法等价）**：`mlse_burg.py` 把 Viterbi ACS 改为 NumPy 向量化（memory 0/1），原始标量实现保留为 `_viterbi_mlse_pam4_ref`；入口 `viterbi_mlse_pam4(..., fast=True)` 默认快速分支、`fast=False` 回退原始实现，两条分支逐位一致（生产 memory=1 提速约 2.3×）。开关 `config['system']['mlse_fast']`（默认 True）。LMS/DFE 未动（LMS 是逐样本自适应迭代、无法在不改算法的前提下向量化；DFE 是备用接口）。

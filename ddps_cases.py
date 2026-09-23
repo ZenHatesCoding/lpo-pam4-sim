@@ -2,7 +2,7 @@
 """ddps_cases.py — DDPS v3 统一的环境用例清单与配置改写工具。
 
 数据收集（dataset_generator）、在线调优测试（test_generalization）与可视化报告
-（report_ddps_v3）共用同一份环境定义，保证"训练-测试-报告"口径一致。
+（report_ddps）共用同一份环境定义，保证"训练-测试-报告"口径一致。
 
 v3 相对 v2 的变化：
   1. **Tx / Rx 插损可独立配置**（v2 只有单一 IL，Tx=Rx 恒等）。Host 侧与 Module 侧

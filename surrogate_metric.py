@@ -1,5 +1,5 @@
 import numpy as np
-from tx_dsp import pam4_map, tx_dsp_chain
+from tx_dsp import PAM4_LEVELS, pam4_map, tx_dsp_chain
 
 # =====================================================================
 # GPR Surrogate Engine (White-box implementation extracted and customized)
@@ -104,7 +104,7 @@ def extract_tx_features(tx_pam4, tx_out, sps_dsp):
     out_sym = sampled_out[:min_len]
     
     features = np.zeros(10)
-    levels = [-3.0, -1.0, 1.0, 3.0]
+    levels = PAM4_LEVELS
     
     for i, level in enumerate(levels):
         mask = (np.abs(tx_sym - level) < 0.1)

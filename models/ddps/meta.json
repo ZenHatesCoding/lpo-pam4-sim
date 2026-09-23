@@ -1,5 +1,5 @@
 {
-  "dataset_csv": "dataset\\ddps_dataset_20260920_163244.csv",
+  "dataset_csv": "dataset\\ddps_dataset_20260924_000931.csv",
   "label_col": "log10_ber_mlse",
   "pipeline": "ddps",
   "gain_mode": "gradient_with_rms_init",
@@ -28,30 +28,30 @@
   "model_a_dim": 8,
   "model_b_dim": 7,
   "model_a": {
-    "r2_test": 0.6728698591627804,
-    "mse_test": 1.2006720293975197,
-    "spearman_test": 0.8473762961018505,
+    "r2_test": 0.7138870181494483,
+    "mse_test": 0.3007923254721973,
+    "spearman_test": 0.9273547334670841,
     "input_domain": "waveform_probe",
     "description": "7-tap Tx FIR + drive_rms -> log10 BER 条件均值（方向映射）"
   },
   "model_b": {
-    "r2_test": 0.6873617070859088,
-    "mse_test": 1.1474823220503105,
-    "spearman_test": 0.8421960137250857,
+    "r2_test": 0.8576816867135004,
+    "mse_test": 0.14962011207547163,
+    "spearman_test": 0.9488296176851104,
     "input_domain": "parameter",
-    "description": "6 维 x_shape + drive_rms -> log10 BER 保守上包络（风险控制）",
-    "local_spacing_rho": 1.7524705965674756
+    "description": "7 维参数域（4 FFE 旁瓣 + gDC + gDC2 + drive_rms）-> log10 BER 保守上包络（风险控制）",
+    "local_spacing_rho": 1.7524585134773867
   },
   "model_a_by_env": {
     "Base_IL10x10": {
       "n": 400,
-      "spearman_test": 0.8473762961018505
+      "spearman_test": 0.9273547334670841
     }
   },
   "model_b_by_env": {
     "Base_IL10x10": {
       "n": 400,
-      "spearman_test": 0.8421960137250857
+      "spearman_test": 0.9488296176851104
     }
   }
 }

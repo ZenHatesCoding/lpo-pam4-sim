@@ -14,7 +14,7 @@ sys.path.insert(0, ROOT)
 
 import numpy as np
 from utils_config import load_config
-from tx_dsp import pam4_map, tx_dsp_chain
+from tx_dsp import pam4_map, pam4_symbols, tx_dsp_chain
 from channel_imdd import apply_channel
 from rx_dsp import adaptive_ffe_dfe
 from mlse_burg import burg_ar, viterbi_mlse_pam4
@@ -73,27 +73,19 @@ def run_and_profile(config, num_symbols, seed, custom_taps, gdc, gdc2, gain, bin
         config['rx']['lms_mu'], config['rx']['lms_mu'],
         int(config['rx']['train_len']), sync_delay=sync_delay)
 
-    ffe_symbols = np.zeros_like(ffe_decisions)
-    ffe_symbols[ffe_decisions == -3] = 0
-    ffe_symbols[ffe_decisions == -1] = 1
-    ffe_symbols[ffe_decisions == 1] = 2
-    ffe_symbols[ffe_decisions == 3] = 3
+    ffe_symbols = pam4_symbols(ffe_decisions)
 
     train_len = int(config['rx']['train_len'])
     err_ss = error_seq[train_len:]
     ar_order = mlse_memory
     if ar_order > 0:
-        ar_coeffs = burg_ar(err_ss, ar_order)
+        ar_coeffs, _ = burg_ar(err_ss, ar_order)
         pr_taps = np.concatenate(([1.0], ar_coeffs))
     else:
         pr_taps = np.array([1.0])
     rx_eq_whitened = np.convolve(rx_eq, pr_taps, mode='full')[:len(rx_eq)]
     rx_decisions = viterbi_mlse_pam4(rx_eq_whitened, pr_taps)
-    rx_symbols = np.zeros_like(rx_decisions)
-    rx_symbols[rx_decisions == -3] = 0
-    rx_symbols[rx_decisions == -1] = 1
-    rx_symbols[rx_decisions == 1] = 2
-    rx_symbols[rx_decisions == 3] = 3
+    rx_symbols = pam4_symbols(rx_decisions)
 
     # 稳态窗口 [train_len, N)
     tx_ss = tx_symbols[train_len:]
@@ -180,9 +172,12 @@ def main():
     # 尾缘截断分析
     sd = r['sync_delay']
     print(f"\n[diag] sync_delay={sd} phase_offset={r['phase_offset']} len(rx_sps)={r['len_rx_sps']}")
-    # 定位 FFE 判决中"未被写入"的符号（= 初始值 0，非 {-3,-1,1,3}）
+    # 定位 FFE 判决中"未被写入"的符号（= 初始值 0，非 PAM4 电平）
+    from tx_dsp import PAM4_LEVELS
     fd = r['ffe_decisions']
-    untouched = (fd != -3) & (fd != -1) & (fd != 1) & (fd != 3)
+    untouched = np.ones(fd.shape, dtype=bool)
+    for lv in PAM4_LEVELS:
+        untouched &= (fd != lv)
     ut_idx = np.where(untouched)[0]
     print(f"[diag] FFE 判决未写入(continue)符号数={len(ut_idx)}；位置范围 "
           f"[{ut_idx.min() if len(ut_idx) else -1}, {ut_idx.max() if len(ut_idx) else -1}]")

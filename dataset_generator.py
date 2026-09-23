@@ -29,10 +29,9 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 from scipy.stats import qmc
-import create_config
 import ddps_optimizer as D          # 统一参数化 & 种子 & 信任域
 from ddps_cases import ENV_CASES, BASE_ENV, apply_env_to_config
-from utils_config import load_config
+from utils_config import load_config, ensure_config
 from main import run_sim
 from tx_channel_extract import extract_tx_features
 
@@ -180,8 +179,8 @@ def generate_dataset(base_env=BASE_ENV, base_samples=320, anchor_samples=60,
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    if not os.path.exists('config.xlsx'):
-        create_config.generate_config()
+    # config.xlsx 由主进程入口（__main__）在 spawn worker 前统一生成/校验；
+    # worker（_worker_task）只拿深拷贝的 cfg 只读，绝不在 worker 里就地生成。
     base_cfg = load_config('config.xlsx')
     base_cfg['system']['enable_eye_plot'] = False
     base_cfg['system']['enable_spectrum_plot'] = False
@@ -311,6 +310,7 @@ if __name__ == "__main__":
                    help='BO 寻优种子点 JSON 路径（含 best_pre_post/best_gdc/best_gdc2）；'
                         '不提供则用默认 SEED_TAPS')
     a = p.parse_args()
+    ensure_config()
     sim_seeds = tuple(int(s) for s in str(a.sim_seeds).split(',') if s.strip())
     only = tuple(s.strip() for s in a.only_envs.split(',')) if a.only_envs else None
     base_env = a.base_env if a.base_env else BASE_ENV

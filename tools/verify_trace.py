@@ -6,7 +6,7 @@
 而是模型本身在该区域的预测与真实脱钩。
 
 用法：
-    python tools/verify_trace.py --test-dir result/ddps_v4_main --envs Base_IL10x10,IL20x20 \
+    python tools/verify_trace.py --test-dir result/ddps_main --envs Base_IL10x10,IL20x20 \
         --steps 0,3,7,14 --num-symbols 262144 --sim-seeds 42,43,44
 """
 import argparse
@@ -26,12 +26,12 @@ from utils_config import load_config  # noqa: E402
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--test-dir', default='result/ddps_v4_main')
+    ap.add_argument('--test-dir', default='result/ddps_main')
     ap.add_argument('--envs', default='Base_IL10x10,IL20x20')
     ap.add_argument('--steps', default='0,3,7,14')
     ap.add_argument('--num-symbols', type=int, default=262144)
     ap.add_argument('--sim-seeds', default='42,43,44')
-    ap.add_argument('--out', default='result/ddps_v4_trace_check.csv')
+    ap.add_argument('--out', default='result/ddps_trace_check.csv')
     a = ap.parse_args()
 
     D.set_sim_seeds(tuple(int(s) for s in a.sim_seeds.split(',')))

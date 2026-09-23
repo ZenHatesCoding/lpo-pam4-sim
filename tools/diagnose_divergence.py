@@ -6,12 +6,12 @@
   2. 代理残差尺度 vs 真实改善幅度（模型能不能分辨这个量级）；
   3. 轨迹在标准化搜索空间里的位移 vs 数据局部颗粒度 ρ（是否走出数据支持区）。
 
-输出：result/ddps_v4_divergence.csv（逐用例）+ 终端汇总。
+输出：result/ddps_divergence.csv（逐用例）+ 终端汇总。
 
 用法：
-    python tools/diagnose_divergence.py --test-dir result/ddps_v4_main \
-        --model-dir models/ddps_v4 --dataset dataset/ddps_v4_dataset_<ts>.csv \
-        --out result/ddps_v4_divergence.csv
+    python tools/diagnose_divergence.py --test-dir result/ddps_main \
+        --model-dir models/ddps --dataset dataset/ddps_dataset_<ts>.csv \
+        --out result/ddps_divergence.csv
 """
 import argparse
 import glob
@@ -36,15 +36,15 @@ def _latest(pattern):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--test-dir', default='result/ddps_v4_main')
-    ap.add_argument('--model-dir', default='models/ddps_v4')
+    ap.add_argument('--test-dir', default='result/ddps_main')
+    ap.add_argument('--model-dir', default='models/ddps')
     ap.add_argument('--dataset', default=None)
-    ap.add_argument('--out', default='result/ddps_v4_divergence.csv')
+    ap.add_argument('--out', default='result/ddps_divergence.csv')
     a = ap.parse_args()
 
     order = [e['name'] for e in ENV_CASES]
     summ = pd.read_csv(os.path.join(a.test_dir, 'case_summary.csv')).set_index('env')
-    ds_path = a.dataset or _latest('dataset/ddps_v4_dataset_*.csv')
+    ds_path = a.dataset or _latest('dataset/ddps_dataset_*.csv')
     df = pd.read_csv(ds_path)
     df = df[df['log10_ber_mlse'] < -0.1]
     xcols = [c for c in df.columns if c.startswith('x_')]

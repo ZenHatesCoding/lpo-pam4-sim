@@ -26,12 +26,13 @@
 ### 1.3 接收端 (Rx DSP & 均衡)
 - **发送端模拟均衡 (Tx Analog CTLE)**：OIF 2Z3P 高频 peaking 拓扑，`gDC`（高频 peaking gain，直流增益恒 0 dB）与 `gDC2`（低频 shelf gain）两个独立维度在代码与配置中隶属 **[tx] 表**，物理上位于 **Tx 电插损（PCB/S4P）之后、Driver 之前**。链路顺序为
   `DAC(ZOH,ENOB 5.5) → Tx 电插损(S4P) → +1mV 噪声 → Tx 模拟 CTLE(gDC,gDC2 peaking) → Driver(gain) → Driver 带限(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx 电插损(S4P) → +1mV 噪声 → Rx 模拟 CTLE(固定 gDC=6/gDC2=3) → ADC → Rx FFE → MLSE`。
-  **Tx driver 路径无 VGA、无 RMS 归一化**（gain 是链路最后一个不被下游吸收的线性乘子，故可作独立搜索维）；**Rx 侧 TIA 输出与 ADC 数字域各有一级 AGC**（各自 RMS 归一化，见 `channel_imdd.py`）。
+  **Tx driver 路径无 VGA、无 RMS 归一化**（gain 是链路最后一个不被下游吸收的线性乘子，故可作独立搜索维）；**Rx 侧只有 TIA 一层物理 AGC**（RMS 归一化到归一化 PAM4 的参考 √5/3 ≈ 0.7454 V，见 `channel_imdd.py`），ADC 数字域不再有第二层 AGC。
 - **接收端模拟均衡 (Rx Analog CTLE)**：与 Tx CTLE 同一 peaking 拓扑，但参数**固定**（`gDC=6 dB, gDC2=3 dB`，SJTU standard），位于 Rx 电插损之后、ADC 之前，作为静态均衡基座，**不参与寻优**。
-- **Driver 增益 (`driver_gain`)**：Driver 的**真实线性电压增益**，标定值 DRIVER_GAIN_NOMINAL=0.3399。gain 是 DDPS 的**第 7 个搜索维**（`u_gain = log10(gain / 0.3399)`），经 drive_rms 进入代理模型输入，参数箱信任域 ±0.15 dex；每用例最优 gain 倍率由 per-case target_rms 扫描标定作为参照（`gain = gain_scan × (target_rms / rms_measured)`）。
+- **Driver 增益 (`driver_gain`)**：Driver 的**真实线性电压增益**，标定值 DRIVER_GAIN_NOMINAL=1.0197。gain 是 DDPS 的**第 7 个搜索维**（`u_gain = log10(gain / 1.0197)`），经 drive_rms 进入代理模型输入，参数箱信任域 ±0.15 dex；每用例最优 gain 倍率由 per-case target_rms 扫描标定作为参照（`gain = gain_scan × (target_rms / rms_measured)`）。数字域 PAM4 归一化 ±1（电平 [-1,-1/3,1/3,1]），driver 增益是把 ±1 DAC 输出放大到 MZM 驱动摆幅的桥梁。
 - 因此 DDPS 寻优空间为 **7 维**：4 个 FFE 旁瓣 + gDC + gDC2 + u_gain。
 - **数字均衡 (Rx FFE)**：Host ASIC 接收端使用 22-tap T-spaced Rx FFE，内置 LMS 自适应收敛（DFE 默认 `dfe_taps=0` 全关，防高误码雪崩）。
 - **MLSE (默认开启, memory=1)**：Rx FFE 之后送入 **Viterbi MLSE（memory=1，4 状态）+ Burg AR 白化** 联合解码。当前配置 `mlse_memory = 1`，因此**全平台所有误码率报告统一为 `BER_MLSE`**（该 MLSE 判决输出的 Gray 映射 BER）。一旦开启 MLSE，系统自动锁死 DFE（见 `main.py`），避免 DFE 吃掉 MLSE 所需的残余 ISI。
+- **真逐位 Gray BER**：BER 用 `g = s ^ (s >> 1)` 逐位 Gray 映射、逐位比较（`位错误数 / 总位数`），不再用 SER/2 近似；0 错误伪计数 = 0.5/(2N) 位。
 
 ### 1.4 全链路数据流框图
 
@@ -84,7 +85,7 @@ graph LR
 ### [Stress Cases] 物理损伤应力配置
 `stress_cases` 是一个独立的二维表，每一行代表一个特定的物理应力环境，不设任何"全局 SNR"，全部由真实物理器件参数驱动：
 - `tx_pcb_loss_nyquist_db` / `rx_pcb_loss_nyquist_db`: 在 Nyquist 频率下的目标信道电插损，**Tx / Rx 可独立配置**（默认 10.0 dB，最差 20.0 dB，对齐 LPO MSA 7.2.1 die-to-die 上限）。
-- `driver_gain`: Driver **真实线性电压增益**（标定值 0.3399）。DDPS 第 7 个搜索维；每用例最优倍率由 per-case target_rms 扫描标定作为参照。
+- `driver_gain`: Driver **真实线性电压增益**（标定值 1.0197）。DDPS 第 7 个搜索维；每用例最优倍率由 per-case target_rms 扫描标定作为参照。
 - `driver_bw`: Driver 带限带宽（默认 40 GHz）。
 - `dac_enob` / `adc_enob`: DAC/ADC 量化位数 ENOB（默认 5.5，0 为理想）。
 - `laser_linewidth_hz`: 激光器相位噪声线宽（默认 10 MHz，维纳相位随机游走）。

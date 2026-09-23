@@ -1,0 +1,14 @@
+{
+  "best_pre_post": [0.051545, -0.282053, 0.007572, 0.002588],
+  "best_gdc": 4.6156241622,
+  "best_gdc2": 1.0843329486,
+  "best_u_gain": -0.1559962317,
+  "best_gain": 0.7119937603,
+  "_source": {
+    "env": "Base_IL10x10",
+    "run": "result/ddps_main",
+    "best_ber": 5.974872e-8,
+    "best_step": 3,
+    "note": "主流程 Base 用例最优工作点（块长研究参照）"
+  }
+}

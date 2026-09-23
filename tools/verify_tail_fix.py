@@ -16,8 +16,8 @@ sys.path.insert(0, ROOT)
 
 from utils_config import load_config
 from main import run_sim
+import ddps_optimizer as D
 
-SEED_TAPS = np.array([-0.034, -0.2987, 0.6091, 0.0, 0.0582])
 SEEDS = (42, 43, 44)
 
 
@@ -52,7 +52,7 @@ def main():
     for num_symbols in (524288, 1048576):
         print(f"\n=== num_symbols={num_symbols} ===", flush=True)
         for label, gdc, gdc2, gain in points:
-            eval_point(config, SEED_TAPS, gdc, gdc2, gain, num_symbols, label)
+            eval_point(config, D.SEED_TAPS.copy(), gdc, gdc2, gain, num_symbols, label)
 
 
 if __name__ == '__main__':

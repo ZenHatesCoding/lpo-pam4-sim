@@ -5,7 +5,7 @@
 case_summary.csv / trace_*.csv，并沿用第一个分片的 run_config.json 与模型快照。
 
 用法：
-    python tools/merge_test_parts.py --out result/ddps_v4_main \
+    python tools/merge_test_parts.py --out result/ddps_main \
         result/_parts/main_a result/_parts/main_b result/_parts/main_c
 """
 import argparse

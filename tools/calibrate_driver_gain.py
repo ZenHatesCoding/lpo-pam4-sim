@@ -18,7 +18,6 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import create_config                     # noqa: E402
 import utils_config                      # noqa: E402
 import ddps_optimizer as D               # noqa: E402
 from ddps_cases import apply_env_to_config, env_case   # noqa: E402
@@ -28,8 +27,7 @@ from tx_dsp import pam4_map, tx_dsp_chain   # noqa: E402
 
 
 def main():
-    if not os.path.exists('config.xlsx'):
-        create_config.generate_config()
+    utils_config.ensure_config()
     base = utils_config.load_config('config.xlsx')
     cfg = apply_env_to_config(base, env_case('Base_IL10x10'))
 

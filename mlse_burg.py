@@ -1,9 +1,17 @@
 import numpy as np
 
+from tx_dsp import PAM4_LEVELS
+
+
 def burg_ar(x, order):
     """
     Burg algorithm for AR parameter estimation.
     Used for determining the Partial Response target.
+
+    Returns (coeffs, E):
+      coeffs = [a_1, ..., a_p]（AR 系数，作白化滤波器抽头与 Viterbi 目标）
+      E      = 白化后的预测误差方差（噪声方差 σ²，Burg 的正经输出；硬判决下 σ²
+               常数抵消、不影响判决方向，故仅作诊断/保留）。
     """
     N = len(x)
     ef = x.copy()
@@ -33,8 +41,8 @@ def burg_ar(x, order):
         eb = eb_new
         
         E = E * (1 - k**2)
-        
-    return a[1:] # returns [a_1, ..., a_p]
+
+    return a[1:], E  # [a_1, ..., a_p], 白化后噪声方差 σ²
 
 
 def _viterbi_mlse_pam4_ref(y, pr_taps):
@@ -44,7 +52,7 @@ def _viterbi_mlse_pam4_ref(y, pr_taps):
     """
     L = len(pr_taps)
     memory = L - 1
-    levels = np.array([-3.0, -1.0, 1.0, 3.0])
+    levels = PAM4_LEVELS.copy()
     N = len(y)
     
     if memory == 0:
@@ -143,7 +151,7 @@ def _viterbi_mlse_pam4_fast(y, pr_taps):
     """
     L = len(pr_taps)
     memory = L - 1
-    levels = np.array([-3.0, -1.0, 1.0, 3.0])
+    levels = PAM4_LEVELS.copy()
     y = np.asarray(y, dtype=float)
     N = len(y)
 

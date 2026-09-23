@@ -23,18 +23,25 @@ _s4p_cache = {}
 # ---------------------------------------------------------------------------
 DRIVER_VPP_NOMINAL = 0.617
 PAM4_RMS_FACTOR = 0.3726
-# 由 tools/calibrate_driver_gain.py 实测标定（基线 IL=10dB + 种子 FFE/CTLE ⇒ MZM 摆幅 0.617Vpp）。
-# 注意：该绝对值小于 1 只是因为本仿真器的 DAC 满量程约定较大；对外统一按
-# **相对标定值的倍率** driver_gain_ratio = g / DRIVER_GAIN_NOMINAL 表述（搜索箱 ×0.30 ~ ×4.0），
-# 与具体满量程约定无关。
-# 标定基础（当前 peaking 物理层：Tx CTLE OIF 2Z3P peaking 拓扑 + 种子 gDC=6/gDC2=2）：
-#   tools/calibrate_driver_gain.py 实测 drive RMS @ gain=1.0 = 0.6763 V
-#   => g0 = (0.617*0.3726) / 0.6763 = 0.3399
-DRIVER_GAIN_NOMINAL = 0.3399
+# 由 tools/calibrate_driver_gain.py 实测标定（基线 IL=10dB + 种子 FFE 抽头，Tx CTLE peaking 关闭
+# gDC=0 即 config 默认 ⇒ MZM 摆幅 0.617Vpp）。
+# 数字域满量程固定 ±1（峰值 1，PAM4 电平 [-1,-1/3,1/3,1]），driver 增益是把 ±1 DAC 输出
+# 放大到 MZM 所需驱动摆幅的桥梁；标称值 g0 由前端链路衰减决定。
+# 对外统一按**相对标定值的倍率** driver_gain_ratio = g / DRIVER_GAIN_NOMINAL 表述
+# （搜索箱 ×0.30 ~ ×4.0），与具体满量程约定无关。
+# 标定基础：tools/calibrate_driver_gain.py 实测 drive RMS @ gain=1.0 = 0.225448 V
+#   => g0 = (0.617*0.3726) / 0.225448 = 1.0197
+DRIVER_GAIN_NOMINAL = 1.0197
 
 # 驱动波形的"标称 RMS"（= 0.617 Vpp 对应的 RMS）。物理探针输出的 7-tap FIR 以该值为单位，
 # 于是特征在种子点处为 O(1)，而增益倍率仍以乘法因子体现在特征幅度上（不损失任何增益信息）。
 DRIVE_RMS_NOMINAL = DRIVER_VPP_NOMINAL * PAM4_RMS_FACTOR      # 0.2299 V
+
+# --- v7 满量程口径（DAC / ADC 满量程都固定到 ±1，峰值 1） ---
+FULL_SCALE = 1.0                # V，DAC / ADC 统一满量程 ±1（不再用 max|x| 反推满量程）
+# 归一化 PAM4 电平 [-1,-1/3,1/3,1] 的 RMS = √5/3。Rx 侧唯一一层物理 AGC（TIA 输出归一化）
+# 以该值为参考电平，使"干净"的接收 PAM4 信号峰值落在 ±1 ADC 满量程上。
+PAM4_RMS_NORMALIZED = np.sqrt(5.0) / 3.0    # ≈ 0.7454 V
 
 # driver_gain 的搜索箱（以标定值为中心的倍率区间，覆盖 10~20 dB 插损的补偿需求）
 GAIN_LOG10_MIN = -0.52              # 倍率 = 10^-0.52 ≈ 0.30
@@ -134,19 +141,19 @@ def dac_zoh(x, sps_in, sps_out):
     factor = sps_out // sps_in
     return np.repeat(x, factor)
 
-def quantize(x, enob):
-    """ Mid-tread uniform quantizer (ENOB bits, full-scale = max|x|, no clipping).
+def quantize(x, enob, full_scale=FULL_SCALE):
+    """ Mid-tread uniform quantizer，满量程固定 ±full_scale（峰值 full_scale）。
 
-    Matches the SJTU `quantization.m` behavior: step = 2*max|x| / 2^ENOB,
-    nearest-level rounding, zero is a reconstruction level.
+    ENOB 位跨越 ±full_scale 满量程，量化步长 step = 2*full_scale / 2^ENOB
+    = full_scale / 2^(ENOB-1)；确定性最近电平取整，超幅钳位到 ±full_scale。
+    等效量化噪声 σ = step/√12 = full_scale / (2^ENOB·√12)（确定性 mid-tread 实现，
+    与加噪口径等价）。不再用 max|x| 反推满量程——数字域 ↔ 物理域的幅度桥接由
+    driver 增益（发端）与 TIA 增益/AGC（收端）承担。
     """
     if enob <= 0:
         return x
-    A = np.max(np.abs(x))
-    if A <= 1e-30:
-        return x
-    q = 2.0 * A / (2.0 ** enob)
-    return np.round(x / q) * q
+    step = full_scale / (2.0 ** (enob - 1.0))
+    return np.clip(np.round(x / step) * step, -full_scale, full_scale)
 
 def find_f_scale_for_target_il(freqs, sdd21, target_il_db, nyquist):
     """ Find the frequency scaling factor to hit exactly target_il_db at nyquist """
@@ -395,12 +402,14 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     V_tia = V_tia + noise_tia_v
     V_tia = lowpass_filter(V_tia, config_ch['tia_bw'], fs_analog)
     
-    # AGC / TIA output swing control
+    # AGC / TIA 输出摆幅控制（Rx 侧唯一一层物理 AGC）：
+    # 把 TIA 输出归一化到归一化 PAM4 的 RMS 参考（√5/3 ≈ 0.7454 V），对应 ±1 ADC
+    # 满量程的峰值 1。Rx IL / Rx CTLE 位于 AGC 之后，实际 ADC 输入电平随用例插损物理
+    # 变化，不再被第二层数字域 AGC 掩盖。
     V_tia = V_tia - np.mean(V_tia)
-    # Target 500mV Vpp. For PAM4, V_rms = Vpp * 0.3726 = 0.5 * 0.3726 = 0.1863
     current_rms_tia = np.std(V_tia)
     if current_rms_tia > 1e-12:
-        V_tia = V_tia * (0.1863 / current_rms_tia)
+        V_tia = V_tia * (PAM4_RMS_NORMALIZED / current_rms_tia)
         
     x = V_tia
     
@@ -439,14 +448,9 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     dec_factor = sps_channel // sps_adc
     x_adc_out = x_adc_in[::dec_factor]
     
-    # ADC quantization (ENOB)
+    # ADC quantization (ENOB，满量程固定 ±1)。之后不再有第二层数字域 AGC——
+    # 信号幅度由前面唯一一层 TIA AGC 建立，Rx FFE/LMS 自适配到归一化 PAM4 参考。
     if config_ch.get('adc_enob', 0) > 0:
         x_adc_out = quantize(x_adc_out, config_ch['adc_enob'])
-    
-    # Ideal Digital AGC: Normalize ADC output to match PAM4 Tx RMS (sqrt(5))
-    x_adc_out = x_adc_out - np.mean(x_adc_out)
-    rms_adc = np.std(x_adc_out)
-    if rms_adc > 1e-12:
-        x_adc_out = x_adc_out * (np.sqrt(5.0) / rms_adc)
     
     return x_analog, x_adc_in, x_adc_out

@@ -9,16 +9,16 @@
 - **Model B（风险控制）**：输入 = [4 FFE 旁瓣, gDC, gDC2, drive_rms]（7 维参数域）→ log10(BER) 保守上包络。WhiteBoxRidge。
 - **A/B 输入空间不同**（波形域 vs 参数域），误差来源相互独立。
 - **梯度**：通过 A 的链式法则——扰动 7 维参数 → 重算探针（含 CTLE！）→ 查 A → 得 gᵢ=(A⁺−A⁻)/(2·epsᵢ)（7 维双边中心差分，eps 分档 0.01/0.1/0.05）。每步 14 次探针 + 14 次 A 前向。
-- **gain**：第 7 个搜索维（`u_gain = log10(gain / 0.3399)`），经 drive_rms 进入 A/B 输入，参数箱信任域 ±0.15 dex。per-case target_rms 扫描（0.06~0.22V）作为各用例最优 gain 的离线标定参照。
+- **gain**：第 7 个搜索维（`u_gain = log10(gain / 1.0197)`），经 drive_rms 进入 A/B 输入，参数箱信任域 ±0.30 dex。per-case target_rms 扫描作为各用例最优 gain 的离线标定参照。
 
 ### 物理层（链路口径）
-PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → Tx CTLE(gDC,gDC2, peaking) → Driver(gain) → Driver BW(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx IL → +1mV 噪声 → Rx CTLE(固定 gDC=6/gDC2=3) → ADC → Rx FFE(22-tap,LMS) → Burg → MLSE(memory=1)。**Tx driver 路径无 VGA、无 RMS 归一化；Rx 侧 TIA/ADC 各有一级 AGC。**
+PAM4（归一化 ±1，电平 [-1,-1/3,1/3,1]）→ 5-tap Tx FFE → DAC(ZOH,ENOB 5.5, 满量程固定 ±1) → Tx IL(S4P) → +1mV 噪声 → Tx CTLE(gDC,gDC2, peaking) → Driver(gain) → Driver BW(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx IL → +1mV 噪声 → Rx CTLE(固定 gDC=6/gDC2=3) → ADC(ENOB 5.5, 满量程固定 ±1) → Rx FFE(22-tap,LMS) → Burg → MLSE(memory=1)。**Tx driver 路径无 VGA、无 RMS 归一化；Rx 侧只有 TIA 一层物理 AGC（RMS 归一化到 √5/3 ≈ 0.7454 V）。** BER 为真逐位 Gray 计数。
 - Tx CTLE 为 OIF 2Z3P peaking 拓扑（`gDC` = 高频 peaking gain，直流增益恒 0 dB；`gDC2` = LF shelf gain），零极点比 `fz=2.862/fp1=1.884/fp2=1/flf=40`。
 - Rx CTLE 与 Tx 同一拓扑但参数固定（`gDC=6, gDC2=3`），不参与寻优。
 
 ### 关键常量
-- SEED_TAPS=[-0.034,-0.299,0.609,0,0.058]（5-tap，FFE_PRE=2，主抽头 t2）；次优起点的 FFE 见 `result/seed_config_bad_1e5.json`
-- DRIVER_GAIN_NOMINAL=0.3399；次优起点 driver_gain=0.2728（×0.80，u_gain=−0.0955）
+- SEED_TAPS=[-0.034,-0.2987,0.6091,0,0.0582]（5-tap，FFE_PRE=2，主抽头 t2，仅作未提供 seed_config 时的兜底）；次优起点的 7 维全量（tap + gDC + gDC2 + gain）见 `result/seed_config_bad_*.json`
+- DRIVER_GAIN_NOMINAL=1.0197；次优起点 gain 见 `result/seed_config_bad_*.json`（经 `apply_seed_config` 装载）
 - 步骤：GD 步长 0.05 × 0.97^k × 箱宽（组内归一化），GROUP_GATE=1e-3，MIN_GAIN_DEX=0.01
 - MAX_DEGRADE_FRAC=0.25
 - 信任域 = 2.0 × ρ（ρ = 32nd nearest neighbor median in B's param domain）
@@ -61,7 +61,7 @@ PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → T
 - 新旧数据/模型/结果全部分开存储：`dataset_il20/`, `models/ddps_v6_il20/`, `result/ddps_v6_il20_main/`
 
 ### 判读标准
-- 基线训练应最稳健（15/15 正向，0 劣化）
+- 基线训练最稳健（12/15 正向、1 持平、2 个 40 dB 总插损退步——严格单环境泛化的边界）
 - 高损环境训练在重损环境更优但泛化性下降
 - 种子点选择决定模型对哪个区域学得准
 

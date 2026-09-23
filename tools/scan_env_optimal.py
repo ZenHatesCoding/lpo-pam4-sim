@@ -20,21 +20,14 @@ os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
 import numpy as np
 import pandas as pd
-import create_config, utils_config
+import utils_config
 import ddps_optimizer as D
 from ddps_cases import ENV_CASES, apply_env_to_config
 from tx_channel_extract import extract_tx_features
 from main import run_sim
 
-if not os.path.exists('config.xlsx'):
-    create_config.generate_config()
-BASE = utils_config.load_config('config.xlsx')
-BASE['system']['enable_eye_plot'] = False
-BASE['system']['enable_spectrum_plot'] = False
-
 SCAN_SYMBOLS = 65536
 SIM_SEEDS = (42, 43, 44)
-FFE_PRE = int(BASE['tx'].get('ffe_pre', D.FFE_PRE))
 
 RATIOS = [0.40, 0.60, 0.80, 1.00, 1.30]
 GDCS = [-3.0, 0.0, 3.0]
@@ -86,6 +79,11 @@ def _worker(args):
 
 
 def main(jobs=8):
+    utils_config.ensure_config()
+    BASE = utils_config.load_config('config.xlsx')
+    BASE['system']['enable_eye_plot'] = False
+    BASE['system']['enable_spectrum_plot'] = False
+
     envs = ENV_CASES
     tasks = []
     for env in envs:

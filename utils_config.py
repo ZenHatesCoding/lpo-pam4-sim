@@ -1,6 +1,18 @@
 import pandas as pd
 import os
 
+def ensure_config():
+    """主进程入口统一调用一次：config.xlsx 缺失才生成。
+
+    并发脚本（dataset_generator / scan_per_case_rms / run_parallel_envs）必须在
+    spawn 任何 worker 之前调用本函数一次；worker 只 load_config 只读，严禁就地
+    生成 config.xlsx，从根本上消除多进程并发重写 xlsx 损坏文件的竞态。
+    """
+    if not os.path.exists('config.xlsx'):
+        from create_config import generate_config
+        generate_config()
+
+
 def load_config(filename='config.xlsx'):
     if not os.path.exists(filename):
         raise FileNotFoundError(f"{filename} not found. Please run create_config.py first.")

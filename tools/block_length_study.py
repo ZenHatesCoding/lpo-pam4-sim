@@ -31,6 +31,9 @@ from utils_config import load_config  # noqa: E402
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--env', default='Base_IL10x10')
+    ap.add_argument('--seed-config', default=None,
+                    help='最优工作点 seed_config JSON（best_pre_post/best_gdc/best_gdc2/'
+                         'best_u_gain）；不提供则用模块默认兜底种子')
     ap.add_argument('--num-symbols', default='262144,524288,1048576,2097152,4194304')
     ap.add_argument('--sim-seeds', default='42,43,44')
     ap.add_argument('--gain', type=float, default=float(D.SEED_GAIN),
@@ -40,6 +43,11 @@ def main():
                     help='参考退化点（CTLE gDC, dB）；用于"可分辨性"一列')
     ap.add_argument('--out', default='result/ddps_block_length.csv')
     args = ap.parse_args()
+
+    if args.seed_config:
+        D.apply_seed_config(args.seed_config)
+        print(f'[blocklen] 最优工作点覆盖: taps={np.round(D.SEED_TAPS,4)} '
+              f'gDC={D.SEED_GDC:.2f} gDC2={D.SEED_GDC2:.2f} gain={D.SEED_GAIN:.4f}')
 
     seeds = tuple(int(s) for s in args.sim_seeds.split(','))
     cfg0 = C.apply_env_to_config(load_config('config.xlsx'), args.env)
@@ -60,8 +68,8 @@ def main():
             lbs.append(lb_s)
             bers.append(ber_s)
         D.set_sim_seeds(seeds)
-        # 原始错误数：run_sim 0 错误时返回 1/(2·min_len) 伪计数，b·min_len≈0.5；
-        # 1 错误≈1.0、k 错误≈k。sync_delay 会随块长变化 ±1~2，使 0.5 略高于/低于 0.5，
+        # 原始错误数：run_sim 0 错误时返回 0.5/(2·min_len) 伪计数（真 bitwise BER，0.5 个位错），
+        # b·min_len≈0.25；1 位错≈1.0、k 位错≈k。sync_delay 会随块长变化 ±1~2，
         # 因此用 0.75 阈值把“0 错误伪计数”与“1 错误”分开，而不是直接 round。
         min_len = max(1, nsym - 10114)  # ≈ 有效稳态符号数（10000 训练头 + 114 尾缘截断）
         def _nerr(b):

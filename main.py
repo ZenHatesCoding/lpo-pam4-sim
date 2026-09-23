@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from utils_config import load_config
-from tx_dsp import pam4_map, tx_dsp_chain
+from tx_dsp import pam4_map, pam4_symbols, tx_dsp_chain
 from channel_imdd import apply_channel
 from rx_dsp import adaptive_ffe_dfe
 from mlse_burg import burg_ar, viterbi_mlse_pam4
@@ -88,13 +88,14 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_
         plot_spectrum(tx_analog, fs_channel, "Tx_Analog_Out_Spectrum", output_dir=output_dir)
         plot_spectrum(rx_analog, fs_channel, "Rx_ADC_Input_Spectrum", output_dir=output_dir)
         
-    # Rx DSP - Find optimal sampling phase
-    rx_1sps_even = rx_adc[::sps_adc]
-    corr_even = correlate(rx_1sps_even[:1000], tx_pam4[:1000])
+    # Rx DSP - 从 ADC 2sps 输出里取两路 1sps 相位分支（起始相位 0 / 1），
+    # 用与发端 PAM4 的相关峰值挑选最优采样相位；phase_offset 记选中的分支起始相位。
+    adc_phase_even = rx_adc[0::sps_adc]
+    corr_even = correlate(adc_phase_even[:1000], tx_pam4[:1000])
     max_even = np.max(corr_even)
     
-    rx_1sps_odd = rx_adc[1::sps_adc]
-    corr_odd = correlate(rx_1sps_odd[:1000], tx_pam4[:1000])
+    adc_phase_odd = rx_adc[1::sps_adc]
+    corr_odd = correlate(adc_phase_odd[:1000], tx_pam4[:1000])
     max_odd = np.max(corr_odd)
     
     if max_even >= max_odd:
@@ -121,9 +122,7 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_
         sync_delay=sync_delay
     )
     
-    ffe_symbols = np.zeros_like(ffe_decisions)
-    ffe_symbols[ffe_decisions == -3] = 0; ffe_symbols[ffe_decisions == -1] = 1
-    ffe_symbols[ffe_decisions == 1] = 2; ffe_symbols[ffe_decisions == 3] = 3
+    ffe_symbols = pam4_symbols(ffe_decisions)
     
     train_len = int(config['rx']['train_len'])
 
@@ -141,10 +140,11 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_
     ar_order = int(config['rx']['mlse_memory'])
     
     if ar_order > 0:
-        ar_coeffs = burg_ar(err_ss, ar_order)
+        ar_coeffs, noise_var = burg_ar(err_ss, ar_order)
         pr_taps = np.concatenate(([1.0], ar_coeffs))
     else:
         pr_taps = [1.0]
+        noise_var = float(np.var(err_ss))
         
     rx_eq_whitened = np.convolve(rx_eq, pr_taps, mode='full')[:len(rx_eq)]
     # MLSE 实现开关：config['system']['mlse_fast'] = False 可回退到原始标量实现；
@@ -153,9 +153,7 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_
                 not in ('false', '0', 'no', 'off')
     rx_decisions = viterbi_mlse_pam4(rx_eq_whitened, pr_taps, fast=mlse_fast)
     
-    rx_symbols = np.zeros_like(rx_decisions)
-    rx_symbols[rx_decisions == -3] = 0; rx_symbols[rx_decisions == -1] = 1
-    rx_symbols[rx_decisions == 1] = 2; rx_symbols[rx_decisions == 3] = 3
+    rx_symbols = pam4_symbols(rx_decisions)
     
     train_len = int(config['rx']['train_len'])
     tx_aligned = tx_symbols[train_len:n_valid]
@@ -166,12 +164,12 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_
     ffe_ser, ffe_ber = calculate_ber(tx_aligned[:min_len], ffe_aligned[:min_len])
     mlse_ser, mlse_ber = calculate_ber(tx_aligned[:min_len], mlse_aligned[:min_len])
 
-    # 0 错误伪计数：BER 窗口内无错时，按 1/(2N) 记为"低于检测限"的点估计，
-    # 避免 log10(0)=-inf 破坏回归。N = 有效稳态符号数 min_len。
+    # 0 错误伪计数：BER 窗口内无位错时，记 0.5 个位错 / 总位数（= 1/(4N)，N=有效稳态符号数），
+    # 保持"0.5 计数"约定、仅把单位从符号改为 bit（真逐位 Gray BER）。
     if mlse_ber <= 0.0:
-        mlse_ber = 1.0 / (2.0 * max(min_len, 1))
+        mlse_ber = 0.5 / (2.0 * max(min_len, 1))
     if ffe_ber <= 0.0:
-        ffe_ber = 1.0 / (2.0 * max(min_len, 1))
+        ffe_ber = 0.5 / (2.0 * max(min_len, 1))
 
     if return_nodes:
         nodes = {
@@ -183,7 +181,7 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_
             'rx_eq_whitened': rx_eq_whitened,  # FFE+Burg 白化(喂给 MLSE)
             'tx_pam4': tx_pam4, 'tx_symbols': tx_symbols,
             'phase_offset': phase_offset, 'sync_delay': sync_delay,
-            'train_len': train_len,
+            'train_len': train_len, 'noise_var': noise_var,
         }
         return ffe_ber, mlse_ber, nodes
 

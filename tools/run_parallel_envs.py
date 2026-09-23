@@ -27,6 +27,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from ddps_cases import ENV_CASES  # noqa: E402
+from utils_config import ensure_config  # noqa: E402
 import merge_test_parts  # noqa: E402
 
 TEST_SCRIPT = os.path.join(ROOT, 'test_generalization.py')
@@ -93,6 +94,10 @@ def main():
         args.per_case_rms_path = os.path.abspath(args.per_case_rms_path)
     if args.seed_config:
         args.seed_config = os.path.abspath(args.seed_config)
+
+    # 主进程在 spawn 任何 test_generalization 子进程之前统一生成/校验 config.xlsx；
+    # 子进程（worker）只 load_config 只读，从根上消除并发写坏 xlsx 的竞态。
+    ensure_config()
 
     envs = [e['name'] for e in ENV_CASES]
     if args.only_envs:

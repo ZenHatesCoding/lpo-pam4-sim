@@ -38,13 +38,13 @@ DEFAULT_MODE = '112G'
 
 | 文档 | 内容 |
 | --- | --- |
-| [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_Deliverable.html) | 链路架构、A/B 双代理、7 维链式梯度（含 gain）、安全红线、次优起点冷启动、15 用例结果（几何平均 ×186.7）；可折叠大纲 + A+B/A-only 图切换 |
+| [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_Deliverable.html) | 链路架构、A/B 双代理、7 维链式梯度（含 gain）、安全红线、次优起点冷启动、15 用例结果（12/15 正向、几何平均 ×18.69）；可折叠大纲 + A+B/A-only 图切换 |
 | [历史交付件与历史实验](archive/) | v2~v6.1 各版本交付件 HTML、训练环境对比实验、历史结果/模型/数据集（本地归档，不入远端） |
 | [01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md) | 收发机模型、多采样率机制、`config.xlsx` 参数物理含义 |
 | [02. 独立分析与诊断工具集](docs/02_Utility_Scripts.md) | optimizers/ + tools/ 目录 + 核心脚本 |
 | [DDPS 方法](docs/DDPS_Method.md) | A=探针→BER 方向代理 + B=参数→BER 风险控制、7 维链式梯度（含 gain）、安全红线、次优起点 |
 | [DDPS 要求清单](docs/DDPS_REQUIREMENTS.md) | 架构、安全红线、对比实验、交付件的全部要求 |
-| [版本变更记录](docs/CHANGELOG.md) | 每个版本的核心变化（v1→v6.2.2） |
+| [版本变更记录](docs/CHANGELOG.md) | 每个版本的核心变化（v1→v7） |
 | [LPO MSA 规范核心参数提炼](docs/LPO_MSA_Specification_Summary.md) | 电气/光学/信道参数标准依据 |
 | [分支关系与版本导览](BRANCHES.md) | 仓库各分支的关系与差异 |
 
@@ -81,18 +81,18 @@ python tools/scan_per_case_rms.py --jobs 8
 
 # 冻结模型，15 环境 Stage-2 7 维链式梯度下降 + B 风险控制；从次优起点出发
 python test_generalization.py --model-dir models/ddps --out-dir result/ddps_main \
-    --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
+    --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
 
 # A-only 对比实验（只用 A 梯度，不查 B）
 python test_generalization.py --model-dir models/ddps --out-dir result/ddps_aonly \
-    --a-only --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
+    --a-only --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
 ```
 
 ### 5. 报告与交付件
 ```bash
 # 可视化报告：收敛三曲线 + gain/rms 轨迹 + 预测散点 + 最难用例四联图
 python report_ddps.py --test-dir result/ddps_main --model-dir models/ddps \
-    --seed-config result/seed_config_bad_1e5.json --summary-out result/SUMMARY.md
+    --seed-config result/seed_config_bad_1e4.json --summary-out result/SUMMARY.md
 
 # 交付件（自包含 HTML）
 python make_deliverable.py --baseline result/ddps_main --a-only result/ddps_aonly

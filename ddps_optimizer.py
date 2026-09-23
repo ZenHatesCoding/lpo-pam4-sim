@@ -55,7 +55,9 @@ MAX_DEGRADE_FRAC = 0.25       # 允许 Model B 预测相对种子最多变差 25
 # ---------------------------------------------------------------------------
 TRUST_FFE = 0.10              # FFE 信任域半径（相对起点）
 TRUST_CTLE = 3.0              # CTLE 信任域半径（dB）
-GAIN_TRUST = 0.15             # gain 信任域半径（log10 dex，围绕 per-case 初值）
+GAIN_TRUST = 0.30             # gain 信任域半径（log10 dex，围绕 per-case 初值）
+                               # v7 物理层 per-case 最优 gain 跨 ×0.30~×0.91（0.48 dex），
+                               # 需 ±0.30 才能从居中次优点覆盖全用例（仍落在训练采样带 ×0.20~×1.26 内）
 GD_LR = 0.05                  # 初始步长（相对各维箱宽的比例，随 step 以 ALPHA_DECAY 衰减）
 ALPHA_DECAY = 0.97            # 步长衰减：越走越稳（末期用于收敛落点）
 TRUST_PATH_K = 2.0            # 轨迹信任域：标准化位移超过 TRUST_PATH_K × ρ 就停
@@ -83,7 +85,9 @@ def set_sim_seeds(seeds):
     return SIM_SEEDS
 
 
-# 已知"不错的起点"（种子）：来自两阶段实验的初始次优点
+# 兜底种子（未提供 --seed-config 时使用）：名义工程种子，不是次优演示起点。
+# 次优演示起点（次优工作点，形状 + CTLE + gain 全给定）通过 result/seed_config_bad_*.json
+# 经 apply_seed_config() 显式装载为一等公民；此处 SEED_* 仅作兜底并写清。
 SEED_TAPS = np.array([-0.034, -0.2987, 0.6091, 0.0, 0.0582])   # 5-tap：主抽头 = 1 - Σ|旁瓣|
 SEED_GDC = 6.0                  # Tx CTLE peaking seed: moderate 6 dB (Rx adds another fixed 6 dB)
 SEED_GDC2 = 2.0                 # Tx CTLE LF shelf seed: 2 dB
@@ -128,6 +132,38 @@ def construct_taps(pre_post, ffe_pre=FFE_PRE, n_taps=N_FFE_TAPS):
     taps[ffe_pre + 1:] = pre_post[ffe_pre:]
     taps[ffe_pre] = 1.0 - np.sum(np.abs(pre_post))
     return taps
+
+
+def apply_seed_config(path):
+    """把 seed_config JSON 显式装载为全局种子点（次优起点的一等公民接口）。
+
+    JSON 字段：
+      best_pre_post : 4 个 FFE 旁瓣
+      best_gdc      : Tx CTLE peaking gain (dB)
+      best_gdc2     : Tx CTLE LF shelf gain (dB)
+      best_u_gain 或 best_gain : gain 覆盖（可选，二者给一）
+
+    返回 gain 覆盖值（None 表示未覆盖，用模块默认 SEED_GAIN）。
+    未提供 seed_config 时，SEED_TAPS/SEED_GDC/SEED_GDC2/SEED_GAIN 为模块级兜底。
+    """
+    import json
+    global SEED_TAPS, SEED_GDC, SEED_GDC2, SEED_GAIN, SEED_GAIN_U
+    with open(path, 'r', encoding='utf-8') as f:
+        sc = json.load(f)
+    pre_post = np.asarray(sc['best_pre_post'], dtype=float)
+    SEED_TAPS = construct_taps(pre_post, FFE_PRE).copy()
+    SEED_GDC = float(sc['best_gdc'])
+    SEED_GDC2 = float(sc['best_gdc2'])
+    if 'best_u_gain' in sc:
+        gain = float(gain_from_u(float(sc['best_u_gain'])))
+    elif 'best_gain' in sc:
+        gain = float(sc['best_gain'])
+    else:
+        gain = None
+    if gain is not None:
+        SEED_GAIN = gain
+        SEED_GAIN_U = u_from_gain(gain)
+    return gain
 
 
 def _apply_x_to_config(config, gdc, gdc2, gain):
@@ -443,15 +479,10 @@ def _stage2_descent_aonly(config, model_a, x0, ffe_pre, n_steps, lr):
     return trace
 
 
-def run_ddps(*args, **kwargs):
-    """历史入口已废弃（保留仅为给出明确报错，避免静默误用）。
-
-    请使用现役三段式入口：
-      1) dataset_generator.py 生成数据集；
-      2) train_surrogates.train() 训练代理；
-      3) test_generalization.py 运行在线寻优。
-    """
-    raise RuntimeError(
-        "run_ddps() 已移除：DDPS 已重构为 dataset_generator.py -> "
-        "train_surrogates.train() -> test_generalization.py 三段式流水线。"
-    )
+# ---------------------------------------------------------------------------
+# DDPS 现役接口关系（三段式流水线，无单一 run_ddps 入口）：
+#   1) dataset_generator.py  生成环境锚定邻域数据集；
+#   2) train_surrogates.train()  训练 A/B 双代理（固化模型）；
+#   3) test_generalization.py  在线寻优泛化测试。
+# 历史单一入口 run_ddps() 已删除；optimizers/* 里的旧优化器不再引用 DDPS 入口。
+# ---------------------------------------------------------------------------
