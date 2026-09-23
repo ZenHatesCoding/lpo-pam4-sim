@@ -183,7 +183,7 @@ TEMPLATE = r'''<!DOCTYPE html>
       参数取自 <code>config.xlsx</code>、模型 <code>meta.json</code>、结果 <code>case_summary / trace</code> 与源码常量；图表为内嵌 SVG 与 PNG，单文件可离线打开。
     </div>
     <div class="chips">
-      <span class="chip">形状搜索 <b>6</b> 维（4 FFE 旁瓣 + gDC + gDC2）</span>
+      <span class="chip">搜索 <b>7</b> 维（4 FFE 旁瓣 + gDC + gDC2 + u_gain）</span>
       <span class="chip">用例 <b>15</b> 个（含非对称 Tx/Rx 插损与器件噪声）</span>
       <span class="chip">评估协议 <b>4194304</b> 符号 × <b>3</b> 仿真实例种子</span>
       <span class="chip">模型训练 <b>&lt;0.1 s</b> · 推理 <b>≈30 µs</b></span>
@@ -210,7 +210,7 @@ TEMPLATE = r'''<!DOCTYPE html>
   <ol style="margin-bottom:0">
     <li><strong>物理探针</strong>：向发送链注入单位脉冲，在 MZM 输入端截取 7-tap 等效发射 FIR <em>形状</em>，并把该点的<strong>绝对驱动 RMS</strong> 一并取出：FIR 形状描述波形，RMS 描述驱动幅度。</li>
     <li><strong>双代理模型</strong>：Model A（7-tap FIR 形状 + 驱动 RMS → log10 BER_MLSE 条件均值，负责下降方向，带解析梯度）、Model B（4 旁瓣 + gDC + gDC2 + 驱动 RMS → log10 BER_MLSE 保守上包络，负责安全否决），均为二阶多项式 Ridge 闭式解，纯 NumPy。两者输入空间不同（波形域 / 参数域），误差来源相互独立。</li>
-    <li><strong>约束梯度下降</strong>：经 Model A 的链式法则求下降方向（扰动 7 维参数 = 4 FFE 旁瓣 + gDC + gDC2 + gain → 重算探针 → 查 A → 得 ΔBER），每步落地前须通过 Model B 的相对安全审查，并受轨迹信任域（2.0×ρ）与梯度幅值门控约束；gain 是第 7 个搜索维（每用例最优倍率见 3.3 的 per-case RMS 标定参照），参数箱信任域收窄到 ±0.15 dex。真实 BER 全量记录但不参与决策。</li>
+    <li><strong>约束梯度下降</strong>：经 Model A 的链式法则求下降方向（扰动 7 维参数 = 4 FFE 旁瓣 + gDC + gDC2 + u_gain → 重算探针 → 查 A → 得 ΔBER），每步落地前须通过 Model B 的相对安全审查，并受轨迹信任域（2.0×ρ）与梯度幅值门控约束；gain 是第 7 个搜索维（每用例最优倍率见 3.3 的 per-case RMS 标定参照），参数箱信任域收窄到 ±0.15 dex。真实 BER 全量记录但不参与决策。</li>
   </ol>
 </div>
 
@@ -579,7 +579,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     <text class="tb" x="14" y="26">Model A（寻优方向）</text>
     <rect class="bx" x="14" y="40" width="150" height="50" rx="8"/>
     <text class="tw2" x="89" y="62" text-anchor="middle">7 维参数</text>
-    <text class="ts" x="89" y="79" text-anchor="middle">4 FFE + gDC + gDC2 + gain</text>
+    <text class="ts" x="89" y="79" text-anchor="middle">4 FFE + gDC + gDC2 + u_gain</text>
 
     <rect class="bx-hi" x="204" y="40" width="150" height="50" rx="8"/>
     <text class="tw2" x="279" y="62" text-anchor="middle">物理探针</text>
@@ -628,7 +628,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     <text class="tb" x="10" y="16">Model A（寻优方向）</text>
 
     <rect class="bx" x="10" y="26" width="340" height="42" rx="7"/>
-    <text class="tw2" x="24" y="46">7 维参数（4 FFE + gDC + gDC2 + gain）</text>
+    <text class="tw2" x="24" y="46">7 维参数（4 FFE + gDC + gDC2 + u_gain）</text>
     <text class="ts" x="24" y="62">扰动 -> 重算探针 -> 查 A</text>
 
     <rect class="bx-hi" x="10" y="80" width="340" height="38" rx="7"/>
@@ -752,7 +752,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <rect class="bx" x="34" y="382" width="472" height="72" rx="7"/>
     <text class="t" x="48" y="402">A/B 输入空间不同（波形域 vs 参数域），误差独立</text>
     <text class="ts" x="48" y="420">gain 经 drive_rms 进入 A/B 输入，每用例最优倍率见 3.3 标定参照，</text>
-    <text class="ts" x="48" y="436">之后放开走 7 维链式梯度（4 FFE + gDC + gDC2 + gain），gain 信任域 ±0.15 dex。</text>
+    <text class="ts" x="48" y="436">之后放开走 7 维链式梯度（4 FFE + gDC + gDC2 + u_gain），gain 信任域 ±0.15 dex。</text>
 
     <line class="ln" x1="270" y1="118" x2="270" y2="132" marker-end="url(#ah4)"/>
     <line class="ln" x1="270" y1="180" x2="270" y2="194" marker-end="url(#ah4)"/>
@@ -994,7 +994,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <table>
   <caption>数据集构成：共 2001 行真实 BER 评估，单份 CSV</caption>
   <tr><th>环境</th><th class="n">行数</th><th>构成</th><th class="n">log10 BER 实测范围</th></tr>
-  <tr><td>Base_IL10x10 邻域</td><td class="n">2001</td><td>7 维 LHS（4 FFE + gDC + gDC2 + gain），gain 覆盖全用例最优 gain 邻域 ×0.20~×1.26</td><td class="n">−6.32 ~ −0.77</td></tr>
+  <tr><td>Base_IL10x10 邻域</td><td class="n">2001</td><td>7 维 LHS（4 FFE + gDC + gDC2 + u_gain），gain 覆盖全用例最优 gain 邻域 ×0.20~×1.26</td><td class="n">−6.32 ~ −0.77</td></tr>
 </table>
 </div>
 
@@ -1049,7 +1049,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <ul>
     <li>Tx FFE 5 抽头：<span class="mono">[-0.0654, -0.2834, 0.5587, -0.0045, 0.0880]</span>（主抽头 0.5587 由 1 − Σ|旁瓣| 派生）；</li>
     <li>Tx CTLE：gDC = 5.73 dB、gDC2 = 1.45 dB；</li>
-    <li>driver_gain = 0.2728（相对标称 0.3399 的倍率 ×0.80，u = −0.096）：驱动摆幅未按用例标定、接近标称值，是次优的主要来源。</li>
+    <li>driver_gain = 0.2728（相对标称 0.3399 的倍率 ×0.80，u_gain = −0.0955）：驱动摆幅未按用例标定，是次优的主要来源。</li>
   </ul>
   <p>在线调优做 <strong>7 维梯度下降</strong>：4 个 FFE 旁瓣 + gDC + gDC2 形状调整，以及 gain 作为第 7 个搜索维（信任域 ±0.15 dex）。从该次优点出发，各用例的真实 BER 数步内降到各自环境的最优工作点附近。</p>
 </div>
@@ -1460,7 +1460,7 @@ def _rows_metrics(meta):
     for tag, name in (('model_a', 'Model A'), ('model_b', 'Model B')):
         m = meta[tag]
         dim = meta[f'{tag}_dim']
-        desc = m.get('description', '')
+        desc = m.get('description', '').replace('6 维 x_shape + drive_rms', '7 维参数域（x_shape 6 维 + drive_rms）')
         domain = _domain_zh.get(m.get('input_domain', ''), m.get('input_domain', ''))
         out.append(
             f"<tr><td>{name}</td><td>{domain}</td><td class=\"n\">{dim}</td>"
