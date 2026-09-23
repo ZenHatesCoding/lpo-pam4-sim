@@ -26,7 +26,7 @@ B 才是风险控制器：基于调优后的参数预测性能，根据性能变
 ∂BER/∂param_i = Σ_j (∂A/∂probe_j) × (∂probe_j/∂param_i)
 ```
 
-实现为 7 维中心差分：对 7 个参数（4 FFE 旁瓣 + gDC + gDC2 + u_gain）逐维做 ±eps 扰动 → 重算探针（7-tap FIR + drive_rms）→ 查 Model A → 得 ΔBER。每次梯度 = 8 次评估（1 基准 + 7 维扰动，每次 = 1 探针 + 1 A 前向）。
+实现为 7 维双边中心差分：对 7 个参数（4 FFE 旁瓣 + gDC + gDC2 + u_gain）逐维做 ±eps 扰动 → 重算探针（7-tap FIR + drive_rms）→ 查 Model A → 得 gᵢ=(A⁺−A⁻)/(2·epsᵢ)。每次梯度 = **14 次探针 + 14 次 A 前向**；eps 分档 0.01（4 FFE 旁瓣）/ 0.1（gDC、gDC2）/ 0.05（u_gain）。
 
 **关键**：扰动 CTLE 参数时必须把 gdc/gdc2 写入 config 再提取探针，否则探针对 CTLE 扰动无响应，CTLE 维梯度恒为 0。
 
@@ -36,8 +36,8 @@ gain 是第 7 个搜索维（`u_gain = log10(gain / 0.3399)`，标称 `DRIVER_GA
 它经 drive_rms 进入 A/B 的输入，在 ±0.15 dex 的参数箱信任域内参与梯度；形状/CTLE 信任域为 ±0.10 / ±3.0 dB。
 
 每个用例的最优 gain 倍率通过离线 per-case target_rms 扫描标定（0.06~0.22V，步长 0.005，解析
-`gain = gain_scan × (target_rms / rms_measured)`），作为初始化与验收的参照。在线调优演示从次优起点
-（gain ×0.80，接近标称）出发，梯度把 gain 推到各用例最优倍率附近。
+`gain = gain_scan × (target_rms / rms_measured)`），作为初始化与验收的参照。在线调优从次优起点
+（gain ×0.80）出发，梯度把 gain 推到各用例最优倍率附近。
 
 ## 5. 安全红线
 
