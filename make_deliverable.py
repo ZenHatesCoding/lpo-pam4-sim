@@ -3,13 +3,13 @@
 """make_deliverable.py — 由产物自动生成 DDPS 交付件（自包含 HTML）。
 
 数据来源（全部为流水线产物，无需手工转录）：
-  result/ddps_v6_2_main/              只用基线训练 + 15 环境在线调优（7 维 FFE+CTLE+gain，gain 纳入梯度）
-  result/ddps_v6_2_aonly/             同物理层 A-only 消融
-  models/ddps_v6_2/                   meta.json（模型指标与特征维度）
-  dataset/ddps_v62_dataset_*.csv      数据集统计
+  result/ddps_main/              只用基线训练 + 15 环境在线调优（7 维 FFE+CTLE+gain，gain 纳入梯度）
+  result/ddps_aonly/             同物理层 A-only 消融
+  models/ddps/                   meta.json（模型指标与特征维度）
+  dataset/ddps_dataset_*.csv      数据集统计
 用法:
-  python make_deliverable.py --baseline result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
-      --a-only result/ddps_v6_2_aonly --out deliverables/DDPS_v6.2_Deliverable.html
+  python make_deliverable.py --baseline result/ddps_main --model-dir models/ddps \
+      --a-only result/ddps_aonly --out deliverables/DDPS_Deliverable.html
 """
 import matplotlib
 matplotlib.use('Agg')
@@ -716,7 +716,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
 <h3>4.1 两阶段结构</h3>
 <figure>
-  <div class="fig-title">图 4 · DDPS v6.2 两阶段流程（Stage 1 离线一次性 / Stage 2 在线逐环境）</div>
+  <div class="fig-title">图 4 · DDPS 两阶段流程（Stage 1 离线一次性 / Stage 2 在线逐环境）</div>
 
   <svg class="d-wide" viewBox="0 0 1080 500" role="img" aria-label="两阶段算法流程图">
     <defs>
@@ -1209,38 +1209,38 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <h4 style="margin-top:0">完整流水线</h4>
   <pre><code># 1) 数据集（2001 点；7 维 LHS；只用 Base_IL10x10；gain 覆盖全用例最优 gain 邻域 ×0.20~×1.26）
 python dataset_generator.py --base-samples 2000 --only-envs Base_IL10x10 \
-    --num-symbols 1048576 --sim-seeds 42,43,44 --jobs 12 --core-samples 1200 --v62
+    --num-symbols 1048576 --sim-seeds 42,43,44 --jobs 12 --core-samples 1200
 
 # 2) 训练 A/B（A: 探针 8 维 -> BER；B: 参数 7 维 -> BER）
 python -c "from train_surrogates import train; import glob; \
-  train(sorted(glob.glob('dataset/ddps_v62_dataset_*.csv'))[-1], 'models/ddps_v6_2', \
+  train(sorted(glob.glob('dataset/ddps_dataset_*.csv'))[-1], 'models/ddps', \
            pipeline_tag='ddps', gain_mode='gradient_with_rms_init')"
 
 # 3) per-case target_rms 扫描（gain 维标定参照）
 python tools/scan_per_case_rms.py --jobs 8
 
 # 4) 在线调优（15 环境，7 维含 gain；次优起点 = 训练数据中的 1e-5 工作点）
-python test_generalization.py --model-dir models/ddps_v6_2 --out-dir result/ddps_v6_2_main \
+python test_generalization.py --model-dir models/ddps --out-dir result/ddps_main \
     --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
 
 # 5) 可视化报告
-python report_ddps.py --test-dir result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
+python report_ddps.py --test-dir result/ddps_main --model-dir models/ddps \
     --seed-config result/seed_config_bad_1e5.json --summary-out result/SUMMARY.md
 
 # 6) 交付件
-python make_deliverable.py --baseline result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
-    --a-only result/ddps_v6_2_aonly --out deliverables/DDPS_v6.2_Deliverable.html</code></pre>
+python make_deliverable.py --baseline result/ddps_main --model-dir models/ddps \
+    --a-only result/ddps_aonly --out deliverables/DDPS_Deliverable.html</code></pre>
 </div>
 
 <div class="tw">
 <table>
   <caption>产物清单</caption>
   <tr><th>类别</th><th>路径</th><th>内容</th></tr>
-  <tr><td>数据集</td><td class="mono">dataset/ddps_v62_dataset_&lt;ts&gt;.csv</td><td>2001 行 × 45 列（7 维 x = 4 FFE 旁瓣 + gDC + gDC2 + u_gain；另含 5-tap FFE、驱动 RMS、7-tap FIR 探针、真实 BER）</td></tr>
-  <tr><td>核心模型</td><td class="mono">models/ddps_v6_2/</td><td>A=探针 8 维 / B=参数 7 维 + meta.json</td></tr>
-    <tr><td>核心结果</td><td class="mono">result/ddps_v6_2_main/</td><td>case_summary.csv/json、trace_&lt;用例&gt;.csv、run_config.json、report/</td></tr>
+  <tr><td>数据集</td><td class="mono">dataset/ddps_dataset_&lt;ts&gt;.csv</td><td>2001 行 × 45 列（7 维 x = 4 FFE 旁瓣 + gDC + gDC2 + u_gain；另含 5-tap FFE、驱动 RMS、7-tap FIR 探针、真实 BER）</td></tr>
+  <tr><td>核心模型</td><td class="mono">models/ddps/</td><td>A=探针 8 维 / B=参数 7 维 + meta.json</td></tr>
+    <tr><td>核心结果</td><td class="mono">result/ddps_main/</td><td>case_summary.csv/json、trace_&lt;用例&gt;.csv、run_config.json、report/</td></tr>
       <tr><td>跨实验汇总</td><td class="mono">result/SUMMARY.md</td><td>15 用例结果汇总</td></tr>
-  <tr><td>块长研究</td><td class="mono">result/ddps_v6_2_block_length.csv</td><td>最优工作点不同块长的 BER 估计精度</td></tr>
+  <tr><td>块长研究</td><td class="mono">result/ddps_block_length.csv</td><td>最优工作点不同块长的 BER 估计精度</td></tr>
 </table>
 </div>
 
@@ -1251,7 +1251,7 @@ python make_deliverable.py --baseline result/ddps_v6_2_main --model-dir models/d
   <p><strong>测量口径</strong>：Python 3.11.11 / NumPy 2.4.6 / SciPy 1.17.1；BLAS 线程数固定为 1（<span class="mono">OMP_NUM_THREADS=1</span>）；
   BER 评估统一 4194304 符号/点 × 仿真实例种子 (42,43,44) 取 log10 均值；数据集采样与模型划分固定 seed = 42。</p>
   <p>数值来源：<span class="mono">config.xlsx</span>、<span class="mono">models/*/meta.json</span>、<span class="mono">result/*/case_summary.csv</span>、
-  <span class="mono">result/*/trace_*.csv</span>、<span class="mono">dataset/ddps_v62_dataset_*.csv</span> 与源码常量。</p>
+  <span class="mono">result/*/trace_*.csv</span>、<span class="mono">dataset/ddps_dataset_*.csv</span> 与源码常量。</p>
 </footer>
 
 </div>
@@ -1478,11 +1478,11 @@ def _img_tag(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--baseline', default='result/ddps_v6_2_main', help='v6.2 主结果目录')
-    ap.add_argument('--model-dir', default='models/ddps_v6_2', help='v6.2 模型目录')
+    ap.add_argument('--baseline', default='result/ddps_main', help='主结果目录')
+    ap.add_argument('--model-dir', default='models/ddps', help='模型目录')
     ap.add_argument('--dataset', default=None)
-    ap.add_argument('--a-only', default='result/ddps_v6_2_aonly', help='A-only 消融结果目录')
-    ap.add_argument('--out', default='deliverables/DDPS_v6.2_Deliverable.html')
+    ap.add_argument('--a-only', default='result/ddps_aonly', help='A-only 消融结果目录')
+    ap.add_argument('--out', default='deliverables/DDPS_Deliverable.html')
     a = ap.parse_args()
 
     summary, core_df = _load_summary(a.baseline)
@@ -1496,7 +1496,7 @@ def main():
     with open(rms_json_path, encoding='utf-8') as f:
         rms_data = json.load(f)
 
-    ds_path = a.dataset or _latest('dataset/ddps_v62_dataset_*.csv')
+    ds_path = a.dataset or _latest('dataset/ddps_dataset_*.csv')
     ds = pd.read_csv(ds_path)
 
     report_dir = os.path.join(a.baseline, 'report')
@@ -1511,18 +1511,18 @@ def main():
         aonly_rows = _rows_ablation(summary, summary_aonly, aonly_dir, a.baseline, order)
 
     # 图片素材：从 report_ddps.py 生成的 PNG 加载
-    img_conv = os.path.join(report_dir, 'ddps_v6_convergence.png')
-    img_gain = os.path.join(report_dir, 'ddps_v6_gain_rms.png')
-    img_track = os.path.join(report_dir, 'ddps_v6_tracking.png')
+    img_conv = os.path.join(report_dir, 'ddps_convergence.png')
+    img_gain = os.path.join(report_dir, 'ddps_gain_rms.png')
+    img_track = os.path.join(report_dir, 'ddps_tracking.png')
     hard_env = max(order, key=lambda e: summary[e]['seed_ber'])
-    hard_png = os.path.join(report_dir, f'ddps_v6_case_{hard_env}_a.png')
+    hard_png = os.path.join(report_dir, f'ddps_case_{hard_env}_a.png')
 
-    # A-only 同款图（report_ddps.py 对 ddps_v6_2_aonly 生成）
+    # A-only 同款图（report_ddps.py 对 ddps_aonly 生成）
     ao_report_dir = os.path.join(aonly_dir, 'report')
-    img_conv_ao = os.path.join(ao_report_dir, 'ddps_v6_convergence.png')
-    img_gain_ao = os.path.join(ao_report_dir, 'ddps_v6_gain_rms.png')
-    img_track_ao = os.path.join(ao_report_dir, 'ddps_v6_tracking.png')
-    hard_ao_png = os.path.join(ao_report_dir, f'ddps_v6_case_{hard_env}_a.png')
+    img_conv_ao = os.path.join(ao_report_dir, 'ddps_convergence.png')
+    img_gain_ao = os.path.join(ao_report_dir, 'ddps_gain_rms.png')
+    img_track_ao = os.path.join(ao_report_dir, 'ddps_tracking.png')
+    hard_ao_png = os.path.join(ao_report_dir, f'ddps_case_{hard_env}_a.png')
 
     # 统计
     imp_arr = np.array([summary[e]['seed_ber'] / summary[e]['best_ber'] for e in order])
@@ -1535,7 +1535,7 @@ def main():
     safety_rows, total_steps, total_worse = _rows_safety(summary, a.baseline)
 
     headline = '\n'.join([
-        f"<tr><td><strong>v6.2 在线调优</strong>（A=探针->BER 方向 + B=参数->BER 风险控制 + 7 维 FFE+CTLE+gain）</td>"
+        f"<tr><td><strong>在线调优</strong>（A=探针->BER 方向 + B=参数->BER 风险控制 + 7 维 FFE+CTLE+gain）</td>"
         f"<td><strong>{n_pos}/{len(order)} 用例正向改善</strong>，几何平均 x{imp_geo:.2f}"
         f"（最高 x{imp_arr.max():.2f}）；全程 {total_steps} 步真实 BER，"
         f"<strong>{total_worse} 步劣于起点</strong> -> <span class=\"win\">可交付</span></td></tr>",

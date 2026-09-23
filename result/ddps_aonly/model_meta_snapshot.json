@@ -1,7 +1,7 @@
 {
-  "dataset_csv": "dataset\\ddps_v62_dataset_20260920_163244.csv",
+  "dataset_csv": "dataset\\ddps_dataset_20260920_163244.csv",
   "label_col": "log10_ber_mlse",
-  "pipeline": "ddps_v6_2",
+  "pipeline": "ddps",
   "gain_mode": "gradient_with_rms_init",
   "n_rows": 2001,
   "n_train": 1601,

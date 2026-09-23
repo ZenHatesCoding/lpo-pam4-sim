@@ -92,7 +92,7 @@ SEED_GAIN = DRIVER_GAIN_NOMINAL * (10.0 ** SEED_GAIN_U)
 GAIN_MIN = DRIVER_GAIN_NOMINAL * (10.0 ** GAIN_LOG10_MIN)   # 实际增益下界
 GAIN_MAX = DRIVER_GAIN_NOMINAL * (10.0 ** GAIN_LOG10_MAX)   # 实际增益上界
 
-# v6.2 训练数据 gain 采样带（宽口径）：覆盖全部 15 用例 per-case 最优 gain（×0.30~×0.91）
+# 训练数据 gain 采样带（宽口径）：覆盖全部 15 用例 per-case 最优 gain（×0.30~×0.91）
 # 及其 ±GAIN_TRUST 在线信任域，避免模型在 drive_rms 轴上对高损用例外推。
 # 采样带 = ×0.20~×1.26（u ∈ [-0.70, +0.10]），在 u 空间均匀。
 GAIN_SAMPLE_U_LO = -0.70

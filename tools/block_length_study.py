@@ -6,13 +6,13 @@ log10 BER，并回答：
     "在给定块长下，1e-6 量级的真实 BER 能否被稳定测量？"
     "相邻块长的 BER 是否还有系统性变化（此前观察到的每翻倍约 -0.3 dex）？"
 
-输出：result/ddps_v6_2_block_length.csv
+输出：result/ddps_block_length.csv
   （num_symbols / 错误数 / log10 BER 均值 / 跨种子标准差 / 等效 BER / 参考点位移 dex）
 
 用法：
     python tools/block_length_study.py --num-symbols 262144,524288,1048576,2097152,4194304 \
         --sim-seeds 42,43,44 --env Base_IL10x10 --gain 0.138 \
-        --ref-gdc 0.0 --out result/ddps_v6_2_block_length.csv
+        --ref-gdc 0.0 --out result/ddps_block_length.csv
 """
 import argparse
 import os
@@ -38,7 +38,7 @@ def main():
                          'result/per_case_target_rms.json）')
     ap.add_argument('--ref-gdc', type=float, default=0.0,
                     help='参考退化点（CTLE gDC, dB）；用于"可分辨性"一列')
-    ap.add_argument('--out', default='result/ddps_v6_2_block_length.csv')
+    ap.add_argument('--out', default='result/ddps_block_length.csv')
     args = ap.parse_args()
 
     seeds = tuple(int(s) for s in args.sim_seeds.split(','))

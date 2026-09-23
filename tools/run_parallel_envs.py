@@ -12,8 +12,8 @@ pickle 问题），每个环境用 `--only-envs <env>` 让 test_generalization �
 全部完成后复用 `merge_test_parts.merge()` 按 ENV_CASES 顺序合并成一个结果目录。
 
 用法（等价于「串行跑 15 环境」，只是 14 并发，从 ~7.5h 降到 ~40-60min）：
-    python tools/run_parallel_envs.py --model-dir models/ddps_v6_2 \
-        --out-dir result/ddps_v6_2_aonly --a-only --n-steps 15 \
+    python tools/run_parallel_envs.py --model-dir models/ddps \
+        --out-dir result/ddps_aonly --a-only --n-steps 15 \
         --num-symbols 2097152 --sim-seeds 42,43,44 --jobs 14
 """
 import argparse
@@ -72,8 +72,8 @@ def _run_one(env, args, parts_dir, model_dir):
 def main():
     ap = argparse.ArgumentParser(
         description='多进程并行跑 test_generalization 的 15 环境并合并结果')
-    ap.add_argument('--model-dir', default='models/ddps_v6_2')
-    ap.add_argument('--out-dir', default='result/ddps_v6_2_main')
+    ap.add_argument('--model-dir', default='models/ddps')
+    ap.add_argument('--out-dir', default='result/ddps_main')
     ap.add_argument('--n-steps', type=int, default=15)
     ap.add_argument('--num-symbols', type=int, default=2097152)
     ap.add_argument('--sim-seeds', type=str, default='42,43,44')

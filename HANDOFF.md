@@ -1,4 +1,4 @@
-# HANDOFF — DDPS v6.2.2
+# HANDOFF — DDPS
 
 ## 当前状态（本次 session 结束点）
 
@@ -33,7 +33,8 @@
 
 1. **MLSE 向量化（算法等价，可回退）**：`mlse_burg.py` 把 Viterbi ACS 从三重纯 Python 循环改为 NumPy 向量化（memory=0/1），原始标量实现保留为 `_viterbi_mlse_pam4_ref`；入口 `viterbi_mlse_pam4(..., fast=True)` 默认走向量化分支、`fast=False` 回退原始分支，两条分支逐位一致（`scratch/test_viterbi_equiv.py` 验证，生产 memory=1 提速约 2.3×）。开关走 `config['system']['mlse_fast']`（默认 True）。LMS 与 DFE 未动（LMS 是逐样本自适应迭代、无法在不改算法的前提下向量化；DFE 是备用接口）。
 2. **历史死代码归档**：`archive/20260923_code_versioned_snapshot/` 快照了去版本号前的全部 DDPS 代码（现版本 + v2~v6.1 历史函数）；死脚本 `compare_surrogates.py`、`make_deliverable_compare.py`、`make_result_summary.py` 移入 archive 并移出远端。
-3. **去版本号命名**：函数 `train_v6→train`、`_stage2_descent_v62→_stage2_descent`、`_stage2_descent_v62_aonly→_stage2_descent_aonly`、`_bounds7→_bounds`、`_grad_a_chain7→_grad_a_chain`、`run_case_v62→run_case`、`run_case_v62_aonly→run_case_aonly`；脚本 `report_ddps_v6.py→report_ddps.py`、`make_deliverable_v6.py→make_deliverable.py`；`test_generalization.py` / `tools/run_parallel_envs.py` 删除 `--v5/--v6/--v62/--target-rms/--cloud-*/--freeze-extra` 等死参数（现役管线即默认）。规则写入 AGENTS.md。
+3. **去版本号命名**：函数 `train_v6→train`、`_stage2_descent_v62→_stage2_descent`、`_stage2_descent_v62_aonly→_stage2_descent_aonly`、`_bounds7→_bounds`、`_grad_a_chain7→_grad_a_chain`、`run_case_v62→run_case`、`run_case_v62_aonly→run_case_aonly`；脚本 `report_ddps_v6.py→report_ddps.py`、`make_deliverable_v6.py→make_deliverable.py`；`test_generalization.py` / `tools/run_parallel_envs.py` 删除 `--v5/--v6/--v62/--target-rms/--cloud-*/--freeze-extra` 等死参数（现役管线即默认）；`dataset_generator.py` 删除 `--v62/--v5` 开关（gain 宽口径采样即默认）。规则写入 AGENTS.md。
+4. **现役产物去版本号**：目录/文件 `result/ddps_v6_2_main→result/ddps_main`、`result/ddps_v6_2_aonly→result/ddps_aonly`、`models/ddps_v6_2→models/ddps`、`dataset/ddps_v62_dataset_*→dataset/ddps_dataset_*`、`deliverables/DDPS_v6.2_Deliverable.html→deliverables/DDPS_Deliverable.html`、`result/ddps_v6_2_block_length.csv→result/ddps_block_length.csv`、报告图 `ddps_v6_*.png/md→ddps_*.png/md`；所有引用（README/HANDOFF/docs/交付件/复现命令）同步更新，冻结 meta/run_config 里的版本串一并替换。
 4. **冒烟验证**：`train()` 在现有数据集上复现冻结 meta.json（A R²=0.6729 / B R²=0.6874 / rho=1.7525）；`load_models` 正常加载冻结模型；单用例 1 步端到端跑通（含 MLSE 快速分支）。
 
 ## 未提交变更（当前 working tree）
@@ -56,7 +57,7 @@
 5. **`tx_dsp.tx_ctle` 旧实现 + `eval(custom_taps)` 隐患**：`tx_ctle` 为旧 IIR CTLE（现链路用 `channel_imdd.apply_ctle`），保留未删；`eval()` 解析 `custom_taps` 有注入隐患，应换 `ast.literal_eval`。
 6. **文件中部 import 风格**：`metrics.py` 在文件中部 `import os`（第 17 行）与 `from scipy.signal import welch`（第 50 行），待清理到文件顶部。
 
-## 物理层（v6.2.2，与 v6.2 同链路）
+## 物理层
 
 PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → Tx CTLE(gDC,gDC2, peaking) → Driver(gain) → Driver BW(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx IL → +1mV 噪声 → Rx CTLE(固定 gDC=6/gDC2=3) → ADC → Rx FFE(22-tap,LMS) → Burg → MLSE(memory=1)。**Tx driver 路径无 VGA、无 RMS 归一化**（gain 是链路最后一个不被下游吸收的线性乘子，故可作独立搜索维）；**Rx 侧 TIA 输出与 ADC 数字域各有一级 AGC**（分别归一化到 0.1863 V 与 √5，见 `channel_imdd.py`）。
 
@@ -64,7 +65,7 @@ PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → T
 - **gain**：线性驱动增益，标称 `DRIVER_GAIN_NOMINAL=0.3399`；`u_gain = log10(gain/0.3399)`。次优种子 gain ×0.80。
 - Rx DSP：LS 初始化 + 数据辅助 LMS 训练 `train_len=10000`，之后权重冻结；BER 窗口 `[train_len, n_valid)`（排除尾部垃圾符号），0 错误 `1/(2N)` 伪计数。
 
-## 架构（v6.2.2）
+## 架构
 
 - **Model A（方向代理）**：输入 = [7-tap Tx FIR 探针, drive_rms]（8 维波形域）→ log10(BER_MLSE)。WhiteBoxRidge（二阶多项式 + L2 Ridge 闭式解，带解析梯度）。
 - **Model B（风险控制）**：输入 = [4 FFE 旁瓣, gDC, gDC2, drive_rms]（7 维参数域）→ log10(BER_MLSE) 保守上包络。gain 经 drive_rms 进入 B。
@@ -75,15 +76,15 @@ PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → T
 
 ```powershell
 # 1) 主流程（2^22 × 3 种子，4 进程，从次优起点出发）
-.venv\Scripts\python.exe tools/run_parallel_envs.py --model-dir models/ddps_v6_2 --out-dir result/ddps_v6_2_main --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44 --jobs 4
+.venv\Scripts\python.exe tools/run_parallel_envs.py --model-dir models/ddps --out-dir result/ddps_main --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44 --jobs 4
 
 # 2) A-only 消融
-.venv\Scripts\python.exe tools/run_parallel_envs.py --model-dir models/ddps_v6_2 --out-dir result/ddps_v6_2_aonly --a-only --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44 --jobs 4
+.venv\Scripts\python.exe tools/run_parallel_envs.py --model-dir models/ddps --out-dir result/ddps_aonly --a-only --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44 --jobs 4
 
 # 3) 报告 + 交付件
-.venv\Scripts\python.exe report_ddps.py --test-dir result/ddps_v6_2_main --model-dir models/ddps_v6_2 --seed-config result/seed_config_bad_1e5.json
-.venv\Scripts\python.exe report_ddps.py --test-dir result/ddps_v6_2_aonly --model-dir models/ddps_v6_2 --seed-config result/seed_config_bad_1e5.json
-.venv\Scripts\python.exe make_deliverable.py --baseline result/ddps_v6_2_main --a-only result/ddps_v6_2_aonly
+.venv\Scripts\python.exe report_ddps.py --test-dir result/ddps_main --model-dir models/ddps --seed-config result/seed_config_bad_1e5.json
+.venv\Scripts\python.exe report_ddps.py --test-dir result/ddps_aonly --model-dir models/ddps --seed-config result/seed_config_bad_1e5.json
+.venv\Scripts\python.exe make_deliverable.py --baseline result/ddps_main --a-only result/ddps_aonly
 ```
 
 ## 并行内存约束

@@ -27,9 +27,9 @@ PAM4_RMS_FACTOR = 0.3726
 # 注意：该绝对值小于 1 只是因为本仿真器的 DAC 满量程约定较大；对外统一按
 # **相对标定值的倍率** driver_gain_ratio = g / DRIVER_GAIN_NOMINAL 表述（搜索箱 ×0.30 ~ ×4.0），
 # 与具体满量程约定无关。
-# v6.2 起在 v6.1 物理层（Tx CTLE peaking 拓扑 + 种子 gDC=6/gDC2=2）下重新标定：
+# 标定基础（当前 peaking 物理层：Tx CTLE OIF 2Z3P peaking 拓扑 + 种子 gDC=6/gDC2=2）：
 #   tools/calibrate_driver_gain.py 实测 drive RMS @ gain=1.0 = 0.6763 V
-#   => g0 = (0.617*0.3726) / 0.6763 = 0.3399（旧值 0.4381 是 v4 无 peaking 链的标定，已废弃）。
+#   => g0 = (0.617*0.3726) / 0.6763 = 0.3399
 DRIVER_GAIN_NOMINAL = 0.3399
 
 # 驱动波形的"标称 RMS"（= 0.617 Vpp 对应的 RMS）。物理探针输出的 7-tap FIR 以该值为单位，

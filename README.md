@@ -38,7 +38,7 @@ DEFAULT_MODE = '112G'
 
 | 文档 | 内容 |
 | --- | --- |
-| [📄 **DDPS v6.2 交付说明（自包含 HTML）**](deliverables/DDPS_v6.2_Deliverable.html) | 链路架构、A/B 双代理、7 维链式梯度（含 gain）、安全红线、次优起点冷启动、15 用例结果（几何平均 ×186.7）；可折叠大纲 + A+B/A-only 图切换 |
+| [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_Deliverable.html) | 链路架构、A/B 双代理、7 维链式梯度（含 gain）、安全红线、次优起点冷启动、15 用例结果（几何平均 ×186.7）；可折叠大纲 + A+B/A-only 图切换 |
 | [历史交付件与历史实验](archive/) | v2~v6.1 各版本交付件 HTML、训练环境对比实验、历史结果/模型/数据集（本地归档，不入远端） |
 | [01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md) | 收发机模型、多采样率机制、`config.xlsx` 参数物理含义 |
 | [02. 独立分析与诊断工具集](docs/02_Utility_Scripts.md) | optimizers/ + tools/ 目录 + 核心脚本 |
@@ -66,11 +66,11 @@ python main.py
 ```bash
 # 只用基线环境（Base_IL10x10）采样 2000 点，7 维 LHS（4 FFE 旁瓣 + gDC + gDC2 + u_gain）
 python dataset_generator.py --base-samples 2000 --only-envs Base_IL10x10 \
-    --num-symbols 1048576 --sim-seeds 42,43,44 --jobs 12 --core-samples 1200 --v62
+    --num-symbols 1048576 --sim-seeds 42,43,44 --jobs 12 --core-samples 1200
 
 # 训练 A（探针 8 维→BER）+ B（参数 7 维→BER），WhiteBoxRidge 带解析梯度（gain 纳入梯度）
 python -c "from train_surrogates import train; import glob; \
-  train(sorted(glob.glob('dataset/ddps_v62_dataset_*.csv'))[-1], 'models/ddps_v6_2', \
+  train(sorted(glob.glob('dataset/ddps_dataset_*.csv'))[-1], 'models/ddps', \
            pipeline_tag='ddps', gain_mode='gradient_with_rms_init')"
 ```
 
@@ -80,22 +80,22 @@ python -c "from train_surrogates import train; import glob; \
 python tools/scan_per_case_rms.py --jobs 8
 
 # 冻结模型，15 环境 Stage-2 7 维链式梯度下降 + B 风险控制；从次优起点出发
-python test_generalization.py --model-dir models/ddps_v6_2 --out-dir result/ddps_v6_2_main \
+python test_generalization.py --model-dir models/ddps --out-dir result/ddps_main \
     --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
 
 # A-only 对比实验（只用 A 梯度，不查 B）
-python test_generalization.py --model-dir models/ddps_v6_2 --out-dir result/ddps_v6_2_aonly \
+python test_generalization.py --model-dir models/ddps --out-dir result/ddps_aonly \
     --a-only --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
 ```
 
 ### 5. 报告与交付件
 ```bash
 # 可视化报告：收敛三曲线 + gain/rms 轨迹 + 预测散点 + 最难用例四联图
-python report_ddps.py --test-dir result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
+python report_ddps.py --test-dir result/ddps_main --model-dir models/ddps \
     --seed-config result/seed_config_bad_1e5.json --summary-out result/SUMMARY.md
 
 # 交付件（自包含 HTML）
-python make_deliverable.py --baseline result/ddps_v6_2_main --a-only result/ddps_v6_2_aonly
+python make_deliverable.py --baseline result/ddps_main --a-only result/ddps_aonly
 ```
 
 ### 6. 历史实验（结果已归档）

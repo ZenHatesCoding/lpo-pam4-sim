@@ -40,7 +40,7 @@
 | 脚本 | 用途 |
 |------|------|
 | `main.py` | 单点主仿真：PAM4 → 5-tap FFE → DAC → CTLE → MZM → 光纤 → PIN → MLSE |
-| `dataset_generator.py` | DDPS 数据集生成：7 维 LHS 邻域采样（含 gain）+ 真实 BER_MLSE 标注（支持 `--base-env`、`--seed-config`、`--v62`） |
+| `dataset_generator.py` | DDPS 数据集生成：7 维 LHS 邻域采样（含 gain）+ 真实 BER_MLSE 标注（支持 `--base-env`、`--seed-config`） |
 | `train_surrogates.py` | A/B 模型训练：WhiteBoxRidge（二阶多项式 + L2 Ridge 闭式解，带解析梯度） |
 | `test_generalization.py` | 在线调优泛化测试：15 环境 Stage-2 7 维链式梯度下降（支持 `--a-only`、`--seed-config`） |
 | `report_ddps.py` | 可视化报告：收敛三曲线 + gain/rms 轨迹 + 预测散点 + 四联图 |
