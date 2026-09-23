@@ -39,7 +39,7 @@
 
 ## 未提交变更（当前 working tree）
 
-- 去版本号 + 归档 + MLSE 向量化（本轮），待 commit。
+- 无。上一轮「去版本号 + 归档 + MLSE 向量化」已 commit `739fbf7` 并推送。
 
 ## 已知边界 / 元数据缺口
 
@@ -48,14 +48,66 @@
 3. 强信号用例调优后仍落在 0~1 错误检测限（1.19e-7 伪计数），改善倍数受限于检测底，用 95% CL 上界表述。
 4. 改善主要来自 gain 维（第 7 维），形状/CTLE 微调为次要贡献。
 
-## 待办（代码 bug / 隐患，先记录未修，等评审后决定）
+## 待办：v7 全流程重做（13 条处置方案 · 已评审定案）
 
-1. **`metrics.calculate_ber` 用 `ser/2` 近似 BER**：PAM4 Gray 映射下 SER/2 只在低误码接近真实逐位 BER，高误码有偏；当前全链标注"BER_MLSE (Gray 映射)"实为符号错误率/2。如需严格逐位 BER，应实现 2-bit Gray 逐位比较。
-2. **`channel_imdd.quantize` 量化满量程随点缩放**：`step = 2*max|x| / 2^ENOB`，每个样本点按自身峰值定满量程，非固定满量程量化；若"ENOB 5.5"表达固定满量程量化，语义需确认。
-3. **`channel_imdd.apply_s4p_filter` 高频硬截断**：频率缩放超出 S4P 频带后 `np.interp(..., right=0.0)` 直接归零；是否需要更平滑的延拓需确认。
-4. **`mlse_burg.burg_ar` 的 `E` 死变量**：`E` 每轮更新但从不使用。
-5. **`tx_dsp.tx_ctle` 旧实现 + `eval(custom_taps)` 隐患**：`tx_ctle` 为旧 IIR CTLE（现链路用 `channel_imdd.apply_ctle`），保留未删；`eval()` 解析 `custom_taps` 有注入隐患，应换 `ast.literal_eval`。
-6. **文件中部 import 风格**：`metrics.py` 在文件中部 `import os`（第 17 行）与 `from scipy.signal import welch`（第 50 行），待清理到文件顶部。
+> 下一版本 **v7**。执行顺序：先改完所有代码并逐条验证（第 6 条需真值验证），最后全流程重跑（数据生成 → 训练 → 在线调优 → 报告 → 交付件）。被取代的 v6.2.2 全套产物（结果/模型/数据集/交付件）归档进 `archive/`（归档目录名带版本号）；重跑后的现役产物仍用不带版本号的名字（`result/ddps_main`、`models/ddps`、`dataset/ddps_dataset_*`、`deliverables/DDPS_Deliverable.html`）。「v7」只记进 CHANGELOG/HANDOFF 正文。
+
+### 1. 真逐位 BER（`metrics.calculate_ber`）
+- **现状**：`ber = ser / 2.0`，注释写「Approximation for Gray mapped PAM4」。溯源：`a989e95`（2026-07-01 初始提交，作者 Hermes Agent）第 6–15 行就存在，v1→v6.2.2 全程未改，所有结果与交付件数字都基于它。
+- **问题**：SER/2 只在低误码接近真 BER；高误码（次优起点 ~1e-3）低估，最大偏约 +0.125 dex；且「BER_MLSE」错标为符号错误率/2。
+- **处置（定案）**：改成真 Gray 逐位 BER——PAM4 符号 → 2 bit（Gray 映射），逐位比 `tx_bits != rx_bits`，`ber = 位错误数 / 总位数`；`ser` 保留作诊断。需新增「符号→bit」的 Gray 映射函数（当前只有符号级比较）。
+- **影响**：所有 log10(BER)、改善倍数、收敛图 y 轴变真值。现有产物不存符号序列，无法重算 → 纳入 v7 全流程重跑。
+
+### 2. ENOB 标准量化（`channel_imdd.quantize`）
+- **现状**：`q = 2*max|x| / 2^ENOB`，每 block 峰值当满量程 + 确定性 mid-tread 取整。
+- **正确口径**：`ENOB = (SINAD_dB − 1.76) / 6.02`（满量程单音正弦测得），等效量化噪声 `σ_q = V_FS / (2^ENOB · √12)`，V_FS 固定。
+- **处置（定案）**：**DAC、ADC 满量程都固定到 ±1**（峰值 1）。quantize 用固定满量程（确定性取整 `Δ = 1/2^(ENOB-1)`，或加噪声 `σ = 1/(2^ENOB·√12)`——实现时定一种并写注释）。**不去反推满量程**；而是调 **driver 增益** 与 **TIA 增益** 做「±1 数字域 ↔ 物理域」的桥梁：driver 增益把 ±1 DAC 输出放大到 MZM 所需驱动摆幅；TIA 增益把接收信号放大到 ±1 ADC 输入。
+- **影响**：driver 标称增益不再是 0.3399；`u_gain` 网格、gain 采样带（`GAIN_SAMPLE_U_LO/HI`）、per-case target 全部要变 → 训练数据集与标定参照重新生成（已在重跑范围内）。
+
+### 3. `apply_s4p_filter` 高频硬截断
+- **处置**：不改，保持现状。
+
+### 4. 双重 AGC（并入第 2 条）
+- **现状**：Rx 侧 TIA 输出归一化到 0.1863 V + ADC 数字域再归一化到 √5，两层。
+- **处置（定案）**：确认是 bug。只留**一层**——TIA 那层作为「把信号定到 ±1 ADC 满量程的合适比例」的物理 AGC；ADC 数字域 √5 第二层删除。与第 2 条一起做（AGC 定电平 ↔ ADC 满量程 ↔ ENOB 是关键耦合，拆开改必自相矛盾）。
+
+### 5. `report_ddps.py` 6 维 else 分支
+- **现状**：`_has_gain_dim()` 对现役数据恒 True，`else`（6 维、drive_rms 锁定、gain 物理驱动文字）只对已归档旧数据可达。
+- **处置**：把 6 维画法分支归档、现役代码删，报告只留「7 维 gain 入梯度」单一路径。
+
+### 6. MLSE 的 PR 目标 + 噪声白化（Burg 用法）—— 本次重点，详见 chat
+- **现状**（`main.py` 139–154 行）：`err_ss = LMS误差[稳态段]` → `burg_ar(err_ss)` → `pr_taps = [1, a_1]` → `convolve(rx_eq, pr_taps)` 白化 → Viterbi 用同一 `pr_taps` 当目标、度量 `(y−expected)²`。
+- **正确信号模型**：均衡后符号率 `y[n] = Σ_k h[k]·s[n-k] + ν[n]`，h = 残余信道，ν = 有色噪声。
+- **教科书正确的 Forney MLSE**：① 估计残余信道 h（训练段已知符号互相关）；② 噪声自相关 Rν 做**最小相位谱分解**得白化滤波器 w；③ 白化后目标 `g = h ⊛ w`、噪声白（功率 σ²）；④ Viterbi 度量 `Σ (ỹ − Σ g·s)² / (2σ²)`。
+- **现状错在哪**：① 白化滤波器 w 与目标 g 被当成同一 `[1,a_1]`（目标应是 h⊛w）；② 用 `[1,a_1]` 当目标暗含 h=δ（FFE 已清光 ISI），与「MLSE 就是处理 FFE 清不掉的残余 ISI」自相矛盾；③ σ²（= Burg 的 E）算了又丢，度量没除 2σ²（硬判决时 σ² 常数抵消、不影响方向，但丢软信息/置信度，属「没按规范做」）；④ Burg AR(1) 只是「噪声+残余 ISI」的一阶近似白化，非一般意义的最小相位谱分解。
+- **为什么「低 BER」≠「做对」**：现 15/15、×186.68 都在「h=δ 启发式」下数出；目标没吃进残余 ISI（白化还人为引入 a_1 抽头），数出的 BER 不是该接收机真正能达的最优。必须换 Forney 后用真值（已知符号直接数错）验证不劣。
+- **正确实现**：h 估计 `h[k]=E[y·s]/E[s²]`；ν=y−h⊛s；Rν 谱分解（或 AR(p) 白化后与 h 卷积）得 w、g；σ²=白化后噪声功率。改 `mlse_burg.py`（加信道估计+谱分解+目标构造），`main.py` 喂 h/g/σ²。Burg/AR 降为白化子模块之一。
+- **验证**：训练段已知符号直接数 MLSE 判决 BER，确认 Forney ≥ 现实现（不劣）且结构合法；`tests/` 加 fast/ref 等价回归。
+
+### 7. `tx_dsp.tx_ctle` 旧 CTLE
+- **处置**：归档，现役只保留 `channel_imdd.apply_ctle`；`eval(custom_taps)` 注入点一并清除。
+
+### 8. `metrics.py` 中部 import
+- **处置**：`os`、`resample_poly`、`welch` 移到文件顶部。
+
+### 9. `main.py` 的 `rx_adc[::sps_adc]` 命名
+- **处置**：变量名改成表达「取 ADC 输出某一路/相位」的语义，去掉「下采样相位」的歧义。
+
+### 10. MLSE 等价性测试转正
+- **处置**：`scratch/test_viterbi_equiv.py` 挪进 `tests/` 进 git，作 fast/ref 逐位一致的常驻回归。
+
+### 11. `optimizers/` 做干净、保留
+- **定位**：用于给训练数据找格点初值，保留，不归档。
+- **处置**：`optimize_tx.py` 转 UTF-8；理清 `ddps_optimizer.run_ddps` 占位 stub（不再靠 stub 兜 AttributeError）——补真实现或明确接口关系。
+
+### 12. config.xlsx 并发重构（干净方案，不打补丁）
+- **现状**：`if not os.path.exists('config.xlsx'): generate_config()` 的 TOCTOU 散在 `test_generalization.py`/`dataset_generator.py`/`tools/*`/`optimizers/*`，`test_generalization.py` 第 194 行已注释承认「实测三进程并发会把 xlsx 写坏」。
+- **处置（干净重构）**：收敛成「**主进程在 spawn 任何 worker 之前统一生成/校验一次，worker 只 `load_config` 只读**」，删掉所有「缺了就就地生成」分支。并发写入口只剩主进程，从根上消除竞态。
+
+### 13. 次优起点机制显式化（干净方案）
+- **本意**：在线调优从「不那么好的起点」出发（基线 ~1e-4 量级）。
+- **现状**：模块级 `SEED_TAPS`（名义默认）+ 一堆 `--seed-config` 覆盖逻辑；`tools/verify_tail_fix.py` 第 20 行还有一份重复 taps 常量。
+- **处置（干净重构）**：把「次优起点」做成显式一等公民——`seed_config`（tap + gDC + gDC2 + gain/drive_rms）；`SEED_TAPS` 降级为「未提供 seed_config 时的兜底」并写清注释；删除重复常量、统一引用。
 
 ## 物理层
 
