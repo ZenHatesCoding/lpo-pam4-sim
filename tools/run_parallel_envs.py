@@ -12,8 +12,8 @@ pickle 问题），每个环境用 `--only-envs <env>` 让 test_generalization �
 全部完成后复用 `merge_test_parts.merge()` 按 ENV_CASES 顺序合并成一个结果目录。
 
 用法（等价于「串行跑 15 环境」，只是 14 并发，从 ~7.5h 降到 ~40-60min）：
-    python tools/run_parallel_envs.py --model-dir models/ddps_v6_1 \
-        --out-dir result/ddps_v6_1_aonly --a-only --n-steps 15 \
+    python tools/run_parallel_envs.py --model-dir models/ddps_v6_2 \
+        --out-dir result/ddps_v6_2_aonly --a-only --n-steps 15 \
         --num-symbols 2097152 --sim-seeds 42,43,44 --jobs 14
 """
 import argparse
@@ -52,23 +52,10 @@ def _run_one(env, args, parts_dir, model_dir):
         '--only-envs', env,
         '--n-steps', str(args.n_steps),
         '--num-symbols', str(args.num_symbols),
-        '--cloud-n', str(args.cloud_n),
         '--sim-seeds', args.sim_seeds,
-        '--cloud-symbols', str(args.cloud_symbols),
-        '--cloud-sim-seeds', args.cloud_sim_seeds,
     ]
-    if args.freeze_extra:
-        cmd += ['--freeze-extra']
-    if args.v5:
-        cmd += ['--v5']
-    if args.v6:
-        cmd += ['--v6']
-    if args.v62:
-        cmd += ['--v62']
     if args.a_only:
         cmd += ['--a-only']
-    if args.target_rms is not None:
-        cmd += ['--target-rms', str(args.target_rms)]
     if args.per_case_rms_path:
         cmd += ['--per-case-rms-path', args.per_case_rms_path]
     if args.seed_config:
@@ -85,30 +72,20 @@ def _run_one(env, args, parts_dir, model_dir):
 def main():
     ap = argparse.ArgumentParser(
         description='多进程并行跑 test_generalization 的 15 环境并合并结果')
-    ap.add_argument('--model-dir', default='models/ddps_v6_1')
-    ap.add_argument('--out-dir', default='result/ddps_v6_1_main')
+    ap.add_argument('--model-dir', default='models/ddps_v6_2')
+    ap.add_argument('--out-dir', default='result/ddps_v6_2_main')
     ap.add_argument('--n-steps', type=int, default=15)
     ap.add_argument('--num-symbols', type=int, default=2097152)
-    ap.add_argument('--cloud-n', type=int, default=16)
     ap.add_argument('--sim-seeds', type=str, default='42,43,44')
-    ap.add_argument('--cloud-symbols', type=int, default=65536)
-    ap.add_argument('--cloud-sim-seeds', type=str, default='42,43')
-    ap.add_argument('--freeze-extra', action='store_true')
     ap.add_argument('--only-envs', type=str, default=None,
                     help='只跑指定环境（逗号分隔）；缺省跑全部 15 环境')
-    ap.add_argument('--v5', action='store_true')
-    ap.add_argument('--v6', action='store_true')
-    ap.add_argument('--v62', action='store_true')
-    ap.add_argument('--a-only', action='store_true')
-    ap.add_argument('--target-rms', type=float, default=None)
+    ap.add_argument('--a-only', action='store_true',
+                    help='A-only 对比实验：只用 Model A 梯度，不查 Model B，不走安全拦截')
     ap.add_argument('--per-case-rms-path', type=str, default=None)
     ap.add_argument('--seed-config', type=str, default=None)
     ap.add_argument('--jobs', type=int, default=None,
                     help='并发进程数；缺省 = min(14, 环境数)')
     args = ap.parse_args()
-
-    if not (args.v5 or args.v6 or args.v62 or args.a_only):
-        ap.error('必须指定 --v5 / --v6 / --v62 / --a-only 之一（与 test_generalization 一致）')
 
     model_dir = os.path.abspath(args.model_dir)
     out_dir = os.path.abspath(args.out_dir)
@@ -128,9 +105,7 @@ def main():
 
     parts_dir = os.path.join(out_dir, '_parts')
     os.makedirs(parts_dir, exist_ok=True)
-    tag = ('v62-Aonly' if (args.a_only and args.v62) else
-           'v62' if args.v62 else
-           'v6-Aonly' if args.a_only else ('v6' if args.v6 else 'v5'))
+    tag = 'aonly' if args.a_only else 'main'
     print(f'[parallel {tag}] {len(envs)} envs x {jobs} procs -> {out_dir}')
 
     done = {}

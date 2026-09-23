@@ -12,7 +12,7 @@
 - **gain**：第 7 个搜索维（`u_gain = log10(gain / 0.3399)`），经 drive_rms 进入 A/B 输入，参数箱信任域 ±0.15 dex。per-case target_rms 扫描（0.06~0.22V）作为各用例最优 gain 的离线标定参照。
 
 ### 物理层（v6.2 口径）
-PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → Tx CTLE(gDC,gDC2, peaking) → Driver(gain) → Driver BW(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx IL → +1mV 噪声 → Rx CTLE(固定 gDC=6/gDC2=3) → ADC → Rx FFE(22-tap,LMS) → Burg → MLSE(memory=1)。**无 VGA，无 RMS 归一化。**
+PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → Tx CTLE(gDC,gDC2, peaking) → Driver(gain) → Driver BW(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx IL → +1mV 噪声 → Rx CTLE(固定 gDC=6/gDC2=3) → ADC → Rx FFE(22-tap,LMS) → Burg → MLSE(memory=1)。**Tx driver 路径无 VGA、无 RMS 归一化；Rx 侧 TIA/ADC 各有一级 AGC。**
 - Tx CTLE 为 OIF 2Z3P peaking 拓扑（`gDC` = 高频 peaking gain，直流增益恒 0 dB；`gDC2` = LF shelf gain），零极点比 `fz=2.862/fp1=1.884/fp2=1/flf=40`。
 - Rx CTLE 与 Tx 同一拓扑但参数固定（`gDC=6, gDC2=3`），不参与寻优。
 
@@ -39,8 +39,8 @@ PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → T
 ## 三、对比实验：A-only vs A+B（已实现）
 
 ### 实现
-- `ddps_optimizer.py` 新增 `_stage2_descent_v62_aonly()`：只用 A 梯度，不查 B，不走安全拦截
-- `test_generalization.py` 新增 `--a-only` 标志和 `run_case_v62_aonly()` 函数
+- `ddps_optimizer.py` 提供 `_stage2_descent_aonly()`：只用 A 梯度，不查 B，不走安全拦截
+- `test_generalization.py` 提供 `--a-only` 标志和 `run_case_aonly()` 函数
 - 结果输出到 `result/ddps_v6_2_aonly/`
 - 交付件 §6.1/6.2b 显示逐用例对比表与同款图
 
@@ -57,7 +57,7 @@ PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → T
 - `optimizers/bo_search_il20.py`：贝叶斯优化在 IL20x20 上搜 6 维全局最优种子点
 - `dataset_generator.py --base-env IL20x20 --seed-config result/il20_bo_seed.json`：用 BO 种子点邻域采样
 - `test_generalization.py --seed-config result/il20_bo_seed.json`：用 BO 种子点做 Stage-2 起点
-- `make_deliverable_compare.py`：三组对比交付件
+- 三组对比交付件（基线 vs IL20(BO种子) vs IL20(GD种子)）已在 v6.0 时通过 `make_deliverable_compare.py` 生成并归档
 - 新旧数据/模型/结果全部分开存储：`dataset_il20/`, `models/ddps_v6_il20/`, `result/ddps_v6_il20_main/`
 
 ### 判读标准

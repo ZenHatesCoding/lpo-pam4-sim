@@ -1248,23 +1248,23 @@ python dataset_generator.py --base-samples 2000 --only-envs Base_IL10x10 \
     --num-symbols 1048576 --sim-seeds 42,43,44 --jobs 12 --core-samples 1200 --v62
 
 # 2) 训练 A/B（A: 探针 8 维 -> BER；B: 参数 7 维 -> BER）
-python -c "from train_surrogates import train_v6; import glob; \
-  train_v6(sorted(glob.glob('dataset/ddps_v62_dataset_*.csv'))[-1], 'models/ddps_v6_2', \
-           pipeline_tag='ddps_v6_2', gain_mode='gradient_with_rms_init')"
+python -c "from train_surrogates import train; import glob; \
+  train(sorted(glob.glob('dataset/ddps_v62_dataset_*.csv'))[-1], 'models/ddps_v6_2', \
+           pipeline_tag='ddps', gain_mode='gradient_with_rms_init')"
 
 # 3) per-case target_rms 扫描（gain 维标定参照）
 python tools/scan_per_case_rms.py --jobs 8
 
 # 4) 在线调优（15 环境，7 维含 gain；次优起点 = 训练数据中的 1e-5 工作点）
-python test_generalization.py --model-dir models/ddps_v6_2 --out-dir result/ddps_v6_2_main --v62 \
+python test_generalization.py --model-dir models/ddps_v6_2 --out-dir result/ddps_v6_2_main \
     --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
 
 # 5) 可视化报告
-python report_ddps_v6.py --test-dir result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
+python report_ddps.py --test-dir result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
     --seed-config result/seed_config_bad_1e5.json --summary-out result/SUMMARY.md
 
 # 6) 交付件
-python make_deliverable_v6.py --baseline result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
+python make_deliverable.py --baseline result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
     --a-only result/ddps_v6_2_aonly --out deliverables/DDPS_v6.2_Deliverable.html</code></pre>
 </div>
 

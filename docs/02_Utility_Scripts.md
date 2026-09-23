@@ -42,7 +42,6 @@
 | `main.py` | 单点主仿真：PAM4 → 5-tap FFE → DAC → CTLE → MZM → 光纤 → PIN → MLSE |
 | `dataset_generator.py` | DDPS 数据集生成：7 维 LHS 邻域采样（含 gain）+ 真实 BER_MLSE 标注（支持 `--base-env`、`--seed-config`、`--v62`） |
 | `train_surrogates.py` | A/B 模型训练：WhiteBoxRidge（二阶多项式 + L2 Ridge 闭式解，带解析梯度） |
-| `test_generalization.py` | 在线调优泛化测试：15 环境 Stage-2 7 维链式梯度下降（支持 `--v62`、`--a-only`、`--seed-config`） |
-| `report_ddps_v6.py` | 可视化报告：收敛三曲线 + gain/rms 轨迹 + 预测散点 + 四联图 |
-| `make_deliverable_v6.py` | 交付件生成：自包含 HTML（输出到 `deliverables/`） |
-| `make_deliverable_compare.py` | 三组训练对比交付件：基线 vs IL20(BO种子) vs IL20(GD种子) |
+| `test_generalization.py` | 在线调优泛化测试：15 环境 Stage-2 7 维链式梯度下降（支持 `--a-only`、`--seed-config`） |
+| `report_ddps.py` | 可视化报告：收敛三曲线 + gain/rms 轨迹 + 预测散点 + 四联图 |
+| `make_deliverable.py` | 交付件生成：自包含 HTML（输出到 `deliverables/`） |

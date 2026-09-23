@@ -4,6 +4,12 @@
 
 ## v6.2.2（当前版本）
 
+### 代码去版本号 + 历史死代码归档 + MLSE 向量化（2026-09-23）
+- **MLSE 向量化（算法等价）**：`mlse_burg.py` 把 Viterbi ACS 改为 NumPy 向量化（memory 0/1），原始标量实现保留为 `_viterbi_mlse_pam4_ref`；入口 `viterbi_mlse_pam4(..., fast=True)` 默认快速分支、`fast=False` 回退原始实现，两条分支逐位一致（生产 memory=1 提速约 2.3×）。开关 `config['system']['mlse_fast']`（默认 True）。LMS/DFE 未动（LMS 是逐样本自适应迭代、无法在不改算法的前提下向量化；DFE 是备用接口）。
+- **去版本号命名**：函数 `train_v6→train`、`_stage2_descent_v62→_stage2_descent`、`_stage2_descent_v62_aonly→_stage2_descent_aonly`、`_bounds7→_bounds`、`_grad_a_chain7→_grad_a_chain`、`run_case_v62→run_case`、`run_case_v62_aonly→run_case_aonly`；脚本 `report_ddps_v6.py→report_ddps.py`、`make_deliverable_v6.py→make_deliverable.py`；`test_generalization.py`/`tools/run_parallel_envs.py` 删除 `--v5/--v6/--v62/--target-rms/--cloud-*/--freeze-extra` 死参数。规则写入 AGENTS.md「代码命名」。
+- **历史死代码归档**：`archive/20260923_code_versioned_snapshot/` 快照去版本号前的全部 DDPS 代码（现版本 + v2~v6.1 历史函数）；死脚本 `compare_surrogates.py`、`make_deliverable_compare.py`、`make_result_summary.py` 移入 archive 并移出远端。
+- **文档以代码为准**：修正「无 VGA/无 RMS 归一化」表述（Tx driver 路径无 RMS 归一化；Rx 侧 TIA/ADC 各有一级 AGC）；HANDOFF 增补「待办（bug/隐患）」清单。
+
 ### 在线调优演示改用次优起点（冷启动）
 - v6.2.1 的在线调优从 per-case RMS 标定 gain 出发，gain 已接近各用例最优，多个强信号用例起点即 0 错误（低于检测限），看不到在线调优的下降过程。
 - 本版改为从一个明确的**次优工作点**出发（7 维全部给定），取自训练数据实测点 `Base_IL10x10:683`（基线环境真实 BER ~1e-5，极端插损组合 ~1e-3）：

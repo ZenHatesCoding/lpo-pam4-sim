@@ -1,12 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""report_ddps_v6.py — DDPS v6 结果可视化与报告（精简版）。
+"""report_ddps.py — DDPS 结果可视化与报告（精简版）。
 
-v6: A=探针->BER 方向映射, B=参数->BER 风险控制：模型只吃 6 维 FFE+CTLE，gain 维由发端 RMS 物理目标驱动。
-    _add_shared_legend(fig, ncol=5, fontsize=9, y_offset=0.965)
-    fig.tight_layout(rect=(0, 0, 1, 0.93))
+在线调优：7 维（4 FFE 旁瓣 + gDC + gDC2 + u_gain）链式梯度，gain 纳入梯度。
+从 case_summary / trace / per-case target_rms 生成：
   ddps_v6_convergence.png   3×5 三曲线收敛（Model A / Model B / 实测 BER）
-  ddps_v6_gain_rms.png      逐用例 gain 倍率与 drive_rms 轨迹（验证物理驱动）
+  ddps_v6_gain_rms.png      逐用例 gain 倍率与 drive_rms 轨迹
   ddps_v6_report.md         中文报告
   （--summary）SUMMARY.md   跨实验汇总
 """

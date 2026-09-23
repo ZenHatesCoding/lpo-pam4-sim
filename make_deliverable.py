@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""make_deliverable_v6.py — 由产物自动生成 DDPS 交付件（自包含 HTML）。
+"""make_deliverable.py — 由产物自动生成 DDPS 交付件（自包含 HTML）。
 
 数据来源（全部为流水线产物，无需手工转录）：
   result/ddps_v6_2_main/              只用基线训练 + 15 环境在线调优（7 维 FFE+CTLE+gain，gain 纳入梯度）
@@ -8,7 +8,7 @@
   models/ddps_v6_2/                   meta.json（模型指标与特征维度）
   dataset/ddps_v62_dataset_*.csv      数据集统计
 用法:
-  python make_deliverable_v6.py --baseline result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
+  python make_deliverable.py --baseline result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
       --a-only result/ddps_v6_2_aonly --out deliverables/DDPS_v6.2_Deliverable.html
 """
 import matplotlib
@@ -1212,23 +1212,23 @@ python dataset_generator.py --base-samples 2000 --only-envs Base_IL10x10 \
     --num-symbols 1048576 --sim-seeds 42,43,44 --jobs 12 --core-samples 1200 --v62
 
 # 2) 训练 A/B（A: 探针 8 维 -> BER；B: 参数 7 维 -> BER）
-python -c "from train_surrogates import train_v6; import glob; \
-  train_v6(sorted(glob.glob('dataset/ddps_v62_dataset_*.csv'))[-1], 'models/ddps_v6_2', \
-           pipeline_tag='ddps_v6_2', gain_mode='gradient_with_rms_init')"
+python -c "from train_surrogates import train; import glob; \
+  train(sorted(glob.glob('dataset/ddps_v62_dataset_*.csv'))[-1], 'models/ddps_v6_2', \
+           pipeline_tag='ddps', gain_mode='gradient_with_rms_init')"
 
 # 3) per-case target_rms 扫描（gain 维标定参照）
 python tools/scan_per_case_rms.py --jobs 8
 
 # 4) 在线调优（15 环境，7 维含 gain；次优起点 = 训练数据中的 1e-5 工作点）
-python test_generalization.py --model-dir models/ddps_v6_2 --out-dir result/ddps_v6_2_main --v62 \
+python test_generalization.py --model-dir models/ddps_v6_2 --out-dir result/ddps_v6_2_main \
     --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
 
 # 5) 可视化报告
-python report_ddps_v6.py --test-dir result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
+python report_ddps.py --test-dir result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
     --seed-config result/seed_config_bad_1e5.json --summary-out result/SUMMARY.md
 
 # 6) 交付件
-python make_deliverable_v6.py --baseline result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
+python make_deliverable.py --baseline result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
     --a-only result/ddps_v6_2_aonly --out deliverables/DDPS_v6.2_Deliverable.html</code></pre>
 </div>
 
@@ -1510,14 +1510,14 @@ def main():
         summary_aonly = {r['env']: r for _, r in df_aonly.iterrows()}
         aonly_rows = _rows_ablation(summary, summary_aonly, aonly_dir, a.baseline, order)
 
-    # 图片素材：从 report_ddps_v6.py 生成的 PNG 加载
+    # 图片素材：从 report_ddps.py 生成的 PNG 加载
     img_conv = os.path.join(report_dir, 'ddps_v6_convergence.png')
     img_gain = os.path.join(report_dir, 'ddps_v6_gain_rms.png')
     img_track = os.path.join(report_dir, 'ddps_v6_tracking.png')
     hard_env = max(order, key=lambda e: summary[e]['seed_ber'])
     hard_png = os.path.join(report_dir, f'ddps_v6_case_{hard_env}_a.png')
 
-    # A-only 同款图（report_ddps_v6.py 对 ddps_v6_1_aonly 生成）
+    # A-only 同款图（report_ddps.py 对 ddps_v6_2_aonly 生成）
     ao_report_dir = os.path.join(aonly_dir, 'report')
     img_conv_ao = os.path.join(ao_report_dir, 'ddps_v6_convergence.png')
     img_gain_ao = os.path.join(ao_report_dir, 'ddps_v6_gain_rms.png')

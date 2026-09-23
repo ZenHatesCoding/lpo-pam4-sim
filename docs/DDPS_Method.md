@@ -2,7 +2,7 @@
 
 ## 1. 架构
 
-DDPS v6.2：链路口径（5-tap FFE、Tx CTLE 为 OIF 2Z3P peaking 拓扑、Rx CTLE 固定 gDC=6/gDC2=3、无 VGA、无 RMS 归一化、gain 为第 7 个搜索维）。核心是 A/B 模型的分工：
+DDPS v6.2：链路口径（5-tap FFE、Tx CTLE 为 OIF 2Z3P peaking 拓扑、Rx CTLE 固定 gDC=6/gDC2=3、Tx 路径无 VGA/无 RMS 归一化（Rx 侧 TIA/ADC 各有一级 AGC）、gain 为第 7 个搜索维）。核心是 A/B 模型的分工：
 
 - **Model A（方向代理）**：输入 = [7-tap Tx FIR 探针, drive_rms]（8 维波形域）→ log10(BER_MLSE) 条件均值。在线调优时拿不到收端 BER，只能拿发端探针，所以 A 的全部意义就是建立发端探针到收端 BER 的方向映射。
 - **Model B（风险控制）**：输入 = [4 FFE 旁瓣, gDC, gDC2, drive_rms]（7 维参数域）→ log10(BER_MLSE) 保守上包络。基于调优后参数预测性能，按变差幅度拒绝候选。理想情况下全程不触发。

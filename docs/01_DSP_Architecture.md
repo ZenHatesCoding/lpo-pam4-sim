@@ -26,7 +26,7 @@
 ### 1.3 接收端 (Rx DSP & 均衡)
 - **发送端模拟均衡 (Tx Analog CTLE)**：OIF 2Z3P 高频 peaking 拓扑，`gDC`（高频 peaking gain，直流增益恒 0 dB）与 `gDC2`（低频 shelf gain）两个独立维度在代码与配置中隶属 **[tx] 表**，物理上位于 **Tx 电插损（PCB/S4P）之后、Driver 之前**。链路顺序为
   `DAC(ZOH,ENOB 5.5) → Tx 电插损(S4P) → +1mV 噪声 → Tx 模拟 CTLE(gDC,gDC2 peaking) → Driver(gain) → Driver 带限(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx 电插损(S4P) → +1mV 噪声 → Rx 模拟 CTLE(固定 gDC=6/gDC2=3) → ADC → Rx FFE → MLSE`。
-  **无 VGA，无 RMS 归一化。**
+  **Tx driver 路径无 VGA、无 RMS 归一化**（gain 是链路最后一个不被下游吸收的线性乘子，故可作独立搜索维）；**Rx 侧 TIA 输出与 ADC 数字域各有一级 AGC**（各自 RMS 归一化，见 `channel_imdd.py`）。
 - **接收端模拟均衡 (Rx Analog CTLE)**：与 Tx CTLE 同一 peaking 拓扑，但参数**固定**（`gDC=6 dB, gDC2=3 dB`，SJTU standard），位于 Rx 电插损之后、ADC 之前，作为静态均衡基座，**不参与寻优**。
 - **Driver 增益 (`driver_gain`)**：Driver 的**真实线性电压增益**，标定值 DRIVER_GAIN_NOMINAL=0.3399。gain 是 DDPS 的**第 7 个搜索维**（`u_gain = log10(gain / 0.3399)`），经 drive_rms 进入代理模型输入，参数箱信任域 ±0.15 dex；每用例最优 gain 倍率由 per-case target_rms 扫描标定作为参照（`gain = gain_scan × (target_rms / rms_measured)`）。
 - 因此 DDPS 寻优空间为 **7 维**：4 个 FFE 旁瓣 + gDC + gDC2 + u_gain。

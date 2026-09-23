@@ -69,9 +69,9 @@ python dataset_generator.py --base-samples 2000 --only-envs Base_IL10x10 \
     --num-symbols 1048576 --sim-seeds 42,43,44 --jobs 12 --core-samples 1200 --v62
 
 # 训练 A（探针 8 维→BER）+ B（参数 7 维→BER），WhiteBoxRidge 带解析梯度（gain 纳入梯度）
-python -c "from train_surrogates import train_v6; import glob; \
-  train_v6(sorted(glob.glob('dataset/ddps_v62_dataset_*.csv'))[-1], 'models/ddps_v6_2', \
-           pipeline_tag='ddps_v6_2', gain_mode='gradient_with_rms_init')"
+python -c "from train_surrogates import train; import glob; \
+  train(sorted(glob.glob('dataset/ddps_v62_dataset_*.csv'))[-1], 'models/ddps_v6_2', \
+           pipeline_tag='ddps', gain_mode='gradient_with_rms_init')"
 ```
 
 ### 4. per-case target_rms 扫描 + 在线调优泛化测试
@@ -81,27 +81,25 @@ python tools/scan_per_case_rms.py --jobs 8
 
 # 冻结模型，15 环境 Stage-2 7 维链式梯度下降 + B 风险控制；从次优起点出发
 python test_generalization.py --model-dir models/ddps_v6_2 --out-dir result/ddps_v6_2_main \
-    --v62 --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
+    --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
 
 # A-only 对比实验（只用 A 梯度，不查 B）
 python test_generalization.py --model-dir models/ddps_v6_2 --out-dir result/ddps_v6_2_aonly \
-    --v62 --a-only --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
+    --a-only --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
 ```
 
 ### 5. 报告与交付件
 ```bash
 # 可视化报告：收敛三曲线 + gain/rms 轨迹 + 预测散点 + 最难用例四联图
-python report_ddps_v6.py --test-dir result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
+python report_ddps.py --test-dir result/ddps_v6_2_main --model-dir models/ddps_v6_2 \
     --seed-config result/seed_config_bad_1e5.json --summary-out result/SUMMARY.md
 
 # 交付件（自包含 HTML）
-python make_deliverable_v6.py --baseline result/ddps_v6_2_main --a-only result/ddps_v6_2_aonly
+python make_deliverable.py --baseline result/ddps_v6_2_main --a-only result/ddps_v6_2_aonly
 ```
 
-### 6. 历史实验（v6.0 时代，结果已归档）
+### 6. 历史实验（结果已归档）
 ```bash
-# IL20x20 训练对比实验（基线 vs BO种子 vs GD种子）与模型方向验证工具
-# 结果见 archive/，方法见 docs/CHANGELOG.md（v6.0 三组对比）
+# IL20x20 训练对比实验（基线 vs BO种子 vs GD种子），结果见 archive/
 python optimizers/bo_search_il20.py
-python make_deliverable_compare.py
 ```
