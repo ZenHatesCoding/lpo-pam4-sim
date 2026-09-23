@@ -4,7 +4,7 @@
 在基线最优工作点（per-case 最优 gain + 形状种子）上用多个仿真实例种子测不同块长下的
 log10 BER，并回答：
     "在给定块长下，1e-6 量级的真实 BER 能否被稳定测量？"
-    "相邻块长的 BER 是否还有系统性漂移（此前观察到的每翻倍约 -0.3 dex）？"
+    "相邻块长的 BER 是否还有系统性变化（此前观察到的每翻倍约 -0.3 dex）？"
 
 输出：result/ddps_v6_2_block_length.csv
   （num_symbols / 错误数 / log10 BER 均值 / 跨种子标准差 / 等效 BER / 参考点位移 dex）
@@ -61,7 +61,7 @@ def main():
             bers.append(ber_s)
         D.set_sim_seeds(seeds)
         # 原始错误数：run_sim 0 错误时返回 1/(2·min_len) 伪计数，b·min_len≈0.5；
-        # 1 错误≈1.0、k 错误≈k。sync_delay 会随块长漂移 ±1~2，使 0.5 略高于/低于 0.5，
+        # 1 错误≈1.0、k 错误≈k。sync_delay 会随块长变化 ±1~2，使 0.5 略高于/低于 0.5，
         # 因此用 0.75 阈值把“0 错误伪计数”与“1 错误”分开，而不是直接 round。
         min_len = max(1, nsym - 10114)  # ≈ 有效稳态符号数（10000 训练头 + 114 尾缘截断）
         def _nerr(b):

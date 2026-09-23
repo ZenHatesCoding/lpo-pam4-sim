@@ -206,7 +206,7 @@ def build(out_md, bl_df, an_df, bl_deep, an_deep, bl_meta, an_meta):
     L.append('| --- | --- | --- | --- | --- |')
     L.append('| **实验一：只用基线训练 → 跨环境泛化** | 321 行 = 总 csv 过滤 `env==Base_IL10`'
              '（10dB 插损、CD/DGD=0 邻域 320 + 种子 1）—— 8 个测试环境的数据从未进训练集 | '
-             f'[`models/ddps_v2_control/`](../{BL_MODEL}/) | 同一模型冻结，8 个漂移环境逐个 '
+             f'[`models/ddps_v2_control/`](../{BL_MODEL}/) | 同一模型冻结，8 个测试环境逐个 '
              'Stage-2，零重训/零校准 | 真·泛化（本页重点） |')
     L.append('| **实验二：带锚点训练（上限参考）** | 748 行 = Base_IL10 320 + 其余 7 环境各 60 '
              '+ 每环境种子 1（含少量目标环境邻域样本） | '

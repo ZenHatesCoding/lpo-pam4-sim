@@ -206,7 +206,7 @@ def _physical_eval(config, taps, gdc, gdc2, gain):
     """真实 BER 评估（对 SIM_SEEDS 里的多个仿真种子取 log10 均值）。
 
     返回 (log10_mean, 10**log10_mean)。多 seed 平均用于抑制 BER 估计噪声：
-    单块长的 BER 绝对值会随实现漂移，多实现取均值后轨迹才可比。
+    单块长的 BER 绝对值会随实现变化，多实现取均值后轨迹才可比。
     """
     _apply_x_to_config(config, gdc, gdc2, gain)
     lbs = []
@@ -807,7 +807,7 @@ def _stage2_descent_v6(config, model_a, model_b, x0_shape, gain0, ffe_pre, n_ste
     seed_pred_b = _predict_b_params(model_b, x_shape, rms_seed)
 
     # B 拦截红线：当前最优点预测 BER × (1 + MAX_DEGRADE_FRAC)
-    # 红线随最优点下移——B 单调下降时红线跟着下移，永不触发；
+    # 红线随最优点下移——B 预测单调下降时红线跟着下移，不会触发；
     # B 突然变差（方向错）时红线才挡住。
     best_pred_b = seed_pred_b  # 当前已知最优点的 B 预测
     allowed_ber = (10.0 ** best_pred_b) * (1.0 + MAX_DEGRADE_FRAC)
