@@ -37,6 +37,9 @@ def main():
     sps_ch = int(cfg['system']['sps_channel'])
     fs = baud * sps_ch
 
+    # 标定基准沿用 v6.2.2 口径：基线 IL=10dB + 种子 FFE 抽头 + Tx CTLE peaking 关闭
+    # （gDC=0，config 默认），drive RMS @ gain=1.0 = 0.6763 V（PAM4 电平 ±3）⇒
+    # g0 = (0.617×0.3726) / 0.6763 = 0.3399。本工具据此复现 channel_imdd.DRIVER_GAIN_NOMINAL。
     rng = np.random.RandomState(7)
     pam4 = pam4_map(rng.randint(0, 4, 4096))
     tx_config = cfg['tx'].copy()

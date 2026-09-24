@@ -79,10 +79,10 @@ def generate_config(mode=DEFAULT_MODE):
             # --- Physical Device Parameters (SJTU Model) ---
             'driver_vpp': 0.617,          # Volts (target swing into MZM at the nominal calibration)
             # driver_gain 标定值：使基线环境（IL=10dB）+ 种子 FFE/CTLE 下 MZM 摆幅 = 0.617 Vpp。
-            # 由 tools/calibrate_driver_gain.py 实测，与 channel_imdd.DRIVER_GAIN_NOMINAL 保持一致；
-            # 满量程固定 ±1（峰值 1）后 driver 增益 ≈ 1（把 ±1 DAC 输出放大到 MZM 驱动摆幅），
-            # 它是 **可调搜索维度**（上游无 VGA、下游无 RMS 归一化），按倍率 ×0.30~×4.0 搜索。
-            'driver_gain': 1.0197,
+            # 由 tools/calibrate_driver_gain.py 实测，与 channel_imdd.DRIVER_GAIN_NOMINAL(0.3399) 保持一致；
+            # 数字域 PAM4 电平 [-3,-1,1,3]（峰值 3）。它是 **可调搜索维度**（上游无 VGA、
+            # 下游无 RMS 归一化），按倍率 ×0.30~×4.0 搜索。
+            'driver_gain': 0.3399,
             'driver_bw': optics_bw,       # Driver band-limit (decoupled from gain)
             'dac_enob': 5.5,              # DAC quantization ENOB (0 = ideal)
             'adc_enob': 5.5,              # ADC quantization ENOB (0 = ideal)

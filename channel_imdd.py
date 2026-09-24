@@ -23,25 +23,23 @@ _s4p_cache = {}
 # ---------------------------------------------------------------------------
 DRIVER_VPP_NOMINAL = 0.617
 PAM4_RMS_FACTOR = 0.3726
-# 由 tools/calibrate_driver_gain.py 实测标定（基线 IL=10dB + 种子 FFE 抽头，Tx CTLE peaking 关闭
-# gDC=0 即 config 默认 ⇒ MZM 摆幅 0.617Vpp）。
-# 数字域满量程固定 ±1（峰值 1，PAM4 电平 [-1,-1/3,1/3,1]），driver 增益是把 ±1 DAC 输出
-# 放大到 MZM 所需驱动摆幅的桥梁；标称值 g0 由前端链路衰减决定。
+# 由 tools/calibrate_driver_gain.py 实测标定（基线 IL=10dB + 种子 FFE 抽头 + Tx CTLE peaking
+# 关闭，gDC=0 即 config 默认 ⇒ MZM 摆幅 0.617 Vpp），口径与 v6.2.2 一致。
+# 数字域 PAM4 电平 [-3,-1,1,3]（峰值 3），driver 增益把数字摆幅放大到 MZM 所需驱动摆幅；
 # 对外统一按**相对标定值的倍率** driver_gain_ratio = g / DRIVER_GAIN_NOMINAL 表述
 # （搜索箱 ×0.30 ~ ×4.0），与具体满量程约定无关。
-# 标定基础：tools/calibrate_driver_gain.py 实测 drive RMS @ gain=1.0 = 0.225448 V
-#   => g0 = (0.617*0.3726) / 0.225448 = 1.0197
-DRIVER_GAIN_NOMINAL = 1.0197
+# 标定基础：tools/calibrate_driver_gain.py 实测 drive RMS @ gain=1.0 = 0.6763 V
+#   => g0 = (0.617*0.3726) / 0.6763 = 0.3399
+DRIVER_GAIN_NOMINAL = 0.3399
 
 # 驱动波形的"标称 RMS"（= 0.617 Vpp 对应的 RMS）。物理探针输出的 7-tap FIR 以该值为单位，
 # 于是特征在种子点处为 O(1)，而增益倍率仍以乘法因子体现在特征幅度上（不损失任何增益信息）。
 DRIVE_RMS_NOMINAL = DRIVER_VPP_NOMINAL * PAM4_RMS_FACTOR      # 0.2299 V
 
-# --- v7 满量程口径（DAC / ADC 满量程都固定到 ±1，峰值 1） ---
-FULL_SCALE = 1.0                # V，DAC / ADC 统一满量程 ±1（不再用 max|x| 反推满量程）
-# 归一化 PAM4 电平 [-1,-1/3,1/3,1] 的 RMS = √5/3。Rx 侧唯一一层物理 AGC（TIA 输出归一化）
-# 以该值为参考电平，使"干净"的接收 PAM4 信号峰值落在 ±1 ADC 满量程上。
-PAM4_RMS_NORMALIZED = np.sqrt(5.0) / 3.0    # ≈ 0.7454 V
+# Rx 侧唯一一层物理 AGC（TIA 输出摆幅控制）。目标 RMS = √5（≈2.236 V）。
+# v6.2.2 有两级 AGC（TIA 模拟侧 0.1863 V + ADC 数字域 √5），此处合并为一级，目标取
+# 两级级联的等效增益 = √5（= 数字域 PAM4 [-3,-1,1,3] 的 RMS，即 FFE/LMS 判决参考的标度）。
+RX_AGC_RMS = np.sqrt(5.0)
 
 # driver_gain 的搜索箱（以标定值为中心的倍率区间，覆盖 10~20 dB 插损的补偿需求）
 GAIN_LOG10_MIN = -0.52              # 倍率 = 10^-0.52 ≈ 0.30
@@ -141,19 +139,27 @@ def dac_zoh(x, sps_in, sps_out):
     factor = sps_out // sps_in
     return np.repeat(x, factor)
 
-def quantize(x, enob, full_scale=FULL_SCALE):
-    """ Mid-tread uniform quantizer，满量程固定 ±full_scale（峰值 full_scale）。
+def add_quantization_noise(x, enob, rng=None):
+    """ENOB 量化噪声以 AWGN 方式注入（不直接量化、不做确定性 mid-tread 取整）。
 
-    ENOB 位跨越 ±full_scale 满量程，量化步长 step = 2*full_scale / 2^ENOB
-    = full_scale / 2^(ENOB-1)；确定性最近电平取整，超幅钳位到 ±full_scale。
-    等效量化噪声 σ = step/√12 = full_scale / (2^ENOB·√12)（确定性 mid-tread 实现，
-    与加噪口径等价）。不再用 max|x| 反推满量程——数字域 ↔ 物理域的幅度桥接由
-    driver 增益（发端）与 TIA 增益/AGC（收端）承担。
+    经典口径：ENOB 由**满量程单音正弦**测得，SNR_q(dB) = 6.02·ENOB + 1.76。
+    等效量化噪声 σ_q = V_FS / (2^ENOB · √12)，其中 V_FS 是量化器满量程（峰峰值）。
+    这里取 V_FS = 当前信号自身的 max−min（峰峰值），即量化器"恰好不 clip"——与
+    v6.2.2「按块 max|x| 定满量程」口径一致（改用加性白高斯噪声而非确定性取整）。
+
+    推导：满量程正弦信号功率 S = (V_FS/2)²/2 = V_FS²/8；
+    SNR_q = 6.02·ENOB + 1.76 dB ⇒ 10^(SNR_q/10) = 2^(2ENOB)·1.5
+    ⇒ N = V_FS²/(8·2^(2ENOB)·1.5) = V_FS²/(12·2^(2ENOB)) ⇒ σ_q = V_FS/(2^ENOB·√12)。
     """
     if enob <= 0:
         return x
-    step = full_scale / (2.0 ** (enob - 1.0))
-    return np.clip(np.round(x / step) * step, -full_scale, full_scale)
+    vfs = float(np.max(x) - np.min(x))
+    if vfs <= 1e-30:
+        return x
+    sigma_q = vfs / (2.0 ** enob * np.sqrt(12.0))
+    if rng is None:
+        rng = np.random
+    return x + rng.normal(0.0, sigma_q, len(x))
 
 def find_f_scale_for_target_il(freqs, sdd21, target_il_db, nyquist):
     """ Find the frequency scaling factor to hit exactly target_il_db at nyquist """
@@ -287,9 +293,8 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     
     rng = np.random.RandomState(int(config_ch.get('seed', 123)))
 
-    # 2. DAC Output: ENOB quantization -> ZOH
-    if config_ch.get('dac_enob', 0) > 0:
-        x_dac = quantize(x_dac, config_ch['dac_enob'])
+    # 2. DAC Output: ENOB 量化噪声（AWGN，满量程 = DAC 输出自身 max−min）-> ZOH
+    x_dac = add_quantization_noise(x_dac, config_ch.get('dac_enob', 0), rng=rng)
     x = dac_zoh(x_dac, sps_dac, sps_channel)
     fs_analog = baud_rate * sps_channel
 
@@ -402,14 +407,14 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     V_tia = V_tia + noise_tia_v
     V_tia = lowpass_filter(V_tia, config_ch['tia_bw'], fs_analog)
     
-    # AGC / TIA 输出摆幅控制（Rx 侧唯一一层物理 AGC）：
-    # 把 TIA 输出归一化到归一化 PAM4 的 RMS 参考（√5/3 ≈ 0.7454 V），对应 ±1 ADC
-    # 满量程的峰值 1。Rx IL / Rx CTLE 位于 AGC 之后，实际 ADC 输入电平随用例插损物理
-    # 变化，不再被第二层数字域 AGC 掩盖。
+    # 单层 Rx AGC（TIA 输出摆幅控制）。v6.2.2 的两级 AGC（TIA 模拟侧 0.1863 V +
+    # ADC 数字域 √5）合并为一级，目标 RMS = √5（两级级联等效增益）。Rx IL / Rx CTLE
+    # 位于 AGC 之后，实际 ADC 输入电平随用例插损物理变化；ADC 量化噪声按 ADC 输入
+    # 自身 max−min 定满量程，因此 AGC 目标值不改变量化 SNR（只影响固定 host 噪声相对电平）。
     V_tia = V_tia - np.mean(V_tia)
     current_rms_tia = np.std(V_tia)
     if current_rms_tia > 1e-12:
-        V_tia = V_tia * (PAM4_RMS_NORMALIZED / current_rms_tia)
+        V_tia = V_tia * (RX_AGC_RMS / current_rms_tia)
         
     x = V_tia
     
@@ -448,9 +453,8 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     dec_factor = sps_channel // sps_adc
     x_adc_out = x_adc_in[::dec_factor]
     
-    # ADC quantization (ENOB，满量程固定 ±1)。之后不再有第二层数字域 AGC——
-    # 信号幅度由前面唯一一层 TIA AGC 建立，Rx FFE/LMS 自适配到归一化 PAM4 参考。
-    if config_ch.get('adc_enob', 0) > 0:
-        x_adc_out = quantize(x_adc_out, config_ch['adc_enob'])
+    # ADC 量化噪声（AWGN，满量程 = ADC 输出自身 max−min）。之后不再有第二层数字域 AGC——
+    # 信号幅度由前面唯一一层 TIA AGC 建立，Rx FFE/LMS 自适配到 PAM4 参考。
+    x_adc_out = add_quantization_noise(x_adc_out, config_ch.get('adc_enob', 0), rng=rng)
     
     return x_analog, x_adc_in, x_adc_out

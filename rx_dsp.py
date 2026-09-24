@@ -80,10 +80,10 @@ def adaptive_ffe_dfe(rx_sps, tx_ref, num_taps_ffe, ffe_pre, num_taps_dfe, mu_ffe
         
         rx_eq[n] = y
         
-        # Slicer：归一化 PAM4 电平 [-1,-1/3,1/3,1]，判决界 ±2/3、0
-        if y > 2.0 / 3.0: d = PAM4_LEVELS[3]
+        # Slicer：PAM4 电平 [-3,-1,1,3]，判决界 ±2、0
+        if y > 2.0: d = PAM4_LEVELS[3]
         elif y > 0.0: d = PAM4_LEVELS[2]
-        elif y > -2.0 / 3.0: d = PAM4_LEVELS[1]
+        elif y > -2.0: d = PAM4_LEVELS[1]
         else: d = PAM4_LEVELS[0]
         
         ffe_decisions[n] = d

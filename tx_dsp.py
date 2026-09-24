@@ -3,18 +3,19 @@ import ast
 import numpy as np
 from scipy import signal
 
-# 数字域 PAM4 电平：满量程 ±1（外圈电平 = 峰值 = 1）。
-# 符号索引 [0,1,2,3] <-> 电平 [-1, -1/3, +1/3, +1]，标准 Gray 顺序（见 metrics.calculate_ber）。
-PAM4_LEVELS = np.array([-1.0, -1.0 / 3.0, 1.0 / 3.0, 1.0])
+# 数字域 PAM4 电平：外圈电平 = 峰值 = 3（RMS = √5）。沿用 v6.2.2 口径；
+# driver 标称增益 0.3399 与之配套，把 ±3 数字摆幅放大到 MZM 所需的物理摆幅。
+# 符号索引 [0,1,2,3] <-> 电平 [-3, -1, +1, +3]，标准 Gray 顺序（见 metrics.calculate_ber）。
+PAM4_LEVELS = np.array([-3.0, -1.0, 1.0, 3.0])
 
 
 def pam4_map(symbols):
-    """符号索引 [0,1,2,3] -> 归一化 PAM4 电平（峰值 ±1，满量程 ±1）。"""
-    return (np.asarray(symbols) * (2.0 / 3.0)) - 1.0
+    """符号索引 [0,1,2,3] -> PAM4 电平 [-3,-1,1,3]（峰值 ±3）。"""
+    return np.asarray(symbols) * 2.0 - 3.0
 
 
 def pam4_symbols(levels):
-    """归一化 PAM4 电平 -> 最近符号索引 [0,1,2,3]。"""
+    """PAM4 电平 -> 最近符号索引 [0,1,2,3]。"""
     levels = np.asarray(levels)
     return np.argmin(np.abs(levels[..., None] - PAM4_LEVELS[None, ...]), axis=-1)
 
