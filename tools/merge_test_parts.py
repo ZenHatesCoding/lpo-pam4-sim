@@ -22,7 +22,7 @@ from ddps_cases import ENV_CASES  # noqa: E402
 
 def merge(out_dir, parts):
     """把多个分片结果目录合并成一个结果目录，返回合并后的 case_summary DataFrame。"""
-    frames, traces = [], {}
+    frames, traces, probes = [], {}, {}
     for d in parts:
         p = os.path.join(d, 'case_summary.csv')
         if not os.path.exists(p):
@@ -31,6 +31,8 @@ def merge(out_dir, parts):
         for f in os.listdir(d):
             if f.startswith('trace_') and f.endswith('.csv'):
                 traces[f] = os.path.join(d, f)
+            elif f.startswith('probes_') and f.endswith('.csv'):
+                probes[f] = os.path.join(d, f)
 
     summ = pd.concat(frames, ignore_index=True)
     order = {e['name']: i for i, e in enumerate(ENV_CASES)}
@@ -41,6 +43,8 @@ def merge(out_dir, parts):
     summ.to_csv(os.path.join(out_dir, 'case_summary.csv'), index=False)
     summ.to_json(os.path.join(out_dir, 'case_summary.json'), orient='records', indent=2)
     for name, src in sorted(traces.items()):
+        shutil.copyfile(src, os.path.join(out_dir, name))
+    for name, src in sorted(probes.items()):
         shutil.copyfile(src, os.path.join(out_dir, name))
     first = parts[0]
     for f in ('run_config.json', 'model_meta_snapshot.json'):

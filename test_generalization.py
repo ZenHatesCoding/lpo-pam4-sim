@@ -48,8 +48,24 @@ def run_case(cfg, model_a, model_b, env, n_steps=25, per_case_gain=None):
     trace = D._stage2_descent(cfg, model_a, model_b, x0, ffe_pre, n_steps, D.GD_LR)
 
     rows = []
+    probe_rows = []
     if trace:
         for t in trace:
+            for p in t.pop('probes', []):
+                xv = np.asarray(p['x']).tolist()
+                tv = np.asarray(p['taps']).tolist()
+                rec = {'step': t['step'], 'param': int(p['param']), 'sign': int(p['sign'])}
+                for j in range(len(xv)):
+                    rec[f'x_{j}'] = float(xv[j])
+                for j in range(len(tv)):
+                    rec[f'tap_{j}'] = float(tv[j])
+                rec.update({
+                    'gdc': float(p['gdc']), 'gdc2': float(p['gdc2']),
+                    'gain': float(p['gain']), 'gain_ratio': float(p['gain_ratio']),
+                    'u_gain': float(p['u_gain']),
+                    'real_lb': float(p['real_logber']), 'real_ber': float(p['real_mlse']),
+                })
+                probe_rows.append(rec)
             rows.append({
                 'step': t['step'], 'x': np.asarray(t['x']).tolist(),
                 'taps': np.round(np.asarray(t['taps']), 6).tolist(),
@@ -107,7 +123,7 @@ def run_case(cfg, model_a, model_b, env, n_steps=25, per_case_gain=None):
             'best_u_gain': float(D.u_from_gain(gain0)),
             'stop_reason': 'no_trace', 'early_stop': True,
         })
-    return result, rows
+    return result, rows, probe_rows
 
 
 def run_case_aonly(cfg, model_a, env, n_steps=25, per_case_gain=None):
@@ -126,8 +142,24 @@ def run_case_aonly(cfg, model_a, env, n_steps=25, per_case_gain=None):
     trace = D._stage2_descent_aonly(cfg, model_a, x0, ffe_pre, n_steps, D.GD_LR)
 
     rows = []
+    probe_rows = []
     if trace:
         for t in trace:
+            for p in t.pop('probes', []):
+                xv = np.asarray(p['x']).tolist()
+                tv = np.asarray(p['taps']).tolist()
+                rec = {'step': t['step'], 'param': int(p['param']), 'sign': int(p['sign'])}
+                for j in range(len(xv)):
+                    rec[f'x_{j}'] = float(xv[j])
+                for j in range(len(tv)):
+                    rec[f'tap_{j}'] = float(tv[j])
+                rec.update({
+                    'gdc': float(p['gdc']), 'gdc2': float(p['gdc2']),
+                    'gain': float(p['gain']), 'gain_ratio': float(p['gain_ratio']),
+                    'u_gain': float(p['u_gain']),
+                    'real_lb': float(p['real_logber']), 'real_ber': float(p['real_mlse']),
+                })
+                probe_rows.append(rec)
             rows.append({
                 'step': t['step'], 'x': np.asarray(t['x']).tolist(),
                 'taps': np.round(np.asarray(t['taps']), 6).tolist(),
@@ -185,7 +217,7 @@ def run_case_aonly(cfg, model_a, env, n_steps=25, per_case_gain=None):
             'best_u_gain': float(D.u_from_gain(gain0)),
             'stop_reason': 'no_trace', 'early_stop': True,
         })
-    return result, rows
+    return result, rows, probe_rows
 
 
 def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
@@ -217,7 +249,7 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
           f"n_steps={n_steps} | sim_seeds={tuple(sim_seeds)}")
 
     os.makedirs(out_dir, exist_ok=True)
-    results, trace_dfs = [], {}
+    results, trace_dfs, probe_dfs = [], {}, {}
     # 每个用例本跑实际用于初始化的 gain。给了 --seed-config 的 gain 覆盖时所有用例 = 覆盖值；
     # 否则 = per-case RMS 扫描解析出的最优 gain。用于如实写进 run_config.json（与种子点一致）。
     seed_gain_per_case = {}
@@ -239,16 +271,20 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
                   f"(x{case_gain / D.DRIVER_GAIN_NOMINAL:.3f})")
         seed_gain_per_case[env['name']] = case_gain
         if a_only:
-            res, rows = run_case_aonly(cfg, model_a, env, n_steps=n_steps,
-                                       per_case_gain=case_gain)
+            res, rows, probe_rows = run_case_aonly(cfg, model_a, env, n_steps=n_steps,
+                                                   per_case_gain=case_gain)
         else:
-            res, rows = run_case(cfg, model_a, model_b, env, n_steps=n_steps,
-                                 per_case_gain=case_gain)
+            res, rows, probe_rows = run_case(cfg, model_a, model_b, env, n_steps=n_steps,
+                                             per_case_gain=case_gain)
         results.append(res)
         df = pd.DataFrame(rows) if rows else pd.DataFrame()
         if not df.empty:
             df.insert(0, 'env', env['name'])
         trace_dfs[env['name']] = df
+        pdf = pd.DataFrame(probe_rows) if probe_rows else pd.DataFrame()
+        if not pdf.empty:
+            pdf.insert(0, 'env', env['name'])
+        probe_dfs[env['name']] = pdf
         tag2 = ('+' if res.get('delta_lb_seed_to_best', 0) < -0.01 else
                 ('~' if abs(res.get('delta_lb_seed_to_best', 0)) <= 0.01 else '-'))
         print(f"    seed BER_MLSE={res['seed_ber']:.3e} | "
@@ -262,6 +298,9 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
     for name, df in trace_dfs.items():
         safe = name.replace(' ', '_').replace('(', '').replace(')', '')
         df.to_csv(os.path.join(out_dir, f'trace_{safe}.csv'), index=False)
+    for name, pdf in probe_dfs.items():
+        safe = name.replace(' ', '_').replace('(', '').replace(')', '')
+        pdf.to_csv(os.path.join(out_dir, f'probes_{safe}.csv'), index=False)
     with open(os.path.join(out_dir, 'model_meta_snapshot.json'), 'w', encoding='utf-8') as f:
         json.dump(meta, f, indent=2, ensure_ascii=False, default=str)
     with open(os.path.join(out_dir, 'run_config.json'), 'w', encoding='utf-8') as f:

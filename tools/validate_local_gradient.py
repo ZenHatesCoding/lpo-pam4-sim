@@ -74,7 +74,9 @@ def main():
     lb0, ber0 = ev(x0)
     # A 吃探针 8 维，梯度走链式法则；B 吃参数 7 维（x_shape+drive_rms）
     if hasattr(D, '_grad_a_chain'):
-        g_a = D._grad_a_chain(model_a, cfg, x0, gain0, ffe_pre, eps=0.01)
+        x0_7d = np.concatenate([x0, [D.u_from_gain(gain0)]])
+        g_full, _probe_iter = D._grad_a_chain(model_a, cfg, x0_7d, ffe_pre, eps=0.01)
+        g_a = np.asarray(g_full[:n_dim], dtype=float)
         rms0 = D._measure_drive_rms(cfg, D.construct_taps(x0[:D.N_SIDE], ffe_pre),
                                      float(x0[D.N_SIDE]), float(x0[D.N_SIDE+1]), gain0)
         g_b = np.asarray(model_b.grad(

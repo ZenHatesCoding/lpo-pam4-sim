@@ -244,12 +244,17 @@ def _bounds(x0):
                      np.minimum(b[:, 1], x0 + radius)], axis=1)
 
 
-def _grad_a_chain(model_a, config, x, ffe_pre, eps=0.01, eps_u=0.05):
+def _grad_a_chain(model_a, config, x, ffe_pre, eps=0.01, eps_u=0.05, record_probe_ber=False):
     """七维链式梯度：∂A/∂x = [∂A/∂shape(6), ∂A/∂u_gain]。
 
     x = [4 FFE 旁瓣, gDC, gDC2, u_gain]（7 维）。
     shape 维：±eps 扰动参数 -> 重算探针 -> 查 A -> 中心差分（gain 固定）。
     gain 维：±eps_u 扰动 u_gain -> 换算线性 gain -> 重算探针（只有 drive_rms 变）-> 查 A。
+
+    record_probe_ber=True 时，每个 ±ε 试探步（真实在线系统里为拿探针所做的参数微扰状态）
+    同步做一次端到端 MLSE BER 实测并随梯度一并返回——仅记账，不参与方向决策。
+    返回 (g, probe_iter)；probe_iter 每个元素为 {'param','sign','x','taps','gdc','gdc2',
+    'gain','gain_ratio','u_gain','real_logber','real_mlse'}。
     """
     x = np.asarray(x, dtype=float)
     g = np.zeros_like(x)
@@ -258,6 +263,7 @@ def _grad_a_chain(model_a, config, x, ffe_pre, eps=0.01, eps_u=0.05):
     gdc2 = float(x[N_SIDE + 1])
     gain = gain_from_u(float(x[N_SIDE + 2]))
     eps_vec = np.array([eps] * N_SIDE + [eps * 10] * 2 + [eps_u])
+    probe_iter = []
 
     for i in range(len(x)):
         xp = x.copy(); xp[i] += eps_vec[i]
@@ -265,19 +271,37 @@ def _grad_a_chain(model_a, config, x, ffe_pre, eps=0.01, eps_u=0.05):
         if i < N_SIDE + 2:
             taps_p = construct_taps(xp[:N_SIDE], ffe_pre)
             taps_m = construct_taps(xm[:N_SIDE], ffe_pre)
-            probe_p = _probe_features(config, taps_p, float(xp[N_SIDE]),
-                                      float(xp[N_SIDE + 1]), gain)
-            probe_m = _probe_features(config, taps_m, float(xm[N_SIDE]),
-                                      float(xm[N_SIDE + 1]), gain)
+            gdc_p = float(xp[N_SIDE]); gdc2_p = float(xp[N_SIDE + 1])
+            gdc_m = float(xm[N_SIDE]); gdc2_m = float(xm[N_SIDE + 1])
+            gain_p = gain_m = gain
         else:
-            gp = gain_from_u(float(xp[N_SIDE + 2]))
-            gm = gain_from_u(float(xm[N_SIDE + 2]))
-            probe_p = _probe_features(config, taps, gdc, gdc2, gp)
-            probe_m = _probe_features(config, taps, gdc, gdc2, gm)
+            taps_p = taps_m = taps
+            gdc_p = gdc_m = gdc; gdc2_p = gdc2_m = gdc2
+            gain_p = gain_from_u(float(xp[N_SIDE + 2]))
+            gain_m = gain_from_u(float(xm[N_SIDE + 2]))
+        probe_p = _probe_features(config, taps_p, gdc_p, gdc2_p, gain_p)
+        probe_m = _probe_features(config, taps_m, gdc_m, gdc2_m, gain_m)
         ap = _predict_a_probe(model_a, probe_p)
         am = _predict_a_probe(model_a, probe_m)
         g[i] = (ap - am) / (2.0 * eps_vec[i])
-    return g
+        if record_probe_ber:
+            lb_p, ber_p = _physical_eval(config, taps_p, gdc_p, gdc2_p, gain_p)
+            lb_m, ber_m = _physical_eval(config, taps_m, gdc_m, gdc2_m, gain_m)
+            probe_iter.append({
+                'param': i, 'sign': +1, 'x': np.asarray(xp),
+                'taps': np.asarray(taps_p), 'gdc': gdc_p, 'gdc2': gdc2_p,
+                'gain': gain_p, 'gain_ratio': gain_p / DRIVER_GAIN_NOMINAL,
+                'u_gain': float(xp[N_SIDE + 2]),
+                'real_logber': lb_p, 'real_mlse': ber_p,
+            })
+            probe_iter.append({
+                'param': i, 'sign': -1, 'x': np.asarray(xm),
+                'taps': np.asarray(taps_m), 'gdc': gdc_m, 'gdc2': gdc2_m,
+                'gain': gain_m, 'gain_ratio': gain_m / DRIVER_GAIN_NOMINAL,
+                'u_gain': float(xm[N_SIDE + 2]),
+                'real_logber': lb_m, 'real_mlse': ber_m,
+            })
+    return g, probe_iter
 
 
 def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, lr):
@@ -310,7 +334,7 @@ def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, lr):
     pred_a_prev = None
 
     for step in range(n_steps):
-        g = _grad_a_chain(model_a, config, x, ffe_pre)
+        g, probe_iter = _grad_a_chain(model_a, config, x, ffe_pre, record_probe_ber=True)
         gs = g * span
         direction = np.zeros_like(g)
         active = []
@@ -376,6 +400,7 @@ def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, lr):
                 'pred_a': pred_a, 'pred_b': pred_b,
                 'pred_b_ber': 10.0 ** pred_b, 'allowed_ber': allowed_ber,
                 'real_logber': real_logber, 'real_mlse': real_mlse,
+                'probes': probe_iter,
                 'grad_norm': float(np.linalg.norm(g)), 'stop_reason': 'marginal_gain',
             })
             print(f"[Stage2] stop: marginal predicted gain "
@@ -392,6 +417,7 @@ def _stage2_descent(config, model_a, model_b, x0, ffe_pre, n_steps, lr):
             'pred_a': pred_a, 'pred_b': pred_b,
             'pred_b_ber': 10.0 ** pred_b, 'allowed_ber': allowed_ber,
             'real_logber': real_logber, 'real_mlse': real_mlse,
+            'probes': probe_iter,
             'grad_norm': float(np.linalg.norm(g)), 'stop_reason': '',
         })
 
@@ -416,7 +442,7 @@ def _stage2_descent_aonly(config, model_a, x0, ffe_pre, n_steps, lr):
     pred_a_prev = None
 
     for step in range(n_steps):
-        g = _grad_a_chain(model_a, config, x, ffe_pre)
+        g, probe_iter = _grad_a_chain(model_a, config, x, ffe_pre, record_probe_ber=True)
         gs = g * span
         direction = np.zeros_like(g)
         active = []
@@ -451,6 +477,7 @@ def _stage2_descent_aonly(config, model_a, x0, ffe_pre, n_steps, lr):
                 'pred_a': pred_a, 'pred_b': 0.0,
                 'pred_b_ber': 0.0, 'allowed_ber': 0.0,
                 'real_logber': real_logber, 'real_mlse': real_mlse,
+                'probes': probe_iter,
                 'grad_norm': float(np.linalg.norm(g)), 'stop_reason': 'marginal_gain',
             })
             break
@@ -465,6 +492,7 @@ def _stage2_descent_aonly(config, model_a, x0, ffe_pre, n_steps, lr):
             'pred_a': pred_a, 'pred_b': 0.0,
             'pred_b_ber': 0.0, 'allowed_ber': 0.0,
             'real_logber': real_logber, 'real_mlse': real_mlse,
+            'probes': probe_iter,
             'grad_norm': float(np.linalg.norm(g)), 'stop_reason': '',
         })
 

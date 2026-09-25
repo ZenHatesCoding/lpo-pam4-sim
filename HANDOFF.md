@@ -1,16 +1,23 @@
 # HANDOFF — DDPS
 
-> **新 session 必读**：下一轮要做的全部事，看下方 **「## 待办：v7 全流程重做」+「## v7 开工检查清单」**。上面的「当前状态 / session 做的事 / 物理层 / 架构 / 复现命令」是背景与上下文。动手前先读 `AGENTS.md`。
+> **新 session 必读**：下一轮要做的全部事，看下方 **「## 待办：v7.1 收尾」**。上面的「当前状态 / session 做的事 / 物理层 / 架构 / 复现命令」是背景与上下文。动手前先读 `AGENTS.md`。
 
-## 当前状态（本次 session 结束点）
+## 当前状态（v7.1 主流程完成、A-only 运行中）
 
-在线调优演示改用**次优工作点冷启动**（v6.2.2）。上一版从 per-case RMS 标定 gain 出发，gain 已接近各用例最优，多个强信号用例起点即 0 错误（检测限下），看不到在线调优的下降过程；本版改为从一个基线约 1e-5 的次优点出发，让 15 用例全部可见下降。
+v7 物理层重做后确认 3 处口径错误（量化噪声、满量程、driver 增益、接收 AGC），已回退修正为 v7.1 并重新跑全流程。v7 产物已归档 `archive/20260924_ddps_v7_physical_model/`（移出远端）；v7.1 现役产物沿用无版本号名字。
 
-- **种子（次优工作点，7 维全给定）**：取自训练数据实测点 `Base_IL10x10:683`。Tx FFE 5 抽头 `[-0.0654, -0.2834, 0.5587, -0.0045, 0.0880]`（主抽头 0.5587 派生）、Tx CTLE `gDC=5.73 dB, gDC2=1.45 dB`、`driver_gain=0.2728`（×0.80，`u_gain=-0.0955`）。gain 接近标称、未按用例标定，是次优的主要来源。存 `result/seed_config_bad_1e5.json`。
-- **在线测试结果**（15 用例，4194304 符号 × 3 种子 42/43/44）：**15/15 全部下降，0 持平、0 退步**，几何平均 **×186.7**。种子 BER 1.35e-6 ~ 1.83e-3（基线 Base 1.20e-5）；调优后最优 BER 1.19e-7 ~ 7.55e-7（多数逼近检测底）。最深：IL20x20 ×3480（gain ×0.80→×1.11）、Comb_IL20x20_CD15_DGD5 ×2429；高噪声 HighNoise_IL10x10 ×630。gain 维从 ×0.80 被梯度推到各用例最优倍率附近（强信号 ×0.66~×0.75、弱/高损 ×0.86~×1.11）。
-- **A-only 消融**（15 用例，同协议）：与主流程逐用例一致，Model B 全程未触发否决（价值仍是"保险"）。
-- **交付件交互化**：`deliverables/DDPS_v6.2_Deliverable.html` 全文 h2/h3/h4 标题可点击折叠（大纲式），6.2 图 A+B / A-only tab 切换，8 处长表/命令块 details 折叠；打印自动展开全部。梯度口径统一为 7 维双边差分（14 探针 + 14 A，eps 0.01/0.1/0.05）。
-- 旧（好种子）结果已归档：`result/ddps_v6_2_main` → `archive/ddps_v6_2_main_goodseed`、`result/ddps_v6_2_aonly` → `archive/ddps_v6_2_aonly_goodseed`（archive/ gitignored）。
+- **物理层修正（v7.1）**：量化噪声按 SNR_q = 6.02·ENOB + 1.76 以 AWGN 注入（满量程 = DAC/ADC 输出信号自身 max−min 峰峰值）；driver 标称增益回退 0.3399；接收机两级 AGC 合并为单级、目标 RMS = √5（级联等效）。
+- **已完成**：per-case RMS 扫描、数据集（2001 点）、训练 A/B（A R²=0.692/Spearman=0.884；B R²=0.702/Spearman=0.878/ρ=1.752）、次优起点、**主流程在线调优（15/15 改善、0 退步、几何均值 ×33518.50，225 步 0 步劣于种子）**。
+- **A-only 重跑中**（pwsh-19，jobs=8）。本次新增**试探步 BER 记录**：每步 14 个 ±ε 微扰态各自端到端 MLSE BER 记入 `probes_<用例>.csv`（主流程 15 用例 × 210 态已核验），交付件 §6.4 表 + 收敛图灰点。
+- **种子（v7.1 次优工作点）**：FFE `[-0.0885,-0.3147,0.4079,0.0845,0.1043]`（主抽头 0.4079）、gDC=6.73 dB、gDC2=0.85 dB、gain=0.1106（×0.325，u_gain=−0.4875），取自 `Base_IL10x10:1630`（数据集实测 BER 1.1e-4）。
+
+## 待办：v7.1 收尾
+
+1. 等 A-only 完成（pwsh-19，~34h）。
+2. `report_ddps.py` 对 `result/ddps_aonly` 出图 → `make_deliverable.py` 出 HTML（主流程报告已生成于 `result/ddps_main/report/`）。
+3. 交付件 §6.1b 消融行（A-only 步数/劣化步数）用 A-only 实测回填；其余结果相关文案已按主流程实际结果更新。
+4. `git add` 全部新产物 + 提交 + 推送（v7.1）。
+5. `present deliverables/DDPS_Deliverable.html`（最后动作）。
 
 ## 本次 session 做的事
 
@@ -50,7 +57,7 @@
 3. 强信号用例调优后仍落在 0~1 错误检测限（1.19e-7 伪计数），改善倍数受限于检测底，用 95% CL 上界表述。
 4. 改善主要来自 gain 维（第 7 维），形状/CTLE 微调为次要贡献。
 
-## 待办：v7 全流程重做（13 条处置方案 · 已评审定案）
+## 历史：v7 全流程重做方案（13 条处置 · 已完成并归档，v7 被 v7.1 取代）
 
 > 下一版本 **v7**。执行顺序：先改完所有代码并逐条验证（第 6 条用**合成单测**验证 Burg 还原 `a1`；第 10 条等价测试转正），最后全流程重跑（数据生成 → 训练 → 在线调优 → 报告 → 交付件）。被取代的 v6.2.2 全套产物（结果/模型/数据集/交付件）归档进 `archive/`（归档目录名带版本号）；重跑后的现役产物仍用不带版本号的名字（`result/ddps_main`、`models/ddps`、`dataset/ddps_dataset_*`、`deliverables/DDPS_Deliverable.html`）。「v7」只记进 CHANGELOG/HANDOFF 正文。
 
@@ -108,7 +115,7 @@
 - **现状**：模块级 `SEED_TAPS`（名义默认）+ 一堆 `--seed-config` 覆盖逻辑；当前 `seed_config_bad_1e5.json` 基线 Base 约 1.2e-5（比本意的 ~1e-4 好约 10×）；`tools/verify_tail_fix.py` 第 20 行还有一份重复 taps 常量。
 - **处置（干净重构）**：① 把「次优起点」做成显式一等公民——`seed_config`（tap + gDC + gDC2 + gain/drive_rms）；② 按本意做出**基线 ~1e-4** 的次优点；③ `SEED_TAPS` 降级为「未提供 seed_config 时的兜底」并写清注释；④ 删除重复常量、统一引用。
 
-## v7 开工检查清单（新 session 照此顺序执行）
+## 历史：v7 开工检查清单（已完成，v7 已被 v7.1 取代）
 
 1. **读** `AGENTS.md`（交付件原则 / 归档判据 / 代码命名）+ 本 HANDOFF 全部。
 2. **代码改动（由小到大，每步 `py_compile` + import + 冒烟）**：
@@ -123,10 +130,10 @@
 
 ## 物理层
 
-PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → Tx CTLE(gDC,gDC2, peaking) → Driver(gain) → Driver BW(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx IL → +1mV 噪声 → Rx CTLE(固定 gDC=6/gDC2=3) → ADC → Rx FFE(22-tap,LMS) → Burg → MLSE(memory=1)。**Tx driver 路径无 VGA、无 RMS 归一化**（gain 是链路最后一个不被下游吸收的线性乘子，故可作独立搜索维）；**Rx 侧 TIA 输出与 ADC 数字域各有一级 AGC**（分别归一化到 0.1863 V 与 √5，见 `channel_imdd.py`）。
+PAM4（数字电平 [-3,-1,1,3]，峰值 3）→ 5-tap Tx FFE → DAC(ZOH, ENOB 5.5 量化噪声以 AWGN 注入) → Tx IL(S4P) → +1mV 噪声 → Tx CTLE(gDC,gDC2, peaking) → Driver(gain) → Driver BW(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx IL → +1mV 噪声 → Rx CTLE(固定 gDC=6/gDC2=3) → ADC(ENOB 5.5 量化噪声以 AWGN 注入) → Rx FFE(22-tap,LMS) → Burg → MLSE(memory=1)。**Tx driver 路径无 VGA、无 RMS 归一化**（gain 是链路最后一个不被下游吸收的线性乘子，故可作独立搜索维）；**Rx 侧单层 AGC 在 TIA 输出**（目标 RMS = √5 ≈ 2.236 V，见 `channel_imdd.RX_AGC_RMS`）。量化噪声 σ = V_FS/(2^ENOB·√12)，V_FS = 信号自身 max−min（恰好不 clip），由 SNR_q = 6.02·ENOB+1.76 dB 推导。
 
 - Tx CTLE 为 OIF 2Z3P peaking 拓扑：`gDC` = 高频 peaking gain（直流增益恒 0 dB），`gDC2` = LF shelf gain。优化边界 `gDC∈[0,12] dB, gDC2∈[0,4] dB`。
-- **gain**：线性驱动增益，标称 `DRIVER_GAIN_NOMINAL=0.3399`；`u_gain = log10(gain/0.3399)`。次优种子 gain ×0.80。
+- **gain**：线性驱动增益，标称 `DRIVER_GAIN_NOMINAL=0.3399`；`u_gain = log10(gain/0.3399)`。次优种子工作点由 `tools/pick_seed_config.py` 从训练数据选取（目标基线 BER ≈ 1e-4）。
 - Rx DSP：LS 初始化 + 数据辅助 LMS 训练 `train_len=10000`，之后权重冻结；BER 窗口 `[train_len, n_valid)`（排除尾部垃圾符号），0 错误 `1/(2N)` 伪计数。
 
 ## 架构
@@ -134,20 +141,26 @@ PAM4 → 5-tap Tx FFE → DAC(ZOH,ENOB 5.5) → Tx IL(S4P) → +1mV 噪声 → T
 - **Model A（方向代理）**：输入 = [7-tap Tx FIR 探针, drive_rms]（8 维波形域）→ log10(BER_MLSE)。WhiteBoxRidge（二阶多项式 + L2 Ridge 闭式解，带解析梯度）。
 - **Model B（风险控制）**：输入 = [4 FFE 旁瓣, gDC, gDC2, drive_rms]（7 维参数域）→ log10(BER_MLSE) 保守上包络。gain 经 drive_rms 进入 B。
 - **梯度（7 维链式法则）**：扰动 7 维参数（4 FFE 旁瓣 + gDC + gDC2 + u_gain）→ 重算探针 → 查 A（中心差分）。
-- 信任域：形状/CTLE 不变；gain ±0.15 dex 围绕种子。
+- 信任域：FFE ±0.10、CTLE ±3.0 dB；gain ±0.30 dex 围绕种子。
 
 ## 复现命令
 
 ```powershell
+# 0) per-case RMS 扫描 + 数据集 + 训练
+.venv\Scripts\python.exe tools/scan_per_case_rms.py --jobs 12
+.venv\Scripts\python.exe dataset_generator.py --base-samples 2000 --only-envs Base_IL10x10 --num-symbols 1048576 --sim-seeds 42,43,44 --jobs 12 --core-samples 1200
+.venv\Scripts\python.exe -c "from train_surrogates import train; import glob; train(sorted(glob.glob('dataset/ddps_dataset_*.csv'))[-1], 'models/ddps', pipeline_tag='ddps', gain_mode='gradient_with_rms_init')"
+.venv\Scripts\python.exe tools/pick_seed_config.py --target-log10 -4.0 --env Base_IL10x10 --out result/seed_config_bad_1e4.json
+
 # 1) 主流程（2^22 × 3 种子，4 进程，从次优起点出发）
-.venv\Scripts\python.exe tools/run_parallel_envs.py --model-dir models/ddps --out-dir result/ddps_main --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44 --jobs 4
+.venv\Scripts\python.exe tools/run_parallel_envs.py --model-dir models/ddps --out-dir result/ddps_main --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44 --jobs 4
 
 # 2) A-only 消融
-.venv\Scripts\python.exe tools/run_parallel_envs.py --model-dir models/ddps --out-dir result/ddps_aonly --a-only --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44 --jobs 4
+.venv\Scripts\python.exe tools/run_parallel_envs.py --model-dir models/ddps --out-dir result/ddps_aonly --a-only --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44 --jobs 4
 
 # 3) 报告 + 交付件
-.venv\Scripts\python.exe report_ddps.py --test-dir result/ddps_main --model-dir models/ddps --seed-config result/seed_config_bad_1e5.json
-.venv\Scripts\python.exe report_ddps.py --test-dir result/ddps_aonly --model-dir models/ddps --seed-config result/seed_config_bad_1e5.json
+.venv\Scripts\python.exe report_ddps.py --test-dir result/ddps_main --model-dir models/ddps --seed-config result/seed_config_bad_1e4.json --summary-out result/SUMMARY.md
+.venv\Scripts\python.exe report_ddps.py --test-dir result/ddps_aonly --model-dir models/ddps --seed-config result/seed_config_bad_1e4.json
 .venv\Scripts\python.exe make_deliverable.py --baseline result/ddps_main --a-only result/ddps_aonly
 ```
 

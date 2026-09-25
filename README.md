@@ -38,7 +38,7 @@ DEFAULT_MODE = '112G'
 
 | 文档 | 内容 |
 | --- | --- |
-| [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_Deliverable.html) | 链路架构、A/B 双代理、7 维链式梯度（含 gain）、安全红线、次优起点冷启动、15 用例结果（12/15 正向、几何平均 ×18.69）；可折叠大纲 + A+B/A-only 图切换 |
+| [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_Deliverable.html) | 链路架构、A/B 双代理、7 维链式梯度（含 gain）、安全红线、次优起点冷启动、15 用例结果（15/15 正向、几何平均 ×33518）；可折叠大纲 + A+B/A-only 图切换 |
 | [历史交付件与历史实验](archive/) | v2~v6.1 各版本交付件 HTML、训练环境对比实验、历史结果/模型/数据集（本地归档，不入远端） |
 | [01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md) | 收发机模型、多采样率机制、`config.xlsx` 参数物理含义 |
 | [02. 独立分析与诊断工具集](docs/02_Utility_Scripts.md) | optimizers/ + tools/ 目录 + 核心脚本 |

@@ -62,6 +62,30 @@ def _trace(test_dir, env):
     return pd.read_csv(p) if os.path.exists(p) else None
 
 
+def _probes(test_dir, env):
+    """每步 14 个 ±ε 试探微扰态的端到端 MLSE BER（梯度估计期间的链路实测点）。"""
+    p = os.path.join(test_dir, f'probes_{env}.csv')
+    return pd.read_csv(p) if os.path.exists(p) else None
+
+
+def _probe_stats(test_dir, envs):
+    """逐用例的试探步 BER 概览（探针工作点包络的统计）。"""
+    rows = []
+    for env in envs:
+        pr = _probes(test_dir, env)
+        if pr is None or pr.empty or 'real_ber' not in pr.columns:
+            continue
+        rows.append({
+            'env': env,
+            'n_steps': int(pr['step'].nunique()),
+            'n_probes': int(len(pr)),
+            'ber_min': float(pr['real_ber'].min()),
+            'ber_max': float(pr['real_ber'].max()),
+            'ber_med': float(pr['real_ber'].median()),
+        })
+    return rows
+
+
 def _summary(test_dir):
     return pd.read_csv(os.path.join(test_dir, 'case_summary.csv'))
 
@@ -72,7 +96,7 @@ def _is_aonly(test_dir):
     return ('pb_seed' in summ.columns) and (float(summ['pb_seed'].abs().sum()) < 1e-12)
 
 
-def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True):
+def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True, pr=None):
     steps = tr['step'].values
     # 种子点（step -1）作为曲线起点：trace 从梯度第 1 步开始记录，
     # 种子点（次优工作点，~1e-4）的 BER 高于后续各步，
@@ -90,6 +114,13 @@ def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True):
                     lw=1.1, color=C_PREDB, label='Model B 预测（风险控制）')
     ax.semilogy(steps_ext, real_ber_ext, marker='o', ms=3.6, lw=1.5,
                 color=C_REAL, label='实测 BER_MLSE')
+    # 试探步 BER 包络：每步 14 个 ±ε 微扰态（梯度估计期间链路实际所处的探针工作点）
+    if pr is not None and not pr.empty:
+        for step in steps:
+            ps = pr[pr['step'] == step]['real_ber'].values
+            if len(ps):
+                ax.scatter([step] * len(ps), ps, s=7, color='#9aa0a6', alpha=0.45,
+                           zorder=2.6, edgecolors='none')
     ax.axhline(seed, color=C_SEED, ls='--', lw=0.9, alpha=0.8,
                label='种子 BER（起点）')
     # 安全红线：如果从不触发（B 单调下降），不画——画一条没人碰的线只会干扰
@@ -110,11 +141,14 @@ def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True):
 def _add_shared_legend(fig, loc='upper center', ncol=5, fontsize=9, y_offset=0.985, aonly=False):
     """在 figure 顶部（suptitle 下方）放统一图例，避免子图内 legend 挤压数据。"""
     from matplotlib.lines import Line2D
+    probe_h = Line2D([0], [0], marker='o', ms=5, color='#9aa0a6', ls='none', alpha=0.6,
+                     markeredgecolor='none', label='试探步 BER（每步 14 个 ±ε 微扰态）')
     handles = [
         Line2D([0], [0], color=C_PREDA, marker='^', ms=5, ls='--', lw=1.2,
                label='Model A 预测（方向代理）'),
         Line2D([0], [0], color=C_REAL, marker='o', ms=5, lw=1.5,
                label='实测 BER_MLSE'),
+        probe_h,
         Line2D([0], [0], color=C_SEED, ls='--', lw=1.2, label='种子 BER（起点）'),
     ]
     if not aonly:
@@ -125,6 +159,7 @@ def _add_shared_legend(fig, loc='upper center', ncol=5, fontsize=9, y_offset=0.9
                    label='Model B 预测（风险控制）'),
             Line2D([0], [0], color=C_REAL, marker='o', ms=5, lw=1.5,
                    label='实测 BER_MLSE'),
+            probe_h,
             Line2D([0], [0], color=C_SEED, ls='--', lw=1.2, label='种子 BER（起点）'),
             Line2D([0], [0], color=C_LIMIT, ls='-.', lw=1.2, label='安全红线（种子×1.25）'),
         ]
@@ -150,14 +185,15 @@ def figure_convergence_grid(test_dir, report_dir, envs):
         r = rows[env]
         imp = r['seed_ber'] / r['best_ber']
         _plot_convergence(ax, tr, r,
-                          title=f'{env}\n改善 ×{imp:.2f}', small=True)
+                          title=f'{env}\n改善 ×{imp:.2f}', small=True,
+                          pr=_probes(test_dir, env))
     for j in range(n, len(axes)):
         axes[j].axis('off')
     aonly = _is_aonly(test_dir)
     label = 'A-only（只用 Model A 梯度）' if aonly else 'A+B（完整流程）'
     fig.suptitle(f'DDPS 在线调优收敛轨迹 — {label}'
                  f'（15 环境，只用基线训练泛化，7 维 FFE+CTLE+gain）', fontsize=12)
-    _add_shared_legend(fig, ncol=3 if aonly else 5, fontsize=9, y_offset=0.965, aonly=aonly)
+    _add_shared_legend(fig, ncol=4 if aonly else 6, fontsize=9, y_offset=0.965, aonly=aonly)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     out = os.path.join(report_dir, 'ddps_convergence.png')
     fig.savefig(out, dpi=125)
@@ -251,8 +287,11 @@ def figure_tracking(test_dir, report_dir, envs):
         # 按类别着色，不逐用例加 legend
         cat = _env_category(env)
         ax1.scatter(dA, dR, s=20, alpha=0.6, color=CAT_COLORS[cat])
-    lo = min(min(all_dA), min(all_dR)) - 0.02
-    hi = max(max(all_dA), max(all_dR)) + 0.02
+    if not all_dA or not all_dR:
+        lo, hi = -0.1, 0.1
+    else:
+        lo = min(min(all_dA), min(all_dR)) - 0.02
+        hi = max(max(all_dA), max(all_dR)) + 0.02
     ax1.plot([lo, hi], [lo, hi], 'k--', lw=1, alpha=0.5)
     ax1.set_xlabel('Δ预测 (dex)', fontsize=10)
     ax1.set_ylabel('Δ实测 (dex)', fontsize=10)
@@ -316,7 +355,7 @@ def figure_hardcase(test_dir, report_dir, envs):
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     # (1) 收敛三曲线
     _plot_convergence(axes[0, 0], tr, summ[summ['env'] == hard_env].iloc[0],
-                      title=f'{hard_env} 收敛轨迹')
+                      title=f'{hard_env} 收敛轨迹', pr=_probes(test_dir, hard_env))
     axes[0, 0].legend(fontsize=7, loc='lower left', framealpha=0.9)
     # (2) FFE 抽头 seed vs best
     ax = axes[0, 1]
@@ -395,8 +434,8 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
         L.append(f"| {env} | {env_label(env)} | `{r['seed_ber']:.3e}` | "
                  f"`{r['best_ber']:.3e}` | `{r['final_ber']:.3e}` | ×{imp:.2f} | {mono} | "
                  f"×{r.get('best_gain_ratio', 1.0):.2f} | {r['best_gdc']:+.2f} | {r['best_gdc2']:+.2f} |\n")
-    L.append('\n> *单调判定容差 0.03 dex（BER 估计噪声量级）；标"否*"的用例含单步抖动，'
-             '其中部分终点劣于种子（超调或 40 dB 总插损方向失效，见 2 汇总）。\n\n')
+    L.append('\n> *单调判定容差 0.03 dex（BER 估计噪声量级）；标"否*"的用例含单步抖动（0.03 dex 容差内的 BER 估计噪声），'
+             '终点劣化情况见 2 汇总。\n\n')
 
     n = len(summ)
     better = int((summ['delta_lb_seed_to_best'] < -0.01).sum())
@@ -412,7 +451,19 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
     L.append(f'![三曲线收敛]({os.path.relpath(fig_conv, os.path.dirname(test_dir) or ".")})\n\n')
     L.append(f'![gain 倍率与 drive_rms 轨迹]({os.path.relpath(fig_gain, os.path.dirname(test_dir) or ".")})\n\n')
 
-    L.append('## 4. 架构（A = 探针 → BER，B = 参数 → BER）\n\n')
+    probe_rows = _probe_stats(test_dir, envs)
+    if probe_rows:
+        L.append('## 4. 试探步 BER 包络（梯度估计的 ±ε 微扰态）\n\n')
+        L.append('每步 7 维中心差分产生 14 个 ±ε 微扰态；真实在线系统里为拿探针而做的参数微扰')
+        L.append('会让链路实际处于这些工作点，因此逐一记录了各自的端到端 MLSE BER（核心图灰色散点）。\n\n')
+        L.append('| 用例 | 步数 | 试探态数 | 试探 BER 最小 | 试探 BER 最大 | 试探 BER 中位 |\n')
+        L.append('| --- | --- | --- | --- | --- | --- |\n')
+        for r in probe_rows:
+            L.append(f"| {r['env']} | {r['n_steps']} | {r['n_probes']} | "
+                     f"`{r['ber_min']:.2e}` | `{r['ber_max']:.2e}` | `{r['ber_med']:.2e}` |\n")
+        L.append('\n')
+
+    L.append('## 5. 架构（A = 探针 → BER，B = 参数 → BER）\n\n')
     L.append('**Model A（方向代理）**：输入 = [7-tap Tx FIR 探针, drive_rms]（8 维波形域）\n')
     L.append('-> log10(BER_MLSE) 条件均值。在线调优时拿不到收端 BER，只能拿发端探针，\n')
     L.append('所以 A 建立发端探针到收端 BER 的方向映射。梯度通过链式法则：扰动')
@@ -423,10 +474,11 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
     L.append('**A/B 输入空间不同**（波形域 vs 参数域），误差来源相互独立。\n\n')
     L.append('**gain 维**：通过 drive_rms 进入 A/B 输入，作为第 7 维走链式梯度，信任域 ±0.30 dex；\n')
     L.append('每用例最优倍率见 per-case target_rms 标定参照（per-case target_rms -> 解析 gain）。\n')
-    L.append('在线调优从次优起点（gain ×0.616）出发，随梯度下降把 gain 推到各用例最优倍率附近。\n\n')
+    L.append(f'在线调优从次优起点（gain ×{D.SEED_GAIN / D.DRIVER_GAIN_NOMINAL:.3f}）出发，'
+             '随梯度下降把 gain 推到各用例最优倍率附近。\n\n')
 
     if summary_text:
-        L.append('## 5. 汇总标注\n\n')
+        L.append('## 6. 汇总标注\n\n')
         L.append(f'`{summary_text}`\n\n')
 
     out = os.path.join(report_dir, 'ddps_report.md')
