@@ -1078,7 +1078,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <!--ABLATION_ROWS-->
 </table>
 </div>
-<p class="mut">结果：A-only 与 A+B 收敛到同一最优点（Model B 全程未触发，逐用例最优 BER 一致）；A-only 225 步中 87 步劣于起点、A+B 217 步中 86 步劣于起点——劣化来自代理方向失效 / 超调，不是 Model B 拦截所致。两组各自的收敛 / gain / 预测 / 最难用例图见 6.2（A+B / A-only 切换）。</p>
+<p class="mut">结果：A-only 与 A+B 收敛到同一最优点（Model B 全程未触发，逐用例最优 BER 一致）；A-only 与 A+B 各自全程 225 步真实 BER 均 0 步劣于起点——无劣化需要拦截，Model B 仅起保险作用。两组各自的收敛 / gain / 预测 / 最难用例图见 6.2（A+B / A-only 切换）。</p>
 
 <h3>6.2 收敛轨迹与物理量变化 — A+B / A-only 切换</h3>
 <p>A+B 与 A-only 同一起点、同一步数（15 步），唯一区别是是否启用 Model B 安全拦截。点下方按钮切换两组图：</p>
