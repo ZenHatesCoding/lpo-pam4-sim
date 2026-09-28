@@ -222,7 +222,7 @@ def run_case_aonly(cfg, model_a, env, n_steps=25, per_case_gain=None):
 
 def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
                        sim_seeds=(42,), only_envs=None, a_only=False,
-                       per_case_rms_path=None):
+                       per_case_rms_path=None, tx_noise_snr_db=0.0):
     # config.xlsx 由主进程入口（__main__ / run_parallel_envs）在 spawn worker 前统一
     # 生成/校验；此处只 load_config 只读，绝不在 worker 里就地生成（避免多进程写坏 xlsx）。
     model_a, model_b = load_models(model_dir)
@@ -260,6 +260,7 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
         base_cfg = utils_config.load_config('config.xlsx')
         cfg = apply_env_to_config(base_cfg, env)
         cfg['system']['num_symbols'] = int(num_symbols)
+        cfg['system']['tx_noise_snr_db'] = float(tx_noise_snr_db)
         case_gain = None
         if SEED_GAIN_OVERRIDE is not None:
             case_gain = SEED_GAIN_OVERRIDE
@@ -326,8 +327,9 @@ if __name__ == "__main__":
     ap.add_argument('--out-dir', default='result/ddps_main')
     ap.add_argument('--n-steps', type=int, default=25)
     ap.add_argument('--num-symbols', type=int, default=262144)
-    ap.add_argument('--sim-seeds', type=str, default='42,43,44',
-                    help='逗号分隔的仿真种子序列（多seed取log10 BER均值）')
+    ap.add_argument('--sim-seeds', type=str, default='42',
+                    help='逗号分隔的仿真种子序列（单种子口径：一次交付只用一个种子；'
+                         '如需稳健性检查，用户自己换种子重跑）')
     ap.add_argument('--only-envs', type=str, default=None, help='仅跑指定环境（逗号分隔）')
     ap.add_argument('--a-only', action='store_true',
                     help='A-only 对比实验：只用 Model A 梯度，不查 Model B，不走安全拦截')
@@ -336,6 +338,8 @@ if __name__ == "__main__":
     ap.add_argument('--seed-config', type=str, default=None,
                     help='种子点 JSON（best_pre_post/best_gdc/best_gdc2，可选 best_u_gain 或 best_gain）；'
                          '不提供则用默认 SEED_TAPS + per-case RMS gain')
+    ap.add_argument('--tx-noise-snr-db', type=float, default=0.0,
+                    help='发端人为加噪 SNR（dB，相对 PAM4 满量程 RMS=√5）；>0 抬升 BER 地板用于快速验证')
     a = ap.parse_args()
     # 覆盖种子点（用于非基线环境训练的模型 / 次优种子演示）：统一走 apply_seed_config。
     if a.seed_config:
@@ -349,4 +353,5 @@ if __name__ == "__main__":
                        num_symbols=a.num_symbols,
                        sim_seeds=sim_seeds,
                        only_envs=only, a_only=a.a_only,
-                       per_case_rms_path=a.per_case_rms_path)
+                       per_case_rms_path=a.per_case_rms_path,
+                       tx_noise_snr_db=a.tx_noise_snr_db)

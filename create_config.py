@@ -44,7 +44,12 @@ def generate_config(mode=DEFAULT_MODE):
             'sps_adc': 2,             
             'enable_eye_plot': True,
             'enable_spectrum_plot': True,
-            'num_symbols': 65536      
+            'num_symbols': 65536,
+            # 发端人为加噪开关（快速验证 / 低 SNR 模式）：
+            # >0 时在 Tx DSP 出口注入相对 PAM4 满量程 RMS=√5 的 AWGN（dB），
+            # 抬升 BER 地板（~1e-6 -> ~1e-4），使少量符号即可解析 BER。
+            # 0 或缺失 = 关闭（高精度大点数模式）。
+            'tx_noise_snr_db': 0,
         },
         'tx': {
             'baud_rate': baud_rate,        

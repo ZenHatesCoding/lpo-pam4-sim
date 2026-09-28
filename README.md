@@ -38,7 +38,7 @@ DEFAULT_MODE = '112G'
 
 | 文档 | 内容 |
 | --- | --- |
-| [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_Deliverable.html) | 链路架构、A/B 双代理、7 维链式梯度（含 gain）、安全红线、次优起点冷启动、15 用例结果（15/15 正向、几何平均 ×33518）；可折叠大纲 + A+B/A-only 图切换 |
+| [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_Deliverable.html) | Python 参照 + C++ 一比一复刻平台、等价性验证（BER 逐位一致）、速度对比（C++ 1.76×）、单种子（42）2^18 在线调优结果、统一入口 |
 | [历史交付件与历史实验](archive/) | v2~v6.1 各版本交付件 HTML、训练环境对比实验、历史结果/模型/数据集（本地归档，不入远端） |
 | [01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md) | 收发机模型、多采样率机制、`config.xlsx` 参数物理含义 |
 | [02. 独立分析与诊断工具集](docs/02_Utility_Scripts.md) | optimizers/ + tools/ 目录 + 核心脚本 |
@@ -79,14 +79,32 @@ python -c "from train_surrogates import train; import glob; \
 # 每用例扫描标定最优发端 RMS（gain 维标定参照）
 python tools/scan_per_case_rms.py --jobs 8
 
-# 冻结模型，15 环境 Stage-2 7 维链式梯度下降 + B 风险控制；从次优起点出发
+# 冻结模型，15 环境 Stage-2 7 维链式梯度下降 + B 风险控制；从次优起点出发。
+# 单种子 42、2^18 符号（交付口径：一次交付 = 一个种子，不做多种子平均）
 python test_generalization.py --model-dir models/ddps --out-dir result/ddps_main \
-    --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
+    --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 262144 --sim-seeds 42
 
 # A-only 对比实验（只用 A 梯度，不查 B）
 python test_generalization.py --model-dir models/ddps --out-dir result/ddps_aonly \
-    --a-only --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
+    --a-only --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 262144 --sim-seeds 42
 ```
+
+### 4b. C++ 复刻平台（一比一，同一入口同一口径）
+```bash
+# 构建（动态链接；编译器/路径见 cpp/build.ps1）
+powershell -File cpp\build.ps1
+
+# 模型转换（一次性）：pkl → models/ddps/model_{a,b}.json
+python cpp\export_models.py
+
+# C++ 全量在线调优（Base_IL10x10，2^18 符号，无噪声，单种子 42，次优起点）
+.\cpp\build\run_ddps.exe cpp\config.txt --num-symbols 262144 --tx-noise-snr 0 \
+    --seed 42 --n-steps 15 --seed-config result\seed_config_bad_1e4.json
+
+# 快速验证：低 SNR 人为噪声 + 少点数（发端 DSP 出口 SNR=23 dB、2^14 符号）
+.\cpp\build\run_ddps.exe cpp\config.txt --num-symbols 16384 --tx-noise-snr 23 --seed 42
+```
+> C++ 与 Python 读同一配置、同一模型转换产物，数值等价（BER 逐位一致、探针/模型 ≤1e-13、下降路径逐步一致）。开发方式：**Python 先验证原理，C++ 跟上跑大规模仿真**。
 
 ### 5. 报告与交付件
 ```bash

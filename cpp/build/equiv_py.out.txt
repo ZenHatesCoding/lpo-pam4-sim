@@ -1,0 +1,14 @@
+﻿
+chk_tx_out_nonoise 5.757388996680e+05
+chk_tx_out_noisy   5.789362534085e+05
+chk_tx_analog      2.122022249593e+05
+chk_rx_analog      3.968670703489e+06
+chk_rx_adc         9.891448559004e+05
+chk_rx_eq          5.148083765687e+05
+chk_white          5.231115442492e+05
+sync_delay 111
+phase_offset 0
+ffe_ber 3.590842360037e-04
+mlse_ber 1.289529024323e-04
+
+

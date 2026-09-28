@@ -68,6 +68,16 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_
         
     # Tx DSP
     tx_out = tx_dsp_chain(tx_pam4, sps_dsp, baud_rate, tx_config)
+
+    # 发端人为加噪（快速验证 / 低 SNR 模式开关）：
+    # 在 Tx DSP 出口（FFE 之后、DAC/通道之前）按给定 SNR 注入 AWGN，抬升 BER 地板
+    # （~1e-6 -> ~1e-4），使少量符号即可解析 BER，用于快速验证与 C++/Python 等价性比对。
+    # 噪声 σ 固定相对 PAM4 满量程 RMS=√5（与下游 driver_gain 乘子无关），
+    # 随机数复用 system.seed 的同一 RNG 流 => 单一种子即可完全复现。
+    tx_noise_snr_db = config['system'].get('tx_noise_snr_db', 0)
+    if tx_noise_snr_db is not None and float(tx_noise_snr_db) > 0:
+        sigma = np.sqrt(5.0) / (10.0 ** (float(tx_noise_snr_db) / 20.0))
+        tx_out = tx_out + rng.normal(0.0, sigma, len(tx_out))
     
     # 4. Channel & Analog Front-End
     # Apply full config since CTLE is in tx, and other channel params are in channel

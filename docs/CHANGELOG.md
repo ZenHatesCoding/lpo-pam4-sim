@@ -2,7 +2,25 @@
 
 > 本文件记录每个版本的核心变化。只记"变了什么"，不记排错过程。
 
-## v7.1（当前版本）
+## v7.2（当前版本）
+
+### C++ 平台复刻（一比一）
+- `cpp/src/*.hpp` 复刻 Python 全链路：`rng`（MT19937/randint/高斯，逐位一致）、`fft`（radix-2 + 非 2 幂 naive DFT）、`filter`（Butterworth 双线性 + lfilter）、`s4p`（S4P 装载 + unwrap + f_scale + SDD21 插值）、`physim`（完整物理链 `run_sim`）、`probe`（发端冲激 + 峰值缓存 + drive_rms）、`surrogate`（WhiteBoxRidge 二阶多项式 + 解析梯度）、`optimizer`（Stage-2 链式梯度下降，含 14 ±ε 试探态真实 BER 记账）。
+- 等价性验证：`run_sim` 端到端 BER **逐位一致**（2^18：ffe_ber=3.590842360037e-04，mlse_ber=1.289529024323e-04）；发端探针/代理推理差 ≤1e-13/1e-12；在线调优下降路径逐步一致；差异仅来自 FFT 求和顺序（~1e-13），不改变 BER 判决。
+- 模型转换：`cpp/export_models.py` 把 `model_{a,b}.pkl` 转 `models/ddps/model_{a,b}.json`（W/mu/sd/local_spacing），C++ 直接装载、不重训。
+
+### 单种子口径
+- 评估种子 `SIM_SEEDS` 从 `(42,43,44)` 改为 `(42,)`。一次交付只用一个种子；换种子是用户复现时的动作，不是交付件的多实现平均。
+
+### 发端人为加噪快模式 + 统一入口
+- `system.tx_noise_snr_db` 开关：DSP 出口 AWGN（σ=√5/10^(snr/20)），用于低 SNR、少点数快速验证（如 23 dB + 2^14 符号）。
+- `cpp/main.cpp` 统一入口：`--num-symbols / --tx-noise-snr / --seed / --n-steps / --seed-config / --model-dir / --out`；`cpp/build.ps1` 构建（动态链接）。
+
+### 速度与结果（Base_IL10x10，2^18 符号，单种子 42，15 步，无噪声，次优起点）
+- **C++ 全量在线调优 424 s，Python 744 s，加速 1.76×**（均单线程）。
+- 单种子 2^18 下降：seed_ber 4.96e-05 → 0 错误地板 9.919e-07（×50）；step 4 达 gDC=6.864 / gain=0.1334，与更细口径（2^22 × 3 种子）最优落点一致；gDC2 → 0。
+
+## v7.1（已归档）
 
 ### 物理层口径修正（回退 v7 的满量程/增益约定，量化噪声改 AWGN）
 - **量化噪声 AWGN 注入**：`channel_imdd.quantize`（确定性 mid-tread、满量程固定 ±1）改为 `add_quantization_noise`——按经典 SNR_q = 6.02·ENOB + 1.76 dB（满量程单音正弦）推导 σ_q = V_FS/(2^ENOB·√12)，V_FS 取 DAC/ADC 输出信号自身 max−min 峰峰值（恰好不 clip）。量化 SNR 随信号缩放、与增益无关，不再因固定满量程而破坏信号幅度物理。
