@@ -44,7 +44,7 @@ DEFAULT_MODE = '112G'
 | [02. 独立分析与诊断工具集](docs/02_Utility_Scripts.md) | optimizers/ + tools/ 目录 + 核心脚本 |
 | [DDPS 方法](docs/DDPS_Method.md) | A=探针→BER 方向代理 + B=参数→BER 风险控制、7 维链式梯度（含 gain）、安全红线、次优起点 |
 | [DDPS 要求清单](docs/DDPS_REQUIREMENTS.md) | 架构、安全红线、对比实验、交付件的全部要求 |
-| [版本变更记录](docs/CHANGELOG.md) | 每个版本的核心变化（v1→v7） |
+| [版本变更记录](docs/CHANGELOG.md) | 每个版本的核心变化（v1→v7.2） |
 | [LPO MSA 规范核心参数提炼](docs/LPO_MSA_Specification_Summary.md) | 电气/光学/信道参数标准依据 |
 | [分支关系与版本导览](BRANCHES.md) | 仓库各分支的关系与差异 |
 
@@ -104,7 +104,7 @@ python cpp\export_models.py
 # 快速验证：低 SNR 人为噪声 + 少点数（发端 DSP 出口 SNR=23 dB、2^14 符号）
 .\cpp\build\run_ddps.exe cpp\config.txt --num-symbols 16384 --tx-noise-snr 23 --seed 42
 ```
-> C++ 与 Python 读同一配置、同一模型转换产物，数值等价（BER 逐位一致、探针/模型 ≤1e-13、下降路径逐步一致）。开发方式：**Python 先验证原理，C++ 跟上跑大规模仿真**。
+> C++ 与 Python 读同一配置、同一模型转换产物，数值等价（BER 逐位一致、探针/模型 ≤1e-13、下降路径逐步一致）。开发方式：**Python 先验证原理，C++ 跟上跑大规模仿真**。C++ 环境依赖见 [`cpp/requirements.txt`](cpp/requirements.txt)。
 
 ### 5. 报告与交付件
 ```bash

@@ -1,0 +1,31 @@
+{
+  "backend": "cpp",
+  "exe": "cpp\\build\\run_ddps.exe",
+  "model_dir": "models/ddps",
+  "n_steps": 15,
+  "num_symbols": 262144,
+  "sim_seeds": [
+    42
+  ],
+  "seed_config": "result/seed_config_bad_1e4.json",
+  "tx_noise_snr_db": 0.0,
+  "envs": [
+    "Base_IL10x10",
+    "IL14x14",
+    "IL20x20",
+    "IL20x10_TxHeavy",
+    "IL10x20_RxHeavy",
+    "IL16x10",
+    "IL10x16",
+    "CD15ps",
+    "CD28ps",
+    "DGD2ps",
+    "DGD5ps",
+    "Comb_IL20x20_CD15_DGD5",
+    "Comb_IL20x10_CD15_DGD5",
+    "HighNoise_IL10x10",
+    "HighNoise_IL16x16"
+  ],
+  "jobs": 15,
+  "total_wall_sec": 1341.9417343139648
+}

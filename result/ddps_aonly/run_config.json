@@ -1,11 +1,9 @@
 {
-  "model_dir": "C:\\DSPPlayground\\eLPO_antigravity\\models\\ddps",
+  "model_dir": "models/ddps",
   "n_steps": 15,
-  "num_symbols": 4194304,
+  "num_symbols": 262144,
   "sim_seeds": [
-    42,
-    43,
-    44
+    42
   ],
   "a_only": true,
   "per_case_target_rms": {
@@ -46,20 +44,20 @@
     "HighNoise_IL16x16"
   ],
   "merged_from": [
-    "C:\\DSPPlayground\\eLPO_antigravity\\result\\ddps_aonly\\_parts\\Base_IL10x10",
-    "C:\\DSPPlayground\\eLPO_antigravity\\result\\ddps_aonly\\_parts\\IL14x14",
-    "C:\\DSPPlayground\\eLPO_antigravity\\result\\ddps_aonly\\_parts\\IL20x20",
-    "C:\\DSPPlayground\\eLPO_antigravity\\result\\ddps_aonly\\_parts\\IL20x10_TxHeavy",
-    "C:\\DSPPlayground\\eLPO_antigravity\\result\\ddps_aonly\\_parts\\IL10x20_RxHeavy",
-    "C:\\DSPPlayground\\eLPO_antigravity\\result\\ddps_aonly\\_parts\\IL16x10",
-    "C:\\DSPPlayground\\eLPO_antigravity\\result\\ddps_aonly\\_parts\\IL10x16",
-    "C:\\DSPPlayground\\eLPO_antigravity\\result\\ddps_aonly\\_parts\\CD15ps",
-    "C:\\DSPPlayground\\eLPO_antigravity\\result\\ddps_aonly\\_parts\\CD28ps",
-    "C:\\DSPPlayground\\eLPO_antigravity\\result\\ddps_aonly\\_parts\\DGD2ps",
-    "C:\\DSPPlayground\\eLPO_antigravity\\result\\ddps_aonly\\_parts\\DGD5ps",
-    "C:\\DSPPlayground\\eLPO_antigravity\\result\\ddps_aonly\\_parts\\Comb_IL20x20_CD15_DGD5",
-    "C:\\DSPPlayground\\eLPO_antigravity\\result\\ddps_aonly\\_parts\\Comb_IL20x10_CD15_DGD5",
-    "C:\\DSPPlayground\\eLPO_antigravity\\result\\ddps_aonly\\_parts\\HighNoise_IL10x10",
-    "C:\\DSPPlayground\\eLPO_antigravity\\result\\ddps_aonly\\_parts\\HighNoise_IL16x16"
+    "result\\ddps_aonly\\_parts\\Base_IL10x10",
+    "result\\ddps_aonly\\_parts\\IL14x14",
+    "result\\ddps_aonly\\_parts\\IL20x20",
+    "result\\ddps_aonly\\_parts\\IL20x10_TxHeavy",
+    "result\\ddps_aonly\\_parts\\IL10x20_RxHeavy",
+    "result\\ddps_aonly\\_parts\\IL16x10",
+    "result\\ddps_aonly\\_parts\\IL10x16",
+    "result\\ddps_aonly\\_parts\\CD15ps",
+    "result\\ddps_aonly\\_parts\\CD28ps",
+    "result\\ddps_aonly\\_parts\\DGD2ps",
+    "result\\ddps_aonly\\_parts\\DGD5ps",
+    "result\\ddps_aonly\\_parts\\Comb_IL20x20_CD15_DGD5",
+    "result\\ddps_aonly\\_parts\\Comb_IL20x10_CD15_DGD5",
+    "result\\ddps_aonly\\_parts\\HighNoise_IL10x10",
+    "result\\ddps_aonly\\_parts\\HighNoise_IL16x16"
   ]
 }

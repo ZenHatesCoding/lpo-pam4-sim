@@ -185,7 +185,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     <div class="chips">
       <span class="chip">搜索 <b>7</b> 维（4 FFE 旁瓣 + gDC + gDC2 + u_gain）</span>
       <span class="chip">用例 <b>15</b> 个（含非对称 Tx/Rx 插损与器件噪声）</span>
-      <span class="chip">评估协议 <b>4194304</b> 符号 × <b>3</b> 仿真实例种子</span>
+      <span class="chip">评估协议 <b>262144</b> 符号 × 单种子 <b>42</b></span>
       <span class="chip">模型训练 <b>&lt;0.1 s</b> · 推理 <b>≈30 µs</b></span>
       <span class="chip">在线决策回路真实 BER <b>0</b> 次</span>
     </div>
@@ -729,7 +729,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <text class="tb" x="34" y="58">Stage 1 · 离线标定（一次性）</text>
 
     <rect class="bx" x="34" y="72" width="472" height="46" rx="7"/>
-    <text class="t" x="48" y="92">起点 x₀（次优工作点，基线实测 ~1.1e-4）</text>
+    <text class="t" x="48" y="92">起点 x₀（次优工作点，基线实测 ~5.0e-5）</text>
     <text class="ts" x="48" y="108">主抽头 0.4079，gDC = 6.73 dB，gDC2 = 0.85 dB；gain = ×0.325</text>
 
     <rect class="bx" x="34" y="134" width="472" height="46" rx="7"/>
@@ -888,7 +888,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <li><strong>步长</strong>：<span class="mono">α_k = 0.05 × 0.97^k</span>，乘以各维箱宽（FFE 0.20 / CTLE 6.0 dB / gain 0.30 dex）。</li>
     <li><strong>投影</strong>：候选点裁剪至 <span class="mono">x₀ ± [0.10, 0.10, 0.10, 0.10, 3.0, 3.0, 0.30]</span>（7 维信任域，gain 收紧到 ±0.30 dex）。</li>
     <li><strong>安全审查</strong>：候选点 B 预测超过红线时步长折半重试（最多 20 次）；始终不通过则停止，不强行落地。</li>
-    <li><strong>记账</strong>：写入代理预测与真实 BER_MLSE（协议 4194304 符号 × 3 种子），供事后核验。</li>
+    <li><strong>记账</strong>：写入代理预测与真实 BER_MLSE（协议 262144 符号 × 单种子 42），供事后核验。</li>
     <li><strong>终止</strong>：位移 <span class="mono">&lt; 1e-6</span>、或梯度门控触发、或边际改善 <span class="mono">&lt; 0.01 dex</span>、或达到步数上限。</li>
   </ol>
 </div>
@@ -906,7 +906,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <tr><td>模型单次推理</td><td>特征展开 + 一次内积</td><td class="n">≈30 µs</td><td class="mono">O(D)</td></tr>
   <tr><td>物理探针（含驱动 RMS）</td><td>单位脉冲 + 短 PAM4 序列过发送链</td><td class="n">≈30 ms</td><td>与评估符号数无关</td></tr>
   <tr><td><strong>Stage-2 单步决策</strong></td><td>14 次探针 + 14 次 A 前向（梯度）+ ≤20 次 B 前向（回溯线搜索）</td><td class="n win">≈0.4 s</td><td>与评估符号数无关</td></tr>
-  <tr><td>一次真实 BER 评估</td><td>4194304 符号 × 3 种子（全链路 + LMS + Viterbi）</td><td class="n">≈120 s</td><td>与符号数线性</td></tr>
+  <tr><td>一次真实 BER 评估</td><td>262144 符号 × 单种子 42（全链路 + LMS + Viterbi）</td><td class="n">≈3 s</td><td>与符号数线性</td></tr>
   <tr><td>离线数据集</td><td>2001 点 ×（2^20 符号 × 3 种子 + 探针）</td><td class="n">≈5.6 h（14 进程，OMP=1）</td><td>一次性</td></tr>
 </table>
 </div>
@@ -982,7 +982,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <li><strong>组方向</strong>：g 乘各维箱宽后按 FFE / CTLE / gain 三组归一化成单位方向；<span class="mono">|g·span| &lt; 1e-3</span> 的组冻结。</li>
   <li><strong>步长</strong>：<span class="mono">α = 0.05 × 0.97^k</span>；候选点 <span class="mono">x₁ = clip(x₀ − α·span·方向, 信任域)</span>。</li>
   <li><strong>Model B 审查</strong>：候选点 B 预测超红线则步长折半重试（≤20 次），始终不过则本环境停止。</li>
-  <li><strong>落地记账</strong>：对 x₁ 做一次真实 BER（2^22 × 3 种子）写进 trace；B 改善则红线随之下移。</li>
+  <li><strong>落地记账</strong>：对 x₁ 做一次真实 BER（2^18 × 单种子 42）写进 trace；B 改善则红线随之下移。</li>
   <li><strong>下一轮</strong>：以 x₁ 为新起点回到「第一个梯度」，直到位移 &lt; 1e-6、梯度门控触发、边际改善 &lt; 0.01 dex 或步数到 15。</li>
 </ol>
 <p>整条链路真实 BER 只记账、不回传决策——下一步往哪走由探针 + A/B 给出，真实评估留给事后核验。</p>
@@ -998,8 +998,8 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 </div>
 
 <div class="card">
-  <h4 style="margin-top:0">评估协议：4194304 符号 × 3 个种子</h4>
-  <p>在 Base_IL10x10 的 0 错误最优工作点上用 3 个仿真实例种子测量不同块长下的真实错误数与 log10 BER（展开看实测数据）：</p>
+  <h4 style="margin-top:0">评估协议：262144 符号 × 单种子 42</h4>
+  <p>在 Base_IL10x10 的 0 错误最优工作点上测量不同块长下的真实错误数与 log10 BER（块长标定实测数据，展开看）：</p>
   <details class="fold">
   <summary>不同块长的 BER 估计精度实测</summary>
   <div class="fold-body">
@@ -1007,19 +1007,19 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <table class="wide">
     <caption>BER 估计精度实测（Base_IL10x10 最优工作点） <span class="sh">· 可左右滑动</span></caption>
     <tr><th class="n">块长（符号）</th><th class="n">错误数（3 种子）</th><th class="n">log10 BER 均值</th><th class="n">95% CL 上界</th></tr>
-    <tr><td class="n">262144</td><td class="n">0 / 0 / 0</td><td class="n">−6.004</td><td class="n">3.8e-6</td></tr>
+    <tr><td class="n">262144（采用）</td><td class="n">0 / 0 / 0</td><td class="n">−6.004</td><td class="n">3.8e-6</td></tr>
     <tr><td class="n">524288</td><td class="n">0 / 0 / 0</td><td class="n">−6.313</td><td class="n">1.9e-6</td></tr>
     <tr><td class="n">1048576</td><td class="n">0 / 0 / 0</td><td class="n">−6.618</td><td class="n">9.5e-7</td></tr>
     <tr><td class="n">2097152</td><td class="n">0 / 0 / 0</td><td class="n">−6.922</td><td class="n">4.8e-7</td></tr>
-    <tr><td class="n">4194304（采用）</td><td class="n">0 / 0 / 0</td><td class="n">−7.224</td><td class="n">2.4e-7</td></tr>
+    <tr><td class="n">4194304</td><td class="n">0 / 0 / 0</td><td class="n">−7.224</td><td class="n">2.4e-7</td></tr>
   </table>
   </div>
   </div>
   </details>
   <p style="margin-bottom:0">
-    <strong>结论</strong>：① 最优工作点在 2^18~2^22 全部块长下均为 0 错误（3 种子），真实 BER 低于 2.4e-7（2^22 × 3 种子，95% CL），且不随块长出现系统性变化；
+    <strong>结论</strong>：① 最优工作点在 2^18~2^22 全部块长下均为 0 错误，真实 BER 低于检测限，且不随块长出现系统性变化；
     ② 表中 log10 BER 随块长加长而下降（−6.0 → −7.2）来自"0 错误"的 1/(2N) 伪计数检测限，不是物理上的 BER 变化——块长越长、检测限越低；
-    ③ 采用 4194304 符号 × 3 种子：收敛后（最优工作点）的 BER 落在检测限之下，用 95% CL 上界（2.4e-7）表述，不与点估计混用；基线次优起点（~1.1e-4）每种子约 464 个错误、3 种子合计约 1390 个，极端插损的次优起点（~5.4e-2）每种子约 22.5 万个错误，均可作统计可靠的点估计。
+    ③ 采用 262144 符号 × 单种子 42：收敛后（最优工作点）的 BER 落在 0 错误检测限之下（伪计数 9.9e-7，95% CL 上界 5.7e-6），用上界表述、不与点估计混用；次优起点与压力用例（≥1e-4）仍可作统计可靠的点估计。
   </p>
 </div>
 
@@ -1044,7 +1044,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
 <h3>6.0 起点工作点与调优的主要改动</h3>
 <div class="card">
-  <p><strong>起点 x₀</strong> 取一个明确的<strong>次优工作点</strong>（7 维全部给定），来自训练数据集中的一个实测点，其真实 BER 在基线环境约 1.1e-4、在极端插损组合约 5.4e-2。选这个量级，是因为起点 BER 高于检测限（可统计）、又低于信道失效区（有下降空间），在线调优的下降过程因此可测可见：</p>
+  <p><strong>起点 x₀</strong> 取一个明确的<strong>次优工作点</strong>（7 维全部给定），来自训练数据集中的一个实测点，其真实 BER 在基线环境约 5.0e-5、在极端插损组合约 5.4e-2。选这个量级，是因为起点 BER 高于检测限（可统计）、又低于信道失效区（有下降空间），在线调优的下降过程因此可测可见：</p>
   <ul>
     <li>Tx FFE 5 抽头：<span class="mono">[-0.0885, -0.3147, 0.4079, 0.0845, 0.1043]</span>（主抽头 0.4079 由 1 − Σ|旁瓣| 派生）；</li>
     <li>Tx CTLE：gDC = 6.73 dB、gDC2 = 0.85 dB；</li>
@@ -1056,10 +1056,10 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <h3>6.1 严格泛化：只用 10 dB 基线训练 → 跨 15 个环境</h3>
 <p>训练集只含 Base_IL10x10 邻域 2001 行。模型冻结后，对 15 个用例环境逐个执行 Stage-2 在线调优，不重训、不重新标定。</p>
 <p class="win"><strong>结论</strong>：<!--POS_SUMMARY-->，几何平均 <!--MEAN_IMP-->（最高 <!--MAX_IMP-->），
-全程 <!--TOTAL_STEPS--> 步真实 BER，<strong><!--TOTAL_WORSE--> 步劣于起点</strong>。代理只在 Base_IL10x10 邻域训练，冻结后在其余 14 个环境（CD/DGD/中高插损/高噪声/极端插损）信任域内方向仍正确，把每个用例压到其环境的最优工作点附近——包括 40 dB 总插损用例（IL20x20、Comb_IL20x20_CD15_DGD5）也推到检测限附近（2.2e-7~3.0e-7）。</p>
+全程 <!--TOTAL_STEPS--> 步真实 BER，<strong><!--TOTAL_WORSE--> 步劣于起点</strong>。代理只在 Base_IL10x10 邻域训练，冻结后在其余 14 个环境（CD/DGD/中高插损/高噪声/极端插损）信任域内方向仍正确，把每个用例压到其环境的最优工作点附近——多数用例到 0 错误检测限（9.9e-7），40 dB 总插损用例（IL20x20、Comb_IL20x20_CD15_DGD5）到 3.97e-6。</p>
 <div class="tw">
 <table class="wide" id="tbl-core">
-  <caption>起点 = x₀（次优工作点，基线环境实测 ~1.1e-4）的真实 BER_MLSE；最优 = 全轨迹中真实 BER_MLSE 的最小值（步序为该最小值出现于第几步） <span class="sh">· 可左右滑动</span></caption>
+  <caption>起点 = x₀（次优工作点，基线环境实测 ~5.0e-5）的真实 BER_MLSE；最优 = 全轨迹中真实 BER_MLSE 的最小值（步序为该最小值出现于第几步） <span class="sh">· 可左右滑动</span></caption>
   <tr><th>用例</th><th>物理条件</th><th class="n">起点 BER_MLSE</th><th class="n">最优 BER_MLSE（步序）</th><th class="n">Δlog10 BER</th><th class="n">改善倍数</th><th class="n">gain（起点→最优）</th></tr>
   <!--CORE_ROWS-->
 </table>
@@ -1090,7 +1090,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   </div>
 
   <div class="tab-panel active" id="tab-ab">
-    <p class="mut">收敛图曲线起点（step −1）是 x₀（次优工作点，基线实测 ~1.1e-4），之后的下行来自 7 维链式梯度（含 gain 维）。</p>
+    <p class="mut">收敛图曲线起点（step −1）是 x₀（次优工作点，基线实测 ~5.0e-5），之后的下行来自 7 维链式梯度（含 gain 维）。</p>
     <figure>
       <div class="fig-scroll"><img src="{{IMG_CONV}}" alt="A+B 15 用例收敛轨迹"></div>
       <figcaption>图 6 · A+B 收敛轨迹（Model A 预测 / Model B 预测 / 实测 BER_MLSE，对数纵轴；虚线为起点）。</figcaption>
@@ -1167,7 +1167,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <li>只用 Base_IL10x10 邻域 2001 行训练，15 个用例环境：<!--POS_SUMMARY-->，几何平均 <!--MEAN_IMP-->，<!--TOTAL_WORSE--> 步劣于种子。</li>
     <li>下降方向走 Model A 的链式法则（扰动 7 维参数 → 重算探针 → 查 A），每步 14 次探针 + 14 次 A 前向、约 0.4 秒，与评估符号数无关。</li>
     <li>gain 是第 7 个搜索维：经 drive_rms 进入 A/B 输入，在 ±0.30 dex 信任域内参与梯度，梯度把它从次优起点（×0.325）推到各环境 BER 最优倍率。</li>
-    <li>改善主要来自 gain 维（第 7 维），形状（FFE/gDC/gDC2）为次要贡献：15/15 用例把 BER 从次优起点压到检测限附近（强信号）或显著下降（CD/DGD/中高插损/极端插损），包括 40 dB 总插损用例也推到 2.2e-7~3.0e-7。Model B 全程未否决任何一步（仅起保护作用，未被使用）。</li>
+    <li>改善主要来自 gain 维（第 7 维），形状（FFE/gDC/gDC2）为次要贡献：15/15 用例把 BER 从次优起点压到检测限附近（强信号）或显著下降（CD/DGD/中高插损/极端插损），包括 40 dB 总插损用例也推到 3.97e-6。Model B 全程未否决任何一步（仅起保护作用，未被使用）。</li>
   </ol>
 </div>
 
@@ -1177,8 +1177,8 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <tr><th>边界</th><th>表现</th><th>对策</th></tr>
   <tr>
     <td>强信号用例 BER 低于测量分辨率</td>
-    <td>最优工作点真实 BER &lt; 2.4e-7（0 错误 @ 2^22 × 3 种子，95% CL），强信号用例落在检测限之下，只能给上界而非点估计</td>
-    <td>全流程固定 4194304 符号 × 3 种子；检测限以下的点用 3/N（95% CL 上界）表述，不与点估计混用；压力用例（≥1e-4）仍可作统计可靠的点估计</td>
+    <td>最优工作点真实 BER &lt; 5.7e-6（0 错误 @ 2^18 × 单种子 42，95% CL），强信号用例落在检测限之下，只能给上界而非点估计</td>
+    <td>全流程固定 262144 符号 × 单种子 42；检测限以下的点用 3/N（95% CL 上界）表述，不与点估计混用；压力用例（≥1e-4）仍可作统计可靠的点估计</td>
   </tr>
   <tr>
     <td>代理绝对标定弱</td>
@@ -1230,15 +1230,18 @@ python -c "from train_surrogates import train; import glob; \
 # 3) per-case target_rms 扫描（gain 维标定参照）
 python tools/scan_per_case_rms.py --jobs 8
 
-# 4) 在线调优（15 环境，7 维含 gain；次优起点 = 训练数据中的 1.1e-4 工作点）
+# 4) 在线调优（15 环境，7 维含 gain；单种子 42；次优起点 = 训练数据次优工作点）
 python test_generalization.py --model-dir models/ddps --out-dir result/ddps_main \
-    --seed-config result/seed_config_bad_1e5.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44
+    --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 262144 --sim-seeds 42
 
-# 5) 可视化报告
+# 5) C++ 一比一复刻全量重跑（等价性 + 速度；结果写 result/ddps_cpp_main/）
+python cpp\run_all_cases.py --jobs 15
+
+# 6) 可视化报告
 python report_ddps.py --test-dir result/ddps_main --model-dir models/ddps \
-    --seed-config result/seed_config_bad_1e5.json --summary-out result/SUMMARY.md
+    --seed-config result/seed_config_bad_1e4.json --summary-out result/SUMMARY.md
 
-# 6) 交付件
+# 7) 交付件
 python make_deliverable.py --baseline result/ddps_main --model-dir models/ddps \
     --a-only result/ddps_aonly --out deliverables/DDPS_Deliverable.html</code></pre>
 </div>
@@ -1250,6 +1253,7 @@ python make_deliverable.py --baseline result/ddps_main --model-dir models/ddps \
   <tr><td>数据集</td><td class="mono">dataset/ddps_dataset_&lt;ts&gt;.csv</td><td>2001 行 × 45 列（7 维 x = 4 FFE 旁瓣 + gDC + gDC2 + u_gain；另含 5-tap FFE、驱动 RMS、7-tap FIR 探针、真实 BER）</td></tr>
   <tr><td>核心模型</td><td class="mono">models/ddps/</td><td>A=探针 8 维 / B=参数 7 维 + meta.json</td></tr>
     <tr><td>核心结果</td><td class="mono">result/ddps_main/</td><td>case_summary.csv/json、trace_&lt;用例&gt;.csv、run_config.json、report/</td></tr>
+      <tr><td>C++ 复刻结果</td><td class="mono">result/ddps_cpp_main/</td><td>C++ 15 用例 case_summary、每用例墙钟、run_config.json</td></tr>
       <tr><td>跨实验汇总</td><td class="mono">result/SUMMARY.md</td><td>15 用例结果汇总</td></tr>
   <tr><td>块长研究</td><td class="mono">result/ddps_block_length.csv</td><td>最优工作点不同块长的 BER 估计精度</td></tr>
 </table>
@@ -1258,9 +1262,77 @@ python make_deliverable.py --baseline result/ddps_main --model-dir models/ddps \
 </div>
 </details>
 
+<h2 id="s10"><span class="num">10</span>C++ 平台与等价性</h2>
+
+<p>平台提供两套同源实现：Python（原理参照）与 C++17（一比一复刻）。两实现读同一 <span class="mono">config.xlsx</span> 配置口径、装载同一冻结模型转换产物（<span class="mono">models/ddps/model_{a,b}.json</span>，由 <span class="mono">cpp/export_models.py</span> 从 pkl 转出，不重训），在线调优结果数值等价。</p>
+
+<h3>10.1 模块映射（一比一复刻）</h3>
+<div class="tw">
+<table>
+<caption>C++ 头文件 ↔ Python 模块对应</caption>
+<tr><th>C++</th><th>Python</th><th>内容</th></tr>
+<tr><td class="mono">rng.hpp</td><td class="mono">numpy.random</td><td>MT19937（init_genrand）、randint（2 幂区间）、Marsaglia polar 高斯，逐位一致</td></tr>
+<tr><td class="mono">fft.hpp</td><td class="mono">numpy.fft</td><td>radix-2 FFT/IFFT/RFFT/IRFFT + 非 2 幂 naive DFT（探针冲激 N=1608）</td></tr>
+<tr><td class="mono">filter.hpp</td><td class="mono">scipy.signal</td><td>Butterworth（双线性）+ lfilter（直接 II 型转置）</td></tr>
+<tr><td class="mono">s4p.hpp</td><td class="mono">skrf</td><td>S4P 装载、unwrap、f_scale、SDD21 插值、频域滤波</td></tr>
+<tr><td class="mono">physim.hpp</td><td class="mono">main / channel_imdd / rx_dsp / mlse_burg</td><td>完整物理链 + run_sim（Config 键值解析、发端加噪快模式）</td></tr>
+<tr><td class="mono">probe.hpp</td><td class="mono">tx_channel_extract</td><td>链路冲激、峰值定位（缓存）、发端 S21 抽取、drive_rms</td></tr>
+<tr><td class="mono">surrogate.hpp</td><td class="mono">train_surrogates</td><td>WhiteBoxRidge 二阶多项式特征、解析梯度、JSON 权重</td></tr>
+<tr><td class="mono">optimizer.hpp</td><td class="mono">ddps_optimizer</td><td>Stage-2 链式梯度下降（14 ±ε 试探态真实 BER 记账、B 否决、信任域）</td></tr>
+</table>
+</div>
+
+<h3>10.2 物理层 bit 级等价</h3>
+<p>同一配置、同一种子 42、2<sup>18</sup> 符号，对物理链逐段取 sum|x| 校验和对比（C++ vs Python）：</p>
+<div class="tw">
+<table>
+<caption>链路逐段校验和相对差（0 = 逐位一致）</caption>
+<tr><th>段</th><th class="n">相对差</th><th>性质</th></tr>
+<tr><td>Tx DSP → DAC ZOH（S01）</td><td class="n">0</td><td>逐位一致</td></tr>
+<tr><td>Tx S4P 频域滤波（S02，首个频域步骤）</td><td class="n">6.8e-12</td><td>FFT 求和顺序引入</td></tr>
+<tr><td>Tx CTLE / driver（S03–S05）</td><td class="n">1.5e-11</td><td>逐级传播</td></tr>
+<tr><td>激光 RIN / 相位（S06–S07）</td><td class="n">0</td><td>逐位一致</td></tr>
+<tr><td>MZM / 光纤 / CD（S08–S11）</td><td class="n">≤4.7e-13</td><td>机器精度量级</td></tr>
+<tr><td>PIN 平方律 / DGD / 光电（S12–S16）</td><td class="n">0</td><td>逐位一致</td></tr>
+<tr><td>TIA / AGC（S17–S19）</td><td class="n">≤2.5e-13</td><td>机器精度量级</td></tr>
+<tr><td>Rx S4P / Rx CTLE / ADC（S20–S24）</td><td class="n">1.4e-11</td><td>FFT 求和顺序</td></tr>
+</table>
+</div>
+<p>端到端 BER 判定<b>逐位一致</b>（15 位有效数字全同）：<span class="mono">ffe_ber = 3.590842360037e-04</span>、<span class="mono">mlse_ber = 1.289529024323e-04</span>；同步延时 <span class="mono">111</span>、相位偏移 <span class="mono">0</span> 完全一致。</p>
+<div class="card">
+<b>差异来源</b>：浮点差只来自频域滤波的 FFT 求和顺序（radix-2 vs numpy pocketfft），量级 ≤1.6e-11，不改变任何 BER 判决——时间域步骤（ZOH、光电、PIN、TIA、AGC）逐位一致；频域步骤引入并传播 ~1e-11 舍入差；最终判决仍逐位相同。
+</div>
+
+<h3>10.3 探针与代理推理</h3>
+<p>发端探针（7 抽头 Tx FIR + drive_rms）与 Model A/B 前向：<span class="mono">drive_rms</span> 相对差 ≤1e-13、<span class="mono">pred_a</span> 相对差 ≤1e-12（两平台 <span class="mono">pred_a = -5.995717769951e+00</span> 同值到第 12 位）。</p>
+
+<h3>10.4 全量 15 用例在线调优等价</h3>
+<p>15 环境、单种子 42、2<sup>18</sup> 符号、15 步、次优起点：C++ 与 Python 的 best_gdc / best_gain / best_ber 逐用例一致，全量最大相对差 4.5e-13（下表每格为「C++ / Python」）：</p>
+<!--CXX_CASE_ROWS-->
+
+<h3>10.5 速度对比</h3>
+<p>同一工作负载（Base_IL10x10、2<sup>18</sup> 符号、单种子 42、15 步、无人工噪声、次优起点；每步 15 次端到端仿真 + 14 次链式探针 + 17 次 drive_rms），单线程计时：</p>
+<div class="kpis">
+  <div class="kpi"><div class="v">424 s</div><div class="l">C++ 全量在线调优（单用例）</div></div>
+  <div class="kpi"><div class="v">744 s</div><div class="l">Python 全量在线调优（单用例）</div></div>
+  <div class="kpi"><div class="v">1.76×</div><div class="l">C++ / Python 加速比</div></div>
+</div>
+<p>15 用例 C++ 全量重跑合计墙钟：<!--CXX_TOTAL_WALL-->（20 核并行，见 <span class="mono">result/ddps_cpp_main/</span>）。</p>
+
+<h3>10.6 统一入口</h3>
+<pre><code># C++ 后端：全量在线调优（Base_IL10x10，2^18 符号，无噪声，单种子 42，次优起点）
+.\cpp\build\run_ddps.exe cpp\config.txt --num-symbols 262144 --tx-noise-snr 0 \
+    --seed 42 --n-steps 15 --seed-config result\seed_config_bad_1e4.json
+
+# 快速验证：低 SNR 人为噪声 + 少点数（发端 DSP 出口 SNR=23 dB、2^14 符号）
+.\cpp\build\run_ddps.exe cpp\config.txt --num-symbols 16384 --tx-noise-snr 23 --seed 42
+
+# 15 用例并行全量重跑（C++ 侧）
+python cpp\run_all_cases.py --jobs 15</code></pre>
+
 <footer>
   <p><strong>测量口径</strong>：Python 3.11.11 / NumPy 2.4.6 / SciPy 1.17.1；BLAS 线程数固定为 1（<span class="mono">OMP_NUM_THREADS=1</span>）；
-  BER 评估统一 4194304 符号/点 × 仿真实例种子 (42,43,44) 取 log10 均值；数据集采样与模型划分固定 seed = 42。</p>
+  BER 评估统一 262144 符号/点 × 单仿真实例种子 42；数据集采样与模型划分固定 seed = 42。C++ 侧同一种子、同一符号数。</p>
   <p>数值来源：<span class="mono">config.xlsx</span>、<span class="mono">models/*/meta.json</span>、<span class="mono">result/*/case_summary.csv</span>、
   <span class="mono">result/*/trace_*.csv</span>、<span class="mono">dataset/ddps_dataset_*.csv</span> 与源码常量。</p>
 </footer>
@@ -1565,6 +1637,40 @@ def main():
     hard = summary[hard_env]
     safety_rows, total_steps, total_worse = _rows_safety(summary, a.baseline)
 
+    # C++ 全量重跑等价性对照 + 速度（result/ddps_cpp_main）
+    cpp_dir = 'result/ddps_cpp_main'
+    cxx_case_rows = '<p>C++ 全量重跑未运行（无 result/ddps_cpp_main/case_summary.csv）</p>'
+    cxx_total_wall = '未运行'
+    if os.path.exists(os.path.join(cpp_dir, 'case_summary.csv')):
+        df_cpp = pd.read_csv(os.path.join(cpp_dir, 'case_summary.csv'))
+        cpp_by_env = {r['env']: r for _, r in df_cpp.iterrows()}
+        trs = []
+        for e in order:
+            pc = cpp_by_env.get(e)
+            if pc is None:
+                continue
+            pp = summary[e]
+            trs.append(
+                '<tr><td>%s</td>'
+                '<td class="n">%.6f / %.6f</td>'
+                '<td class="n">%.6f / %.6f</td>'
+                '<td class="n">%.2e / %.2e</td></tr>' % (
+                    e, pc['best_gdc'], pp['best_gdc'],
+                    pc['best_gain'], pp['best_gain'],
+                    pc['best_ber'], pp['best_ber']))
+        if trs:
+            cxx_case_rows = (
+                '<div class="tw"><table>'
+                '<caption>C++ vs Python 每用例 best 对照（C++ / Python）</caption>'
+                '<tr><th>用例</th><th>best_gdc</th><th>best_gain</th><th>best_ber</th></tr>'
+                + ''.join(trs) + '</table></div>')
+        rc_path = os.path.join(cpp_dir, 'run_config.json')
+        if os.path.exists(rc_path):
+            with open(rc_path, encoding='utf-8') as f:
+                rcj = json.load(f)
+            cxx_total_wall = '%.0f s' % float(rcj.get('total_wall_sec', 0.0))
+
+
     headline = '\n'.join([
         f"<tr><td><strong>在线调优</strong>（A=探针->BER 方向 + B=参数->BER 风险控制 + 7 维 FFE+CTLE+gain）</td>"
         f"<td><strong>{n_pos}/{len(order)} 用例正向改善</strong>（{n_neu} 持平、{n_worse} 退步），几何平均 x{imp_geo:.2f}"
@@ -1602,6 +1708,8 @@ def main():
         '<!--TARGET_RMS_ROWS-->': _rows_target_rms(rms_data, order),
         '<!--SAFETY_ROWS-->': safety_rows,
         '<!--PROBE_ROWS-->': _rows_probe(a.baseline, order),
+        '<!--CXX_CASE_ROWS-->': cxx_case_rows,
+        '<!--CXX_TOTAL_WALL-->': cxx_total_wall,
         '<!--POS_SUMMARY-->': pos_summary,
         '<!--MEAN_IMP-->': f'x{imp_geo:.2f}',
         '<!--MAX_IMP-->': f'x{imp_arr.max():.2f}',

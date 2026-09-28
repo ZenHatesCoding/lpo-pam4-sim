@@ -1,0 +1,33 @@
+# cpp/requirements.txt — C++ DDPS 平台构建 / 运行环境依赖
+
+本文件记录 C++ 侧（cpp/ 目录）在 Python 主环境之外的额外依赖。Python 侧依赖见仓库根
+`requirements.txt`（numpy/scipy/matplotlib/pandas/openpyxl/scikit-rf），C++ 工具链的
+Python 脚本（export_models.py / run_all_cases.py / *_debug.py）复用同一份 Python 环境。
+
+## 1. 编译器
+- WinLibs MinGW-w64 g++ 16.2.0（便携 zip，免安装）。
+- 默认路径：`C:\Users\ZhenpingXing\AppData\Local\mingw64\mingw64\bin\g++.exe`
+  （`cpp/build.ps1` 内 `$GPP` 变量；换机器只改这一处）。
+
+## 2. 链接方式（必须）
+- **动态链接**（编译不带 `-static`）：WDAC / Smart App Control 会拦截大体积静态链接 exe
+  （约 2.85MB 静态 exe 稳定被拦，~0.2MB 动态 exe 可运行）。
+- 运行前把 `mingw64\bin` 加入 `PATH`（运行时依赖 `libstdc++-6.dll` 等）。
+- 若某 exe 偶发被 WDAC 拦（"Application Control policy has blocked this file"），
+  换一个新输出名重新编译即可（哈希变化）。
+
+## 3. 运行环境
+- 64 位 Windows。
+- 全量重跑推荐 20 逻辑核（15 用例可全并行）；核少则调 `--jobs` 降并行度。
+
+## 4. 构建 / 运行
+```
+powershell -File cpp\build.ps1                          # 编译 run_ddps.exe + 全部等价性测试
+.\cpp\build\run_ddps.exe cpp\config.txt ...              # 单用例在线调优
+python cpp\run_all_cases.py --jobs 15                    # 15 用例全量并行重跑 -> result/ddps_cpp_main/
+python cpp\export_models.py                              # pkl -> models/ddps/model_{a,b}.json（一次性）
+```
+
+## 5. 等价性测试
+`cpp/tests/` 下 test_equiv / test_chan / test_probe / test_optimizer 等，配合 `cpp/*_debug.py`
+（Python 参考输出）做 C++/Python 数值等价校验；结果写入 `cpp/build/`。

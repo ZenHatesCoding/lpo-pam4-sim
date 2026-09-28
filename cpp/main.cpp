@@ -20,6 +20,7 @@
 #include <cstring>
 #include <chrono>
 #include <string>
+#include <algorithm>
 
 using namespace dsh;
 
@@ -38,6 +39,7 @@ int main(int argc, char** argv) {
     std::string model_dir = "models/ddps";
     std::string out_path;
     std::string seed_config_path;
+    std::string env_name;
 
     for (int i = 2; i < argc; i++) {
         std::string a = argv[i];
@@ -48,6 +50,7 @@ int main(int argc, char** argv) {
         else if (a == "--seed-gain-u") seed_gain_u = clamp_arg(a.c_str(), argc, argv, i, 0.0);
         else if (a == "--model-dir") { if (i + 1 < argc) model_dir = argv[++i]; }
         else if (a == "--out") { if (i + 1 < argc) out_path = argv[++i]; }
+        else if (a == "--env-name") { if (i + 1 < argc) env_name = argv[++i]; }
         else if (a == "--seed-config") { if (i + 1 < argc) seed_config_path = argv[++i]; }
     }
 
@@ -88,32 +91,63 @@ int main(int argc, char** argv) {
     }
     std::vector<int> sim_seeds = { 42 };
 
-    fprintf(stderr, "[run] config=%s num_symbols=%d tx_noise=%.1f seed_gain_u=%.4f n_steps=%d\n",
-            config_path.c_str(), (int)cfg.d("system.num_symbols", 0), cfg.d("system.tx_noise_snr_db", 0.0),
-            seed_gain_u, n_steps);
+    // --- seed 点评估（与 Python run_case 一致：先实测 seed BER，再下降）---
+    std::vector<double> taps0 = construct_taps({ x0[0], x0[1], x0[2], x0[3] }, FFE_PRE);
+    double gdc0 = x0[N_SIDE], gdc20 = x0[N_SIDE + 1];
+    double gain0 = gain_from_u(x0[N_SIDE + 2]);
+    auto [seed_lb, seed_ber] = physical_eval(cfg, taps0, gdc0, gdc20, gain0, &nw, &nw, sim_seeds);
+    auto seed_probe = probe_features(cfg, taps0, gdc0, gdc20, gain0, &nw);
+    double pa_seed = predict_a_probe(model_a, seed_probe);
+    double rms_seed = measure_drive_rms(cfg, taps0, gdc0, gdc20, gain0, &nw);
+    double pb_seed = predict_b_params(model_b, { x0[0], x0[1], x0[2], x0[3], x0[4], x0[5] }, rms_seed);
+
+    fprintf(stderr, "[run] env=%s config=%s num_symbols=%d tx_noise=%.1f n_steps=%d\n",
+            env_name.c_str(), config_path.c_str(), (int)cfg.d("system.num_symbols", 0),
+            cfg.d("system.tx_noise_snr_db", 0.0), n_steps);
 
     auto t0 = std::chrono::high_resolution_clock::now();
     auto trace = stage2_descent(cfg, model_a, model_b, x0, FFE_PRE, n_steps, GD_LR, &nw, &nw, sim_seeds);
     auto t1 = std::chrono::high_resolution_clock::now();
     double secs = std::chrono::duration<double>(t1 - t0).count();
 
-    // 打印 trace + 最终结果
+    // --- 汇总（best = argmin real_logber；final = 最后一步）---
+    if (trace.empty()) {
+        printf("\n=== RESULT ===\nsteps=0  elapsed_sec=%.3f\nno_steps\n", secs);
+        if (!out_path.empty()) {
+            FILE* fo = fopen(out_path.c_str(), "w");
+            if (fo) {
+                fprintf(fo, "{\"env\":\"%s\",\"seed_lb\":%.12e,\"seed_ber\":%.12e,"
+                        "\"pa_seed\":%.12e,\"pb_seed\":%.12e,\"n_steps_actual\":0,\"best_step\":-1,"
+                        "\"best_lb\":%.12e,\"best_ber\":%.12e,\"final_lb\":%.12e,\"final_ber\":%.12e,"
+                        "\"max_lb\":%.12e,\"delta_lb_seed_to_best\":0.0,\"delta_lb_seed_to_final\":0.0,"
+                        "\"stop_reason\":\"no_trace\",\"early_stop\":true,\"elapsed_sec\":%.6f}\n",
+                        env_name.c_str(), seed_lb, seed_ber, pa_seed, pb_seed,
+                        seed_lb, seed_ber, seed_lb, seed_ber, seed_lb, secs);
+                fclose(fo);
+            }
+        }
+        return 0;
+    }
+
+    size_t best_idx = 0;
+    for (size_t i = 1; i < trace.size(); i++)
+        if (trace[i].real_logber < trace[best_idx].real_logber) best_idx = i;
+    auto& best = trace[best_idx];
+    auto& fin = trace.back();
+    double max_lb = trace[0].real_logber;
+    for (auto& r : trace) max_lb = std::max(max_lb, r.real_logber);
+
     printf("\n=== RESULT ===\n");
     printf("steps=%zu  elapsed_sec=%.3f\n", trace.size(), secs);
-    if (trace.empty()) { printf("no_steps\n"); return 0; }
-
-    auto& fin = trace.back();
+    printf("seed_lb=%.12e seed_ber=%.12e\n", seed_lb, seed_ber);
+    printf("best_step=%zu best_lb=%.12e best_ber=%.12e\n",
+           best_idx, best.real_logber, best.real_mlse);
+    printf("best_taps=[");
+    for (size_t i = 0; i < best.taps.size(); i++) printf("%s%.12e", i ? ", " : "", best.taps[i]);
+    printf("]\n");
+    printf("best_gdc=%.12e best_gdc2=%.12e best_gain=%.12e best_u_gain=%.12e\n",
+           best.gdc, best.gdc2, best.gain, best.u_gain);
     printf("stop_reason=%s\n", fin.stop_reason.c_str());
-    printf("x_final=[");
-    for (size_t i = 0; i < fin.x.size(); i++) printf("%s%.12e", i ? ", " : "", fin.x[i]);
-    printf("]\n");
-    printf("taps_final=[");
-    for (size_t i = 0; i < fin.taps.size(); i++) printf("%s%.12e", i ? ", " : "", fin.taps[i]);
-    printf("]\n");
-    printf("gdc=%.12e gdc2=%.12e gain=%.12e gain_ratio=%.12e u_gain=%.12e\n",
-           fin.gdc, fin.gdc2, fin.gain, fin.gain_ratio, fin.u_gain);
-    printf("pred_a_log10ber=%.12e  real_mlse_ber=%.12e  real_log10ber=%.12e\n",
-           fin.pred_a, fin.real_mlse, fin.real_logber);
 
     // 逐步
     printf("\n=== TRACE ===\n");
@@ -125,12 +159,30 @@ int main(int argc, char** argv) {
     if (!out_path.empty()) {
         FILE* fo = fopen(out_path.c_str(), "w");
         if (fo) {
-            fprintf(fo, "{\n  \"steps\": %zu,\n  \"elapsed_sec\": %.6f,\n", trace.size(), secs);
+            fprintf(fo, "{\n");
+            fprintf(fo, "  \"env\": \"%s\",\n", env_name.c_str());
+            fprintf(fo, "  \"seed_lb\": %.12e,\n  \"seed_ber\": %.12e,\n", seed_lb, seed_ber);
+            fprintf(fo, "  \"pa_seed\": %.12e,\n  \"pb_seed\": %.12e,\n", pa_seed, pb_seed);
+            fprintf(fo, "  \"seed_gain\": %.12e,\n  \"seed_gain_ratio\": %.12e,\n",
+                    gain0, gain0 / DRIVER_GAIN_NOMINAL);
+            fprintf(fo, "  \"n_steps_actual\": %zu,\n", trace.size());
+            fprintf(fo, "  \"best_lb\": %.12e,\n  \"best_ber\": %.12e,\n  \"best_step\": %zu,\n",
+                    best.real_logber, best.real_mlse, best_idx);
+            fprintf(fo, "  \"final_lb\": %.12e,\n  \"final_ber\": %.12e,\n  \"max_lb\": %.12e,\n",
+                    fin.real_logber, fin.real_mlse, max_lb);
+            fprintf(fo, "  \"delta_lb_seed_to_best\": %.12e,\n  \"delta_lb_seed_to_final\": %.12e,\n",
+                    best.real_logber - seed_lb, fin.real_logber - seed_lb);
+            fprintf(fo, "  \"best_taps\": [");
+            for (size_t i = 0; i < best.taps.size(); i++)
+                fprintf(fo, "%s%.6f", i ? ", " : "", best.taps[i]);
+            fprintf(fo, "],\n");
+            fprintf(fo, "  \"best_gdc\": %.12e,\n  \"best_gdc2\": %.12e,\n  \"best_gain\": %.12e,\n",
+                    best.gdc, best.gdc2, best.gain);
+            fprintf(fo, "  \"best_gain_ratio\": %.12e,\n  \"best_u_gain\": %.12e,\n",
+                    best.gain / DRIVER_GAIN_NOMINAL, best.u_gain);
             fprintf(fo, "  \"stop_reason\": \"%s\",\n", fin.stop_reason.c_str());
-            fprintf(fo, "  \"gdc\": %.12e,\n  \"gdc2\": %.12e,\n  \"gain\": %.12e,\n",
-                    fin.gdc, fin.gdc2, fin.gain);
-            fprintf(fo, "  \"pred_a_log10ber\": %.12e,\n  \"real_mlse_ber\": %.12e,\n  \"real_log10ber\": %.12e\n",
-                    fin.pred_a, fin.real_mlse, fin.real_logber);
+            fprintf(fo, "  \"early_stop\": %s,\n", (trace.size() < (size_t)n_steps) ? "true" : "false");
+            fprintf(fo, "  \"elapsed_sec\": %.6f\n", secs);
             fprintf(fo, "}\n");
             fclose(fo);
         }
