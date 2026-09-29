@@ -1,6 +1,38 @@
+# =============================================================
+# DDPS 项目完整环境依赖（Python 原理参照 + C++ 一比一复刻平台）
+# =============================================================
+#
+# 本文件是项目唯一环境依赖清单，覆盖三部分：
+#   [1] Python 依赖包    —— pip install -r requirements.txt 直接安装
+#   [2] C++ 工具链/运行时 —— 非 pip，详见 cpp/requirements.txt
+#   [3] 操作系统/硬件/环境变量
+#
+# ---------------- [1] Python 依赖包（pip 可安装） ----------------
+# Python 3.11.11（python-sdk）
 numpy==2.4.6
 scipy==1.17.1
 matplotlib==3.11.0
 pandas==3.0.3
 openpyxl==3.1.5
 scikit-rf==2.0.0
+#
+# 各包用途：numpy（数值/RNG/FFT/物理链）、scipy（Butterworth/lfilter 信号处理）、
+# matplotlib（report_ddps.py 报告绘图）、pandas（case_summary/trace/probes 读写）、
+# openpyxl（config.xlsx 读写）、scikit-rf（S4P 装载与 SDD21 插值）。
+#
+# ---------------- [2] C++ 工具链 / 运行环境（非 pip） ----------------
+# 编译器     WinLibs MinGW-w64 g++ 16.2.0（便携 zip）
+#            默认路径 C:\Users\ZhenpingXing\AppData\Local\mingw64\mingw64\bin\g++.exe
+# 链接方式   必须动态链接（不带 -static；WDAC 拦截大体积静态 exe）
+# 运行时     运行前把 mingw64\bin 加入 PATH（依赖 libstdc++-6.dll 等）
+# 构建       powershell -File cpp\build.ps1
+# 模型转换   python cpp\export_models.py   # pkl -> models/ddps/model_{a,b}.json（一次性）
+# 全量重跑   python cpp\run_all_cases.py --jobs 15
+# 详细说明   cpp/requirements.txt
+#
+# ---------------- [3] 操作系统 / 硬件 / 运行环境变量 ----------------
+# 操作系统    64 位 Windows
+# 并行度      全量重跑推荐 20 逻辑核（15 用例可全并行；核少则调 --jobs 降并行度）
+# 环境变量    OMP_NUM_THREADS=1、OPENBLAS_NUM_THREADS=1、MKL_NUM_THREADS=1
+#             （BLAS 固定单线程，避免与多进程并行争核拖慢仿真）
+#             PYTHONIOENCODING=utf-8（Windows 控制台中文输出）

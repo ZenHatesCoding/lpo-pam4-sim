@@ -2,7 +2,27 @@
 
 > 本文件记录每个版本的核心变化。只记"变了什么"，不记排错过程。
 
-## v7.2（当前版本）
+## v7.3（当前版本）
+
+### 2^22 全量重跑（Python 与 C++ 双后端）
+- 分辨率 2^18（262144 符号）→ **2^22（4194304 符号）**；单种子 42、15 步、15 用例、次优起点，Python 与 C++ 各全量重跑一遍（C++ 另补 trace/probes CSV 落盘，与 Python 同 schema）。
+- 0 错误检测底从 9.92e-07 降到 **5.97e-08**（≈1/(2·N_bits)，N_bits=8368608）；单种子 95% CL 上限 ≈3.6e-07。
+
+### 结果图全部改用 C++ trace/probes
+- 交付件 §6 收敛图与 §6.4 试探步图全部改用 C++ 的 trace/probes CSV（`result/ddps_cpp_main`），不再用 Python 小点数。
+
+### 2^22 大点数实测速率比
+- 单用例全量在线调优（Base_IL10x10，3 步干净测速，单种子 42）：**C++ 1240 s / Python 2236 s = 1.80×**，替换 v7.2 沿用自小点数的 1.76×。
+
+### 结果（15 用例，4194304 符号 × 单种子 42）
+- C++ 15/15 改善、0 退步；**11 用例到 0 错误地板 5.97e-08**，4 用例残留（IL20x20 1.2e-07、Comb_IL20x20_CD15_DGD5 2.4e-07、HighNoise_IL16x16 2.4e-07、HighNoise_IL10x10 3.6e-07）。
+- Python 与 C++ 逐用例 **best_gdc / best_gain / best_ber 比特级一致**（相对差 ≤1e-13）。
+- C++ 全量（12 路并行）实际墙钟 ≈9.4 h（首 12 例受 12 路内存分页拖慢，单例墙钟偏大）。
+
+### 归档
+- v7.2 的 2^18 单种子结果归档至 `archive/20260928_ddps_v7.2_2to18/`，约束写清：2^18 分辨率、单种子 42、15 步、检测限 9.9e-7 / CL 5.7e-6，仅作粗等价性与速率参考。
+
+## v7.2（已归档）
 
 ### C++ 平台复刻（一比一）
 - `cpp/src/*.hpp` 复刻 Python 全链路：`rng`（MT19937/randint/高斯，逐位一致）、`fft`（radix-2 + 非 2 幂 naive DFT）、`filter`（Butterworth 双线性 + lfilter）、`s4p`（S4P 装载 + unwrap + f_scale + SDD21 插值）、`physim`（完整物理链 `run_sim`）、`probe`（发端冲激 + 峰值缓存 + drive_rms）、`surrogate`（WhiteBoxRidge 二阶多项式 + 解析梯度）、`optimizer`（Stage-2 链式梯度下降，含 14 ±ε 试探态真实 BER 记账）。

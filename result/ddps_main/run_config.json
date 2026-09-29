@@ -1,7 +1,7 @@
 {
   "model_dir": "models/ddps",
   "n_steps": 15,
-  "num_symbols": 262144,
+  "num_symbols": 4194304,
   "sim_seeds": [
     42
   ],

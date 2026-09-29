@@ -28,3 +28,4 @@ cpp/build/*.log
 cpp/build/*.json
 cpp/build/*.bin
 cpp/build/cfg/
+cpp/build/smoke*/

@@ -1,15 +1,16 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""run_all_cases.py — 15 环境 C++ 全量在线调优（单种子 42、2^18 符号、无人工噪声、次优起点）。
+"""run_all_cases.py — 15 环境 C++ 全量在线调优（单种子 42、2^22 符号、无人工噪声、次优起点）。
 
-每个环境：apply_env_to_config -> dump per-env config.txt -> run_ddps.exe -> case_summary.json。
-聚合输出到 result/ddps_cpp_main/（case_summary.csv/json + run_config.json + _parts/<env>/）。
+每个环境：apply_env_to_config -> dump per-env config.txt -> run_ddps.exe -> case_summary.json + trace/probes CSV。
+聚合输出到 result/ddps_cpp_main/（case_summary.csv/json + trace/probes + run_config.json + _parts/<env>/）。
 并行度 = 逻辑核数（每个 run_ddps.exe 单线程）。
 """
 import os
 import sys
 import json
 import time
+import shutil
 import argparse
 import subprocess
 from multiprocessing import Pool
@@ -28,7 +29,7 @@ EXE = r"cpp\build\run_ddps.exe"
 CFG_DIR = r"cpp\build\cfg"
 OUT_DIR = "result/ddps_cpp_main"
 SEED_CONFIG = "result/seed_config_bad_1e4.json"
-NUM_SYM = 262144
+NUM_SYM = 4194304
 SEED = 42
 N_STEPS = 15
 MODEL_DIR = "models/ddps"
@@ -46,10 +47,10 @@ def _fmt(v):
     return str(v)
 
 
-def dump_config(env, path):
+def dump_config(env, path, num_sym):
     cfg = load_config('config.xlsx')
     cfg = apply_env_to_config(cfg, env)
-    cfg['system']['num_symbols'] = int(NUM_SYM)
+    cfg['system']['num_symbols'] = int(num_sym)
     cfg['system']['tx_noise_snr_db'] = 0.0
     cfg['system']['seed'] = SEED
     cfg['channel']['seed'] = SEED + 7919
@@ -67,7 +68,8 @@ def _safe(name):
     return name.replace(' ', '_').replace('(', '').replace(')', '')
 
 
-def run_one(env):
+def run_one(args):
+    env, num_sym, n_steps = args
     name = env['name']
     safe = _safe(name)
     out_dir = os.path.join(OUT_DIR, '_parts', safe)
@@ -75,9 +77,9 @@ def run_one(env):
     cfg_path = os.path.join(CFG_DIR, 'cfg_%s.txt' % safe)
     out_json = os.path.join(out_dir, 'case_summary.json')
     log = os.path.join(out_dir, 'run.log')
-    dump_config(env, cfg_path)
-    cmd = [EXE, cfg_path, '--num-symbols', str(NUM_SYM), '--tx-noise-snr', '0',
-           '--seed', str(SEED), '--n-steps', str(N_STEPS),
+    dump_config(env, cfg_path, num_sym)
+    cmd = [EXE, cfg_path, '--num-symbols', str(num_sym), '--tx-noise-snr', '0',
+           '--seed', str(SEED), '--n-steps', str(n_steps),
            '--seed-config', SEED_CONFIG, '--env-name', name,
            '--model-dir', MODEL_DIR, '--out', out_json]
     t0 = time.time()
@@ -95,7 +97,7 @@ def run_one(env):
     full['dgd'] = env['dgd']
     full['pol'] = env['pol']
     full['noise_stress'] = bool(env.get('stress'))
-    full['n_steps_requested'] = N_STEPS
+    full['n_steps_requested'] = n_steps
     full['freeze_extra'] = False
     full['cloud'] = None
     full['wall_sec'] = wall
@@ -110,16 +112,21 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--jobs', type=int, default=15)
     ap.add_argument('--only-envs', type=str, default=None)
+    ap.add_argument('--num-symbols', type=int, default=NUM_SYM)
+    ap.add_argument('--n-steps', type=int, default=N_STEPS)
     a = ap.parse_args()
+    num_sym = a.num_symbols
+    n_steps = a.n_steps
     cases = [e for e in ENV_CASES if (a.only_envs is None or e['name'] in a.only_envs.split(','))]
     os.makedirs(CFG_DIR, exist_ok=True)
     os.makedirs(OUT_DIR, exist_ok=True)
 
     jobs = min(a.jobs, len(cases))
-    print('[cpp] %d envs, %d parallel workers' % (len(cases), jobs), flush=True)
+    print('[cpp] %d envs, %d parallel workers (num_symbols=%d n_steps=%d)' % (
+        len(cases), jobs, num_sym, n_steps), flush=True)
     t0 = time.time()
     with Pool(jobs) as pool:
-        results = pool.map(run_one, cases)
+        results = pool.map(run_one, [(e, num_sym, n_steps) for e in cases])
     total_wall = time.time() - t0
 
     oks = [r for r in results if r.get('ok')]
@@ -151,9 +158,18 @@ def main():
         for r in rows:
             w.writerow({k: (json.dumps(v) if isinstance(v, (list, dict)) else v) for k, v in r.items()})
 
+    # 归集 trace/probes CSV（C++ 已落每 env 到 _parts/<safe>/，复制到顶层供 report_ddps 出图）
+    for e in cases:
+        name = e['name']
+        src_dir = os.path.join(OUT_DIR, '_parts', _safe(name))
+        for fn in ('trace_%s.csv' % name, 'probes_%s.csv' % name):
+            src = os.path.join(src_dir, fn)
+            if os.path.exists(src):
+                shutil.copy(src, os.path.join(OUT_DIR, fn))
+
     run_cfg = {
-        'backend': 'cpp', 'exe': EXE, 'model_dir': MODEL_DIR, 'n_steps': N_STEPS,
-        'num_symbols': NUM_SYM, 'sim_seeds': [SEED], 'seed_config': SEED_CONFIG,
+        'backend': 'cpp', 'exe': EXE, 'model_dir': MODEL_DIR, 'n_steps': n_steps,
+        'num_symbols': num_sym, 'sim_seeds': [SEED], 'seed_config': SEED_CONFIG,
         'tx_noise_snr_db': 0.0, 'envs': [e['name'] for e in cases],
         'jobs': jobs, 'total_wall_sec': total_wall,
     }

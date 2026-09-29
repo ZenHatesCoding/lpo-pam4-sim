@@ -38,13 +38,13 @@ DEFAULT_MODE = '112G'
 
 | 文档 | 内容 |
 | --- | --- |
-| [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_Deliverable.html) | Python 参照 + C++ 一比一复刻平台、等价性验证（BER 逐位一致）、速度对比（C++ 1.76×）、单种子（42）2^18 在线调优结果、统一入口 |
+| [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_Deliverable.html) | Python 参照 + C++ 一比一复刻平台、等价性验证（BER 逐位一致）、速度对比（C++ 1.80×）、单种子（42）2^22 在线调优结果、统一入口 |
 | [历史交付件与历史实验](archive/) | v2~v6.1 各版本交付件 HTML、训练环境对比实验、历史结果/模型/数据集（本地归档，不入远端） |
 | [01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md) | 收发机模型、多采样率机制、`config.xlsx` 参数物理含义 |
 | [02. 独立分析与诊断工具集](docs/02_Utility_Scripts.md) | optimizers/ + tools/ 目录 + 核心脚本 |
 | [DDPS 方法](docs/DDPS_Method.md) | A=探针→BER 方向代理 + B=参数→BER 风险控制、7 维链式梯度（含 gain）、安全红线、次优起点 |
 | [DDPS 要求清单](docs/DDPS_REQUIREMENTS.md) | 架构、安全红线、对比实验、交付件的全部要求 |
-| [版本变更记录](docs/CHANGELOG.md) | 每个版本的核心变化（v1→v7.2） |
+| [版本变更记录](docs/CHANGELOG.md) | 每个版本的核心变化（v1→v7.3） |
 | [LPO MSA 规范核心参数提炼](docs/LPO_MSA_Specification_Summary.md) | 电气/光学/信道参数标准依据 |
 | [分支关系与版本导览](BRANCHES.md) | 仓库各分支的关系与差异 |
 
@@ -80,13 +80,13 @@ python -c "from train_surrogates import train; import glob; \
 python tools/scan_per_case_rms.py --jobs 8
 
 # 冻结模型，15 环境 Stage-2 7 维链式梯度下降 + B 风险控制；从次优起点出发。
-# 单种子 42、2^18 符号（交付口径：一次交付 = 一个种子，不做多种子平均）
+# 单种子 42、2^22 符号（交付口径：一次交付 = 一个种子，不做多种子平均）
 python test_generalization.py --model-dir models/ddps --out-dir result/ddps_main \
-    --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 262144 --sim-seeds 42
+    --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42
 
 # A-only 对比实验（只用 A 梯度，不查 B）
 python test_generalization.py --model-dir models/ddps --out-dir result/ddps_aonly \
-    --a-only --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 262144 --sim-seeds 42
+    --a-only --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42
 ```
 
 ### 4b. C++ 复刻平台（一比一，同一入口同一口径）
@@ -97,8 +97,8 @@ powershell -File cpp\build.ps1
 # 模型转换（一次性）：pkl → models/ddps/model_{a,b}.json
 python cpp\export_models.py
 
-# C++ 全量在线调优（Base_IL10x10，2^18 符号，无噪声，单种子 42，次优起点）
-.\cpp\build\run_ddps.exe cpp\config.txt --num-symbols 262144 --tx-noise-snr 0 \
+# C++ 全量在线调优（Base_IL10x10，2^22 符号，无噪声，单种子 42，次优起点）
+.\cpp\build\run_ddps.exe cpp\config.txt --num-symbols 4194304 --tx-noise-snr 0 \
     --seed 42 --n-steps 15 --seed-config result\seed_config_bad_1e4.json
 
 # 快速验证：低 SNR 人为噪声 + 少点数（发端 DSP 出口 SNR=23 dB、2^14 符号）

@@ -416,7 +416,7 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
     L = []
     L.append(f'# DDPS 在线调优报告\n')
     L.append(f'> 模型：`{model_dir}`（7 维 FFE+CTLE+gain 核岭代理；gain 纳入梯度，第 7 维）\n')
-    L.append(f'> 评估协议：4194304 符号/点 × 3 仿真实例种子（42,43,44）取 log10 均值\n')
+    L.append(f'> 评估协议：4194304 符号/点 × 单种子 42\n')
     L.append(f'> gain 维：每用例最优倍率见 per-case target_rms 标定参照（每个用例单独细扫）\n\n')
 
     L.append('## 1. 逐用例结果\n\n')
@@ -488,7 +488,7 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
     if summary_out:
         with open(summary_out, 'w', encoding='utf-8') as f:
             f.write('# DDPS：跨实验汇总（BER_MLSE）\n\n')
-            f.write('评估协议：4194304 符号/点 × 3 仿真实例种子取 log10 均值；'
+            f.write('评估协议：4194304 符号/点 × 单种子 42；'
                     '所有实验共用同一批用例与同一协议。\n\n')
             f.write('| 用例 | 物理条件 | 种子 | DDPS 最优 | 改善 × |\n')
             f.write('| --- | --- | --- | --- | --- |\n')

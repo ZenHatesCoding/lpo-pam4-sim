@@ -3,7 +3,7 @@
   "exe": "cpp\\build\\run_ddps.exe",
   "model_dir": "models/ddps",
   "n_steps": 15,
-  "num_symbols": 262144,
+  "num_symbols": 4194304,
   "sim_seeds": [
     42
   ],
@@ -26,6 +26,6 @@
     "HighNoise_IL10x10",
     "HighNoise_IL16x16"
   ],
-  "jobs": 15,
-  "total_wall_sec": 1341.9417343139648
+  "jobs": 12,
+  "total_wall_sec": 33993.78609633446
 }

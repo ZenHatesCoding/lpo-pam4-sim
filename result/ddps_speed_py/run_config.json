@@ -1,0 +1,32 @@
+{
+  "model_dir": "models/ddps",
+  "n_steps": 3,
+  "num_symbols": 4194304,
+  "sim_seeds": [
+    42
+  ],
+  "a_only": false,
+  "per_case_target_rms": {
+    "Base_IL10x10": 0.06,
+    "IL14x14": 0.06,
+    "IL20x20": 0.18,
+    "IL20x10_TxHeavy": 0.115,
+    "IL10x20_RxHeavy": 0.175,
+    "IL16x10": 0.09,
+    "IL10x16": 0.06,
+    "CD15ps": 0.06,
+    "CD28ps": 0.13,
+    "DGD2ps": 0.06,
+    "DGD5ps": 0.06,
+    "Comb_IL20x20_CD15_DGD5": 0.16,
+    "Comb_IL20x10_CD15_DGD5": 0.175,
+    "HighNoise_IL10x10": 0.16,
+    "HighNoise_IL16x16": 0.175
+  },
+  "per_case_gain": {
+    "Base_IL10x10": 0.11062254846987395
+  },
+  "envs": [
+    "Base_IL10x10"
+  ]
+}

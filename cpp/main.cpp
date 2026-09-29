@@ -29,6 +29,19 @@ static double clamp_arg(const char* s, int argc, char** argv, int& i, double def
     return std::atof(argv[++i]);
 }
 
+// 把 vector<double> 格式化成 "[a, b, c]" 列表字符串（trace 的 x / taps 列）
+static std::string csv_list(const std::vector<double>& v, const char* fmt) {
+    std::string s = "[";
+    char buf[64];
+    for (size_t i = 0; i < v.size(); i++) {
+        snprintf(buf, sizeof(buf), fmt, v[i]);
+        if (i) s += ", ";
+        s += buf;
+    }
+    s += "]";
+    return s;
+}
+
 int main(int argc, char** argv) {
     std::string config_path = (argc > 1) ? argv[1] : "cpp/config.txt";
     double num_symbols = 0.0;       // 0 = 取 config
@@ -154,6 +167,42 @@ int main(int argc, char** argv) {
     for (auto& rec : trace) {
         printf("step=%d gdc=%.6f gdc2=%.6f gain=%.6f pred_a=%.4f real_mlse=%.3e stop=%s\n",
                rec.step, rec.gdc, rec.gdc2, rec.gain, rec.pred_a, rec.real_mlse, rec.stop_reason.c_str());
+    }
+
+    // --- 写 trace / probes CSV（与 Python test_generalization 同 schema，供 report_ddps 出图）---
+    if (!out_path.empty() && !trace.empty()) {
+        std::string dir = out_path.substr(0, out_path.find_last_of("/\\") + 1);
+        FILE* ft = fopen((dir + "trace_" + env_name + ".csv").c_str(), "w");
+        if (ft) {
+            fprintf(ft, "step,x,taps,gdc,gdc2,gain,gain_ratio,u_gain,drive_rms,pred_b_ber,"
+                        "allowed_ber,stop_reason,pred_a,pred_b,real_lb,real_ber,grad_norm\n");
+            for (auto& rec : trace) {
+                fprintf(ft, "%d,\"%s\",\"%s\",%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                            "%.12e,\"%s\",%.12e,%.12e,%.12e,%.12e,%.12e\n",
+                        rec.step,
+                        csv_list(rec.x, "%.12e").c_str(), csv_list(rec.taps, "%.6f").c_str(),
+                        rec.gdc, rec.gdc2, rec.gain, rec.gain_ratio, rec.u_gain, rec.drive_rms,
+                        rec.pred_b_ber, rec.allowed_ber, rec.stop_reason.c_str(),
+                        rec.pred_a, rec.pred_b, rec.real_logber, rec.real_mlse, rec.grad_norm);
+            }
+            fclose(ft);
+        }
+        FILE* fp = fopen((dir + "probes_" + env_name + ".csv").c_str(), "w");
+        if (fp) {
+            fprintf(fp, "step,param,sign,x_0,x_1,x_2,x_3,x_4,x_5,x_6,"
+                        "tap_0,tap_1,tap_2,tap_3,tap_4,gdc,gdc2,gain,gain_ratio,u_gain,real_lb,real_ber\n");
+            for (auto& rec : trace) {
+                for (auto& p : rec.probes) {
+                    fprintf(fp, "%d,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                                "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e\n",
+                            rec.step, p.param, p.sign,
+                            p.x[0], p.x[1], p.x[2], p.x[3], p.x[4], p.x[5], p.x[6],
+                            p.taps[0], p.taps[1], p.taps[2], p.taps[3], p.taps[4],
+                            p.gdc, p.gdc2, p.gain, p.gain_ratio, p.u_gain, p.real_logber, p.real_mlse);
+                }
+            }
+            fclose(fp);
+        }
     }
 
     if (!out_path.empty()) {
