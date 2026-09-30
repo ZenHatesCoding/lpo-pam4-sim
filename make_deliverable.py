@@ -729,7 +729,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <text class="tb" x="34" y="58">Stage 1 · 离线标定（一次性）</text>
 
     <rect class="bx" x="34" y="72" width="472" height="46" rx="7"/>
-    <text class="t" x="48" y="92">起点 x₀（次优工作点，基线实测 ~5.0e-5）</text>
+    <text class="t" x="48" y="92">起点 x₀（次优工作点，基线实测 ~1.3e-4）</text>
     <text class="ts" x="48" y="108">主抽头 0.4079，gDC = 6.73 dB，gDC2 = 0.85 dB；gain = ×0.325</text>
 
     <rect class="bx" x="34" y="134" width="472" height="46" rx="7"/>
@@ -906,7 +906,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <tr><td>模型单次推理</td><td>特征展开 + 一次内积</td><td class="n">≈30 µs</td><td class="mono">O(D)</td></tr>
   <tr><td>物理探针（含驱动 RMS）</td><td>单位脉冲 + 短 PAM4 序列过发送链</td><td class="n">≈30 ms</td><td>与评估符号数无关</td></tr>
   <tr><td><strong>Stage-2 单步决策</strong></td><td>14 次探针 + 14 次 A 前向（梯度）+ ≤20 次 B 前向（回溯线搜索）</td><td class="n win">≈0.4 s</td><td>与评估符号数无关</td></tr>
-  <tr><td>一次真实 BER 评估</td><td>4194304 符号 × 单种子 42（全链路 + LMS + Viterbi）</td><td class="n">≈25 s（Python）/ ≈14 s（C++）</td><td>与符号数线性</td></tr>
+  <tr><td>一次真实 BER 评估</td><td>4194304 符号 × 单种子 42（全链路 + LMS + Viterbi）</td><td class="n">≈49 s（Python）/ ≈27 s（C++）</td><td>与符号数线性</td></tr>
   <tr><td>离线数据集</td><td>2001 点 ×（2^20 符号 × 3 种子 + 探针）</td><td class="n">≈5.6 h（14 进程，OMP=1）</td><td>一次性</td></tr>
 </table>
 </div>
@@ -1042,9 +1042,9 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <!--KPI_CARDS-->
 </div>
 
-<h3>6.0 起点工作点与调优的主要改动</h3>
+<h3>6.0 起点工作点与调优机制</h3>
 <div class="card">
-  <p><strong>起点 x₀</strong> 取一个明确的<strong>次优工作点</strong>（7 维全部给定），来自训练数据集中的一个实测点，其真实 BER 在基线环境约 5.0e-5、在极端插损组合约 5.4e-2。选这个量级，是因为起点 BER 高于检测限（可统计）、又低于信道失效区（有下降空间），在线调优的下降过程因此可测可见：</p>
+  <p><strong>起点 x₀</strong> 取一个明确的<strong>次优工作点</strong>（7 维全部给定），来自训练数据集中的一个实测点，其真实 BER 在基线环境约 1.3e-4、在极端插损组合约 5.4e-2。选这个量级，是因为起点 BER 高于检测限（可统计）、又低于信道失效区（有下降空间），在线调优的下降过程因此可测可见：</p>
   <ul>
     <li>Tx FFE 5 抽头：<span class="mono">[-0.0885, -0.3147, 0.4079, 0.0845, 0.1043]</span>（主抽头 0.4079 由 1 − Σ|旁瓣| 派生）；</li>
     <li>Tx CTLE：gDC = 6.73 dB、gDC2 = 0.85 dB；</li>
@@ -1056,10 +1056,10 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <h3>6.1 严格泛化：只用 10 dB 基线训练 → 跨 15 个环境</h3>
 <p>训练集只含 Base_IL10x10 邻域 2001 行。模型冻结后，对 15 个用例环境逐个执行 Stage-2 在线调优，不重训、不重新标定。</p>
 <p class="win"><strong>结论</strong>：<!--POS_SUMMARY-->，几何平均 <!--MEAN_IMP-->（最高 <!--MAX_IMP-->），
-全程 <!--TOTAL_STEPS--> 步真实 BER，<strong><!--TOTAL_WORSE--> 步劣于起点</strong>。代理只在 Base_IL10x10 邻域训练，冻结后在其余 14 个环境（CD/DGD/中高插损/高噪声/极端插损）信任域内方向仍正确，把每个用例压到其环境的最优工作点附近——多数用例到 0 错误检测限（9.9e-7），40 dB 总插损用例（IL20x20、Comb_IL20x20_CD15_DGD5）到 3.97e-6。</p>
+全程 <!--TOTAL_STEPS--> 步真实 BER，<strong><!--TOTAL_WORSE--> 步劣于起点</strong>。代理只在 Base_IL10x10 邻域训练，冻结后在其余 14 个环境（CD/DGD/中高插损/高噪声/极端插损）信任域内方向仍正确，把每个用例压到其环境的最优工作点附近——多数用例到 0 错误检测限（5.97e-8），40 dB 总插损用例（IL20x20 到 1.20e-7、Comb_IL20x20_CD15_DGD5 到 2.39e-7），高噪声用例到 2.39e-7~3.58e-7。</p>
 <div class="tw">
 <table class="wide" id="tbl-core">
-  <caption>起点 = x₀（次优工作点，基线环境实测 ~5.0e-5）的真实 BER_MLSE；最优 = 全轨迹中真实 BER_MLSE 的最小值（步序为该最小值出现于第几步） <span class="sh">· 可左右滑动</span></caption>
+  <caption>起点 = x₀（次优工作点，基线环境实测 ~1.3e-4）的真实 BER_MLSE；最优 = 全轨迹中真实 BER_MLSE 的最小值（步序为该最小值出现于第几步） <span class="sh">· 可左右滑动</span></caption>
   <tr><th>用例</th><th>物理条件</th><th class="n">起点 BER_MLSE</th><th class="n">最优 BER_MLSE（步序）</th><th class="n">Δlog10 BER</th><th class="n">改善倍数</th><th class="n">gain（起点→最优）</th></tr>
   <!--CORE_ROWS-->
 </table>
@@ -1090,7 +1090,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   </div>
 
   <div class="tab-panel active" id="tab-ab">
-    <p class="mut">收敛图曲线起点（step −1）是 x₀（次优工作点，基线实测 ~5.0e-5），之后的下行来自 7 维链式梯度（含 gain 维）。</p>
+    <p class="mut">收敛图曲线起点（step −1）是 x₀（次优工作点，基线实测 ~1.3e-4），之后的下行来自 7 维链式梯度（含 gain 维）。</p>
     <figure>
       <div class="fig-scroll"><img src="{{IMG_CONV}}" alt="A+B 15 用例收敛轨迹"></div>
       <figcaption>图 6 · A+B 收敛轨迹（Model A 预测 / Model B 预测 / 实测 BER_MLSE，对数纵轴；虚线为起点）。</figcaption>
@@ -1167,7 +1167,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <li>只用 Base_IL10x10 邻域 2001 行训练，15 个用例环境：<!--POS_SUMMARY-->，几何平均 <!--MEAN_IMP-->，<!--TOTAL_WORSE--> 步劣于种子。</li>
     <li>下降方向走 Model A 的链式法则（扰动 7 维参数 → 重算探针 → 查 A），每步 14 次探针 + 14 次 A 前向、约 0.4 秒，与评估符号数无关。</li>
     <li>gain 是第 7 个搜索维：经 drive_rms 进入 A/B 输入，在 ±0.30 dex 信任域内参与梯度，梯度把它从次优起点（×0.325）推到各环境 BER 最优倍率。</li>
-    <li>改善主要来自 gain 维（第 7 维），形状（FFE/gDC/gDC2）为次要贡献：15/15 用例把 BER 从次优起点压到检测限附近（强信号）或显著下降（CD/DGD/中高插损/极端插损），包括 40 dB 总插损用例也推到 3.97e-6。Model B 全程未否决任何一步（仅起保护作用，未被使用）。</li>
+    <li>改善主要来自 gain 维（第 7 维），形状（FFE/gDC/gDC2）为次要贡献：15/15 用例把 BER 从次优起点压到检测限附近（强信号）或明显下降（CD/DGD/中高插损/极端插损），包括 40 dB 总插损用例（IL20x20）也推到 1.20e-7。Model B 全程未否决任何一步（仅起保护作用，未被使用）。</li>
   </ol>
 </div>
 
