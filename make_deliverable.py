@@ -937,11 +937,11 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <li>每步若 B 预测改善，红线跟着下移——B 预测单调下降时红线不会触发；</li>
   <li>若 B 预测突然变差（方向错），候选点 B 预测超过红线，步长折半重试，始终不过则停止；</li>
   <li>用"相对最优点变差 25%"而非绝对 BER 阈值：代理绝对标定不可信（Model B 用基线训练，在非基线环境预测的绝对值偏差大），但"相对最优点变差多少倍"是可比的；</li>
-  <li>实测 15 用例 <!--TOTAL_STEPS--> 步中 <!--TOTAL_WORSE--> 步劣于种子——红线全程未触发拦截（B 预测单调下降，无候选变差需要拦截）。</li>
+  <li>实测 15 用例 <!--TOTAL_STEPS--> 落点中 <!--TOTAL_WORSE--> 落点劣于种子（含 ±ε 试探瞬时 <!--PROBE_WORSE_STEPS--> 步，见 6.3）——红线全程未触发拦截（B 预测单调下降，无候选变差需要拦截）。</li>
 </ul>
 <div class="card" style="border-left:4px solid #0f8a4a">
   <h4 style="margin-top:0">Model B 的价值</h4>
-  <p style="margin-bottom:0">本次实验的 15 个用例中，Model B 安全红线全程未否决任何一步（仅起保护作用，未被使用）；15 用例全程无退步，红线自然未被触发。A-only 与 A+B 的对比见 §6.1b。</p>
+  <p style="margin-bottom:0">本次实验的 15 个用例中，Model B 安全红线全程未否决任何一步（仅起保护作用，未被使用）；15 用例落点全程无退步，红线自然未被触发（±ε 试探瞬时的口径见 6.3）。A-only 与 A+B 的对比见 §6.1b。</p>
 </div>
 
 <h3>4.6 部署走一遍：训练完到第一个梯度再到迭代</h3>
@@ -1056,7 +1056,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <h3>6.1 严格泛化：只用 10 dB 基线训练 → 跨 15 个环境</h3>
 <p>训练集只含 Base_IL10x10 邻域 2001 行。模型冻结后，对 15 个用例环境逐个执行 Stage-2 在线调优，不重训、不重新标定。</p>
 <p class="win"><strong>结论</strong>：<!--POS_SUMMARY-->，几何平均 <!--MEAN_IMP-->（最高 <!--MAX_IMP-->），
-全程 <!--TOTAL_STEPS--> 步真实 BER，<strong><!--TOTAL_WORSE--> 步劣于起点</strong>。代理只在 Base_IL10x10 邻域训练，冻结后在其余 14 个环境（CD/DGD/中高插损/高噪声/极端插损）信任域内方向仍正确，把每个用例压到其环境的最优工作点附近——多数用例到 0 错误检测限（5.97e-8），40 dB 总插损用例（IL20x20 到 1.20e-7、Comb_IL20x20_CD15_DGD5 到 2.39e-7），高噪声用例到 2.39e-7~3.58e-7。</p>
+全程 <!--TOTAL_STEPS--> 落点真实 BER，<strong><!--TOTAL_WORSE--> 落点劣于起点</strong>（±ε 试探瞬时另有 <!--PROBE_WORSE_STEPS--> 步超种子，见 6.3）。代理只在 Base_IL10x10 邻域训练，冻结后在其余 14 个环境（CD/DGD/中高插损/高噪声/极端插损）信任域内方向仍正确，把每个用例压到其环境的最优工作点附近——多数用例到 0 错误检测限（5.97e-8），40 dB 总插损用例（IL20x20 到 1.20e-7、Comb_IL20x20_CD15_DGD5 到 2.39e-7），高噪声用例到 2.39e-7~3.58e-7。</p>
 <div class="tw">
 <table class="wide" id="tbl-core">
   <caption>起点 = x₀（次优工作点，基线环境实测 ~1.3e-4）的真实 BER_MLSE；最优 = 全轨迹中真实 BER_MLSE 的最小值（步序为该最小值出现于第几步） <span class="sh">· 可左右滑动</span></caption>
@@ -1078,7 +1078,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <!--ABLATION_ROWS-->
 </table>
 </div>
-<p class="mut">结果：A-only 与 A+B 收敛到同一最优点（Model B 全程未触发，逐用例最优 BER 一致）；A-only 与 A+B 各自全程 225 步真实 BER 均 0 步劣于起点——无劣化需要拦截，Model B 仅起保险作用。两组各自的收敛 / gain / 预测 / 最难用例图见 6.2（A+B / A-only 切换）。</p>
+<p class="mut">结果：A-only 与 A+B 收敛到同一最优点（Model B 全程未触发，逐用例最优 BER 一致）；A-only 与 A+B 各自全程 225 落点真实 BER 均 0 落点劣于起点（两组梯度相同，±ε 试探瞬时口径也一致，见 6.3）——无落点劣化需要拦截，Model B 仅起保险作用。两组各自的收敛 / gain / 预测 / 最难用例图见 6.2（A+B / A-only 切换）。</p>
 
 <h3>6.2 收敛轨迹与物理量变化 — A+B / A-only 切换</h3>
 <p>A+B 与 A-only 同一起点、同一步数（15 步），唯一区别是是否启用 Model B 安全拦截。点下方按钮切换两组图：</p>
@@ -1130,26 +1130,32 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   </div>
 </div>
 
-<h3>6.3 安全性核验（逐步记账）</h3>
-<details class="fold">
-<summary>逐步记账核验：<!--TOTAL_STEPS--> 步真实 BER 中 <!--TOTAL_WORSE--> 步劣于种子（展开看逐行口径与原始记录位置）</summary>
-<div class="fold-body">
+<h3>6.3 安全性核验（落点 + 试探瞬时两口径）</h3>
 <div class="card">
-  <p>Stage-2 每一步的真实 BER_MLSE 均写入 trace 文件，对全部 15 用例逐行核验（每步真实 BER 与该用例种子点真实 BER 比较）：</p>
+  <p>在线调优过程中系统会短暂停留两类<strong>真实硬件工作点</strong>，安全性分开核验：<strong>落点</strong>（每步落地后的 x<sub>k+1</sub>）与 <strong>±ε 试探态</strong>（每步中心差分估计梯度时，系统短暂处于 x±ε 的 14 个微扰点）。两者都会真实影响那一刻的端到端 BER，不能只看落点。</p>
+
+  <p><strong>口径 1 · 落点（accepted 轨迹）</strong>：<!--TOTAL_STEPS--> 落点中 <!--TOTAL_WORSE--> 落点劣于种子——「优化后不比起点差」的硬约束成立，落点单调不劣化。</p>
   <div class="tw">
-  <table class="wide" style="margin-bottom:6px">
-    <caption>核验口径：种子点真实 BER 为基准，统计所有中间步是否出现退步</caption>
-    <tr><th class="n">用例数</th><th class="n">记录的真实 BER 步数</th><th class="n">劣于种子的步数</th><th>结论</th></tr>
+  <table class="wide" style="margin-bottom:8px">
+    <caption>落点口径：以种子点真实 BER 为基准，统计所有中间落点是否退步</caption>
+    <tr><th class="n">用例数</th><th class="n">记录的真实 BER 落点数</th><th class="n">劣于种子的落点数</th><th>结论</th></tr>
     <!--SAFETY_ROWS-->
   </table>
   </div>
-  <p class="mut" style="margin-bottom:0">原始记录：各结果目录下 <span class="mono">trace_&lt;用例&gt;.csv</span>（含 step、抽头、gDC、gDC2、driver_gain、代理预测 A/B、真实 BER、梯度模）。</p>
+
+  <p><strong>口径 2 · 含 ±ε 试探瞬时</strong>：每步的 14 个 ±ε 微扰态同样落在真实链路上。按「每步取 14 试探态 + 1 落点中的最坏 BER」与种子比较，<strong><!--PROBE_WORSE_STEPS--> 步</strong>的瞬时最坏 BER 超过种子（几乎都集中在第 1 步——±ε 绕种子 x<sub>0</sub> 展开，向劣化侧的那支探针必然超过种子本身）；全程最坏瞬时 = 种子 × <strong><!--PROBE_WORST_RATIO--></strong>（<!--PROBE_WORST_ENV-->：<!--PROBE_WORST_BER--> vs 种子）。</p>
+  <div class="tw">
+  <table class="wide" id="tbl-safety-probe" style="margin-bottom:8px">
+    <caption>含试探瞬时口径：逐用例「每步最坏 BER（含 14 试探态）」超过种子的步数 · 可左右滑动</caption>
+    <tr><th>用例</th><th class="n">种子 BER</th><th class="n">含试探瞬时超种子步数</th><th class="n">全程最坏瞬时 BER</th><th class="n">相对种子倍率</th></tr>
+    <!--SAFETY_PROBE_ROWS-->
+  </table>
+  </div>
+  <p class="mut" style="margin-bottom:0">为什么会有试探瞬时超种子：中心差分要同时测 x+ε 与 x−ε 两边的斜率，必然向劣化方向也短暂挪一步，这是梯度估计的固有代价，落点仍单调不劣化。若真实系统连一步瞬时恶化都不能接受，需改<strong>单边差分</strong>（只向预计改善方向探）或进一步缩小 ε。原始记录：<span class="mono">trace_&lt;用例&gt;.csv</span>（落点）、<span class="mono">probes_&lt;用例&gt;.csv</span>（试探态，含 step / param / sign / 真实 BER）。</p>
 </div>
-</div>
-</details>
 
 <h3>6.4 试探步 BER 包络（梯度估计的 ±ε 微扰态）</h3>
-<p>梯度的 7 维中心差分每步生成 14 个 ±ε 微扰态（4 个 FFE 旁瓣 + gDC + gDC2 + u_gain，各 ±）。真实在线系统里为获取探针而做的这些参数微扰，会让链路实际处于这些工作点，因此每个试探态自身的端到端 MLSE BER 也被逐一记录（在 6.2 收敛图中显示为灰点）。这些记录只用于透明度核验，<strong>不参与下降方向</strong>（方向仍由代理梯度决定）。</p>
+<p>梯度的 7 维中心差分每步生成 14 个 ±ε 微扰态（4 个 FFE 旁瓣 + gDC + gDC2 + u_gain，各 ±）。真实在线系统里为获取探针而做的这些参数微扰，会让链路实际处于这些工作点，因此每个试探态自身的端到端 MLSE BER 也被逐一记录（在 6.2 收敛图中显示为灰点）。这些记录<strong>不参与下降方向</strong>（方向仍由代理梯度决定），但作为安全性的一部分——试探态会瞬时超过种子（见 6.3 口径 2），下表给出每个用例试探态的真实 BER 包络。</p>
 <div class="tw">
 <table class="wide" id="tbl-probe">
   <caption>探针工作点真实 BER_MLSE 包络：每环境每步 14 个 ±ε 微扰态 <span class="sh">· 可左右滑动</span></caption>
@@ -1164,7 +1170,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <div class="card">
   <h4 style="margin-top:0">结论</h4>
   <ol style="margin-bottom:0">
-    <li>只用 Base_IL10x10 邻域 2001 行训练，15 个用例环境：<!--POS_SUMMARY-->，几何平均 <!--MEAN_IMP-->，<!--TOTAL_WORSE--> 步劣于种子。</li>
+    <li>只用 Base_IL10x10 邻域 2001 行训练，15 个用例环境：<!--POS_SUMMARY-->，几何平均 <!--MEAN_IMP-->，<!--TOTAL_WORSE--> 落点劣于种子（含 ±ε 试探瞬时 <!--PROBE_WORSE_STEPS--> 步超种子、最坏 ×<!--PROBE_WORST_RATIO-->，见 6.3）。</li>
     <li>下降方向走 Model A 的链式法则（扰动 7 维参数 → 重算探针 → 查 A），每步 14 次探针 + 14 次 A 前向、约 0.4 秒，与评估符号数无关。</li>
     <li>gain 是第 7 个搜索维：经 drive_rms 进入 A/B 输入，在 ±0.30 dex 信任域内参与梯度，梯度把它从次优起点（×0.325）推到各环境 BER 最优倍率。</li>
     <li>改善主要来自 gain 维（第 7 维），形状（FFE/gDC/gDC2）为次要贡献：15/15 用例把 BER 从次优起点压到检测限附近（强信号）或明显下降（CD/DGD/中高插损/极端插损），包括 40 dB 总插损用例（IL20x20）也推到 1.20e-7。Model B 全程未否决任何一步（仅起保护作用，未被使用）。</li>
@@ -1468,8 +1474,14 @@ def _rows_core(summary, order):
 
 
 def _rows_safety(summary, d):
+    """逐步记账：落点口径 + 含 ±ε 试探瞬时口径（两类都是真实硬件短暂停留的工作点）。"""
     steps = 0
     worse = 0
+    probe_rows = []
+    probe_worse_steps = 0
+    worst_ratio = 0.0
+    worst_env = ''
+    worst_ber = 0.0
     for env, r in summary.items():
         p = os.path.join(d, f'trace_{env}.csv')
         if not os.path.exists(p):
@@ -1477,15 +1489,47 @@ def _rows_safety(summary, d):
         tr = pd.read_csv(p)
         if tr.empty:
             continue
+        seed = r['seed_ber']
         steps += len(tr)
-        worse += int((tr['real_ber'] > r['seed_ber']).sum())
+        worse += int((tr['real_ber'] > seed).sum())
+        pr = None
+        pp = os.path.join(d, f'probes_{env}.csv')
+        if os.path.exists(pp):
+            pr = pd.read_csv(pp)
+            if pr.empty or 'real_ber' not in pr.columns:
+                pr = None
+        n_probe_worse = 0
+        worst_w = 0.0
+        for step in tr['step'].unique():
+            acc = float(tr.loc[tr['step'] == step, 'real_ber'].iloc[0])
+            if pr is not None:
+                prb = pr.loc[pr['step'] == step, 'real_ber']
+                w = max(acc, float(prb.max())) if len(prb) else acc
+            else:
+                w = acc
+            if w > seed:
+                n_probe_worse += 1
+            worst_w = max(worst_w, w)
+        probe_worse_steps += n_probe_worse
+        r_ = worst_w / seed if seed > 0 else 0.0
+        if r_ > worst_ratio:
+            worst_ratio = r_
+            worst_env = env
+            worst_ber = worst_w
+        probe_rows.append(
+            f"<tr><td>{env}</td>"
+            f"<td class=\"n\">{seed:.2e}</td>"
+            f"<td class=\"n{' win' if n_probe_worse == 0 else ''}\">{n_probe_worse}</td>"
+            f"<td class=\"n\">{worst_w:.2e}</td>"
+            f"<td class=\"n\">{r_:.1f}x</td></tr>")
     total_steps = steps
     total_worse = worse
-    out = (f"<tr><td class=\"n\">{len(summary)}</td>"
-           f"<td class=\"n\">{total_steps}</td>"
-           f"<td class=\"n{' win' if total_worse == 0 else ''}\">{total_worse}</td>"
-           f"<td>{'全程无退步' if total_worse == 0 else '存在退步'}</td></tr>")
-    return out, total_steps, total_worse
+    landed = (f"<tr><td class=\"n\">{len(summary)}</td>"
+              f"<td class=\"n\">{total_steps}</td>"
+              f"<td class=\"n{' win' if total_worse == 0 else ''}\">{total_worse}</td>"
+              f"<td>{'全程无退步' if total_worse == 0 else '存在退步'}</td></tr>")
+    return (landed, '\n'.join(probe_rows), total_steps, total_worse,
+            probe_worse_steps, worst_ratio, worst_env, worst_ber)
 
 
 def _rows_probe(d, order):
@@ -1636,7 +1680,7 @@ def main():
     n_worse = len(order) - n_pos - n_neu
     pos_summary = f"{n_pos}/{len(order)} 用例相对起点改善、{n_neu} 用例持平、{n_worse} 用例退步"
     hard = summary[hard_env]
-    safety_rows, total_steps, total_worse = _rows_safety(summary, a.baseline)
+    safety_rows, safety_probe_rows, total_steps, total_worse, probe_worse_steps, worst_ratio, worst_env, worst_ber = _rows_safety(summary, a.baseline)
 
     # C++ 全量重跑等价性对照 + 速度（result/ddps_cpp_main）
     cpp_dir = 'result/ddps_cpp_main'
@@ -1688,14 +1732,14 @@ def main():
     headline = '\n'.join([
         f"<tr><td><strong>在线调优</strong>（A=探针->BER 方向 + B=参数->BER 风险控制 + 7 维 FFE+CTLE+gain）</td>"
         f"<td><strong>{n_pos}/{len(order)} 用例正向改善</strong>（{n_neu} 持平、{n_worse} 退步），几何平均 x{imp_geo:.2f}"
-        f"（最高 x{imp_arr.max():.2f}）；全程 {total_steps} 步真实 BER，"
-        f"<strong>{total_worse} 步劣于起点</strong>，边界与逐病例见第 6 节</td></tr>",
+        f"（最高 x{imp_arr.max():.2f}）；全程 {total_steps} 落点真实 BER，"
+        f"<strong>{total_worse} 落点劣于起点</strong>（含 ±ε 试探瞬时 {probe_worse_steps} 步，最坏 ×{worst_ratio:.1f}），见第 6 节</td></tr>",
         f"<tr><td>Model A（方向代理）</td>"
         f"<td>输入 = [7-tap Tx FIR 探针, drive_rms]（8 维波形域）-> log10(BER) 条件均值。"
         f"在线拿不到收端 BER，只能拿发端探针，A 建立探针->BER 方向映射。</td></tr>",
         f"<tr><td>Model B（风险控制）</td>"
         f"<td>输入 = [4 FFE 旁瓣, gDC, gDC2, drive_rms]（7 维参数域）-> log10(BER) 保守上包络。"
-        f"按当前最优点 25% 的变差量拒绝候选，全程 {total_worse} 步劣于起点（红线未触发拦截）。</td></tr>",
+        f"按当前最优点 25% 的变差量拒绝候选，全程 {total_worse} 落点劣于起点（红线未触发拦截）。</td></tr>",
         f"<tr><td>A/B 输入空间不同</td>"
         f"<td>波形域 vs 参数域，误差来源相互独立。梯度通过 A 的链式法则：扰动 7 维参数（含 gain）->重算探针->查A。</td></tr>",
         f"<tr><td>gain 维</td>"
@@ -1706,7 +1750,7 @@ def main():
 
     kpis = '\n'.join([
         f'<div class="kpi"><div class="v">x{imp_geo:.2f}</div><div class="l">几何平均改善（{n_pos}/{len(order)} 正向）</div></div>',
-        f'<div class="kpi"><div class="v">{total_worse} / {total_steps}</div><div class="l">劣于起点的步数</div></div>',
+        f'<div class="kpi"><div class="v">{total_worse} / {total_steps}</div><div class="l">落点劣于起点（含试探瞬时 {probe_worse_steps} 步）</div></div>',
         f'<div class="kpi"><div class="v">{meta["model_a"]["spearman_test"]:.3f}</div><div class="l">Model A Spearman（探针->BER）</div></div>',
         f'<div class="kpi"><div class="v">{meta["model_b"]["spearman_test"]:.3f}</div><div class="l">Model B Spearman（参数->BER）</div></div>',
         f'<div class="kpi"><div class="v">{meta["model_b"].get("local_spacing_rho", 0):.2f}</div><div class="l">信任域颗粒度 rho</div></div>',
@@ -1721,6 +1765,11 @@ def main():
         '<!--ABLATION_ROWS-->': aonly_rows,
         '<!--TARGET_RMS_ROWS-->': _rows_target_rms(rms_data, order),
         '<!--SAFETY_ROWS-->': safety_rows,
+        '<!--SAFETY_PROBE_ROWS-->': safety_probe_rows,
+        '<!--PROBE_WORSE_STEPS-->': str(probe_worse_steps),
+        '<!--PROBE_WORST_RATIO-->': f'{worst_ratio:.1f}',
+        '<!--PROBE_WORST_ENV-->': worst_env,
+        '<!--PROBE_WORST_BER-->': f'{worst_ber:.2e}',
         '<!--PROBE_ROWS-->': _rows_probe(a.baseline, order),
         '<!--CXX_CASE_ROWS-->': cxx_case_rows,
         '<!--CXX_TOTAL_WALL-->': cxx_total_wall,
