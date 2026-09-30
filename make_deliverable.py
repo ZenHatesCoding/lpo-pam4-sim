@@ -1126,7 +1126,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
     <li>下降方向走 Model A：<strong>gain 维解析梯度（0 探针）+ shape 维第 0 步一次性中心差分初始化（12 次探针）后，每步割线免费更新，全程零后续试探态</strong>，与评估符号数无关。</li>
     <li>gain 是第 7 个搜索维：经 drive_rms 进入 A/B 输入，在 ±0.30 dex 信任域内参与梯度，梯度把它从次优起点（×0.325）推到各环境 BER 最优倍率。</li>
     <li>改善主要来自 gain 维（第 7 维），形状（FFE/gDC/gDC2）为次要贡献：15/15 用例把 BER 从次优起点压到检测限附近（强信号）或明显下降（CD/DGD/中高插损/极端插损），包括 40 dB 总插损用例（IL20x20 到 1.20e-7、Comb_IL20x20_CD15_DGD5 到 2.39e-7）。Model B 全程未否决任何一步（仅起保护作用，未被使用）。</li>
-    <li><strong>gain 维用解析梯度、不用割线</strong>：driver_gain 是 Tx 链末尾的标量乘子，Model A 的 8 维探针特征全部严格 ∝ gain，故 gain 维梯度有解析闭式 <span class="mono">∂A/∂u_gain = ln(10)·Σ<sub>j</sub>(∂A/∂feat<sub>j</sub>)·feat<sub>j</sub></span>。它每步用当前落点探针现算（0 试探、永不陈旧），避免了 Broyden 秩-1 更新只沿「已走过方向」修正、gain 维方向分量弱会被压塌的问题——这是此前纯割线法 gain 维冻结、而 shape 维正常收敛的根因。shape 维（4 FFE + gDC + gDC2）仍用割线维持（第 0 步 12 次探针初始化后免费更新），故<strong>除第 0 步外全程零 ±ε 过渡态</strong>。</li>
+    <li><strong>gain 维用解析梯度、不用割线</strong>：driver_gain 是 Tx 链末尾的标量乘子，Model A 的 8 维探针特征全部严格 ∝ gain，故 gain 维梯度有解析闭式 <span class="mono">∂A/∂u_gain = ln(10)·Σ<sub>j</sub>(∂A/∂feat<sub>j</sub>)·feat<sub>j</sub></span>，每步用当前落点探针现算（0 试探、永不陈旧）。shape 维（4 FFE + gDC + gDC2）用割线维持——第 0 步 12 次探针初始化后做免费算术更新，因此<strong>除第 0 步外全程零 ±ε 过渡态</strong>。</li>
   </ol>
 </div>
 
