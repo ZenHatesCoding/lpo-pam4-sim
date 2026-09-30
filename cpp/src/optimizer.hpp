@@ -33,7 +33,6 @@ static constexpr double ALPHA_DECAY = 0.97;
 static constexpr double TRUST_PATH_K = 2.0;
 static constexpr double GROUP_GATE = 1e-3;
 static constexpr double MIN_GAIN_DEX = 0.01;
-static constexpr int SECANT_REFRESH_EVERY = 3;    // 割线周期性中心差分刷新间隔
 
 // STEP_SPAN（满箱宽度，分组归一化步长）
 inline std::vector<double> step_span() {
@@ -118,6 +117,20 @@ inline double predict_b_params(const WhiteBoxRidge& model_b, const std::vector<d
     return model_b.predict(model_b.standardize(feat));
 }
 
+// gain 维解析梯度 ∂A/∂u_gain = ln(10)·Σ_j (∂A/∂feat_j)·feat_j。
+// Model A 的 8 维探针 = [绝对标定 7-tap FIR, drive_rms]，driver_gain 是 Tx 链最后的标量乘子，
+// 故全部 8 个特征严格 ∝ gain；gain = g0·10^u => ∂feat_j/∂u = ln(10)·feat_j。零 ±ε 试探。
+inline double analytic_gain_grad(const WhiteBoxRidge& model_a, const std::vector<double>& probe) {
+    std::vector<double> xn = model_a.standardize(probe);
+    std::vector<double> gn = model_a.grad(xn);          // ∂pred/∂xn
+    double s = 0.0;
+    for (size_t j = 0; j < probe.size(); j++) {
+        double g_raw = gn[j] / model_a.sd[j];           // ∂pred/∂raw_feat
+        s += g_raw * probe[j];
+    }
+    return std::log(10.0) * s;
+}
+
 // 7 维搜索盒（围绕 x0 + 全局边界收紧）
 inline void bounds(const std::vector<double>& x0, std::vector<double>& lo, std::vector<double>& hi) {
     static const double bl[N_DIM] = { -FFE_BOUND, -FFE_BOUND, -FFE_BOUND, -FFE_BOUND,
@@ -141,12 +154,13 @@ struct ProbeRecord {
     double real_logber = 0, real_mlse = 0;
 };
 
-// 七维链式梯度（中心差分；record_probe_ber=true 时对每个 ±ε 态同步做真实 BER 记账）
+// 链式梯度（中心差分；record_probe_ber=true 时对每个 ±ε 态同步做真实 BER 记账）。
+// dims_lo/dims_hi 限定只算 [dims_lo, dims_hi) 维（其余维 g=0），供割线第 0 步只算 shape 维。
 inline std::pair<std::vector<double>, std::vector<ProbeRecord>>
 grad_a_chain(const WhiteBoxRidge& model_a, Config& cfg, const std::vector<double>& x,
              int ffe_pre, const S4P* s4p_tx, const S4P* s4p_rx,
              const std::vector<int>& sim_seeds, double eps = 0.01, double eps_u = 0.05,
-             bool record_probe_ber = false) {
+             bool record_probe_ber = false, int dims_lo = 0, int dims_hi = N_DIM) {
     std::vector<double> g(N_DIM, 0.0);
     std::vector<double> taps = construct_taps({ x[0], x[1], x[2], x[3] }, ffe_pre);
     double gdc = x[N_SIDE], gdc2 = x[N_SIDE + 1];
@@ -154,7 +168,7 @@ grad_a_chain(const WhiteBoxRidge& model_a, Config& cfg, const std::vector<double
     double eps_vec[N_DIM] = { eps, eps, eps, eps, eps * 10.0, eps * 10.0, eps_u };
     std::vector<ProbeRecord> probe_iter;
 
-    for (int i = 0; i < N_DIM; i++) {
+    for (int i = dims_lo; i < dims_hi; i++) {
         std::vector<double> xp = x, xm = x;
         xp[i] += eps_vec[i]; xm[i] -= eps_vec[i];
         std::vector<double> taps_p, taps_m;
@@ -348,8 +362,9 @@ inline std::vector<Stage2Step> stage2_descent(Config& cfg, const WhiteBoxRidge& 
     return trace;
 }
 
-// ---- 割线（secant / Broyden good）梯度维持 ----
-// 与 stage2_descent 唯一区别：梯度不再每步 14 试探，而是第 0 步一次中心差分 + 割线更新。
+// ---- 割线（secant / Broyden good）梯度维持 + gain 维解析梯度 ----
+// 与 stage2_descent 唯一区别：梯度不再每步中心差分，而是第 0 步 shape 维中心差分初始化 +
+// gain 维解析，此后每步割线更新（零 ±ε 试探态）。除第 0 步外 live 链路只落已落地工作点。
 
 inline bool secant_direction(const std::vector<double>& g, std::vector<double>& direction) {
     std::vector<double> span = step_span();
@@ -397,7 +412,7 @@ inline bool secant_line_search(const WhiteBoxRidge& model_b, Config& cfg, const 
     return false;
 }
 
-// 在线调优：一次性中心差分初始化 + 割线（Broyden good）更新梯度。
+// 在线调优：第 0 步 shape 维中心差分初始化 + gain 维解析梯度；此后零试探态。
 inline std::vector<Stage2Step> stage2_descent_secant(Config& cfg, const WhiteBoxRidge& model_a,
                                                      const WhiteBoxRidge& model_b,
                                                      const std::vector<double>& x0, int ffe_pre, int n_steps, double lr,
@@ -423,18 +438,17 @@ inline std::vector<Stage2Step> stage2_descent_secant(Config& cfg, const WhiteBox
     bool has_path = (rho > 0.0);
     double path_limit = TRUST_PATH_K * rho;
 
-    // 一次性中心差分初始化梯度（唯一一轮 14 试探态）；种子点 A 预测（历史落点探针）。
-    auto [g, probe_iter0] = grad_a_chain(model_a, cfg, x, ffe_pre, s4p_tx, s4p_rx, sim_seeds, 0.01, 0.05, true);
+    // 第 0 步：shape 维中心差分（唯一一轮 12 个 ±ε 试探态）；gain 维解析（0 试探）。
+    auto [g, probe_iter0] = grad_a_chain(model_a, cfg, x, ffe_pre, s4p_tx, s4p_rx, sim_seeds,
+                                         0.01, 0.05, true, 0, N_SIDE + 2);
     auto probe0 = probe_features(cfg, taps0, gdc0, gdc2, gain0, s4p_tx);
+    g[N_SIDE + 2] = analytic_gain_grad(model_a, probe0);
     double a_prev = predict_a_probe(model_a, probe0);
 
     std::vector<Stage2Step> trace;
     for (int step = 0; step < n_steps; step++) {
+        // 只有第 0 步携带初始化那轮的 12 个 ±ε 试探态（透明记账）；此后每步 0 试探态。
         std::vector<ProbeRecord> step_probes = (step == 0) ? probe_iter0 : std::vector<ProbeRecord>();
-        if (SECANT_REFRESH_EVERY > 0 && step > 0 && (step % SECANT_REFRESH_EVERY) == 0) {
-            auto fr = grad_a_chain(model_a, cfg, x, ffe_pre, s4p_tx, s4p_rx, sim_seeds, 0.01, 0.05, true);
-            g = fr.first; step_probes = fr.second;
-        }
 
         std::vector<double> direction(N_DIM, 0.0);
         bool any_active = secant_direction(g, direction);
@@ -446,16 +460,6 @@ inline std::vector<Stage2Step> stage2_descent_secant(Config& cfg, const WhiteBox
         double alpha = lr * std::pow(ALPHA_DECAY, (double)step);
         std::vector<double> x_new;
         bool found = secant_line_search(model_b, cfg, x, direction, tr_lo, tr_hi, alpha, ffe_pre, allowed_ber, s4p_tx, x_new);
-
-        // 割线方向被 B 全部拒绝 -> 回退一次中心差分刷新 g，再重试
-        if (!found) {
-            auto fr = grad_a_chain(model_a, cfg, x, ffe_pre, s4p_tx, s4p_rx, sim_seeds, 0.01, 0.05, true);
-            g = fr.first; step_probes = fr.second;
-            any_active = secant_direction(g, direction);
-            if (any_active) {
-                found = secant_line_search(model_b, cfg, x, direction, tr_lo, tr_hi, alpha, ffe_pre, allowed_ber, s4p_tx, x_new);
-            }
-        }
         if (!found) {
             printf("[Secant] stop: no candidate passes Model B veto at step %d\n", step);
             break;
@@ -481,16 +485,19 @@ inline std::vector<Stage2Step> stage2_descent_secant(Config& cfg, const WhiteBox
         double pred_b = predict_b_params(model_b, { x_new[0], x_new[1], x_new[2], x_new[3], x_new[4], x_new[5] }, rms_actual);
         auto [real_logber, real_mlse] = physical_eval(cfg, taps_new, gdc_new, gdc2_new, gain_new, s4p_tx, s4p_rx, sim_seeds);
 
-        // 割线更新：g += (ΔA - g^T Δx) · Δx / ‖Δx‖²
+        // gain 维：解析梯度（每步现算，零试探、永不陈旧）
+        g[N_SIDE + 2] = analytic_gain_grad(model_a, probe_new);
+        // shape 维：割线更新（只用历史落点；剔除 gain 贡献）
         double dA = pred_a - a_prev;
+        double dA_shape = dA - g[N_SIDE + 2] * (x_new[N_SIDE + 2] - x[N_SIDE + 2]);
         double dx_norm2 = 0.0, g_dot_dx = 0.0;
-        std::vector<double> dx(N_DIM);
-        for (int i = 0; i < N_DIM; i++) {
-            dx[i] = x_new[i] - x[i]; dx_norm2 += dx[i] * dx[i]; g_dot_dx += g[i] * dx[i];
+        for (int i = 0; i < N_SIDE + 2; i++) {
+            double d = x_new[i] - x[i];
+            dx_norm2 += d * d; g_dot_dx += g[i] * d;
         }
         if (dx_norm2 > 1e-18) {
-            double c = (dA - g_dot_dx) / dx_norm2;
-            for (int i = 0; i < N_DIM; i++) g[i] += c * dx[i];
+            double c = (dA_shape - g_dot_dx) / dx_norm2;
+            for (int i = 0; i < N_SIDE + 2; i++) g[i] += c * (x_new[i] - x[i]);
         }
 
         if (pred_b < best_pred_b) {

@@ -1,45 +1,48 @@
 # HANDOFF — DDPS
 
-> **新 session 必读**：下一轮要做的全部事，看下方 **「## 待办：v8 收尾」**。上面的背景读完再动手，先读 `AGENTS.md`。
+> **新 session 必读**：下一轮要做的全部事，看下方 **「## 待办」**。上面的背景读完再动手，先读 `AGENTS.md`。
 
-## 当前状态（v8 割线在线调优 · C++ 高SNR 15 用例运行中）
+## 当前状态（v8 割线在线调优 + gain 解析梯度 · C++ 高SNR 15 用例运行中）
 
-v8 只改「在线调优方式」，物理层 / 代理模型 / 数据集 / 训练全部不动（模型不重训）。核心：把 v7 每步 14 个 ±ε 试探态（中心差分链式梯度）换成**一次性初始化 + 割线（Broyden "good"）更新 + 周期性中心差分刷新（K=3）**，把在线评估量从「每步 15 次真实评估」降到「每步 1 次落点 + 每 K 步 14 次刷新」。
+v8 只改「在线调优方式」，物理层 / 代理模型 / 数据集 / 训练全部不动（模型不重训）。核心：把 v7 每步 14 个 ±ε 试探态（中心差分链式梯度）换成 **gain 维解析梯度 + shape 维割线更新**，除第 0 步外全程零 ±ε 过渡态。
 
 - **方法**：`ddps_optimizer._stage2_descent_secant`（Python 参照）+ `cpp/src/optimizer.hpp` `stage2_descent_secant`（C++ 一比一复刻）。
-  - 第 0 步：`_grad_a_chain` 一次性中心差分初始化梯度（唯一一轮 14 试探态）。
-  - 此后每步：割线更新 `g_{k+1} = g_k + (ΔA − g_kᵀΔx)·Δx/‖Δx‖²`，Δx = 上一步实际位移、ΔA = Model A 预测变化（历史落点探针，免费算术）。
-  - 每 `SECANT_REFRESH_EVERY=3` 步 + Model B 全拒时回退一次中心差分刷新——修正 Broyden 未探索方向的陈旧分量（纯割线在 IL20x20 这类代理失准用例上会卡在 3.0e-4，加刷新后到 3.97e-6，与链式一致）。
-  - Model A 只消费历史/当前落点探针（不再为梯度制造微扰态）；Model B 在新参数 apply 前免费拒绝。
-- **已归档**：v7.3（2^22 · 单种子 42 · 15 用例 · 链式梯度，C++ 至 5.4e-13 等价、1.80× 加速）→ `archive/20260930_ddps_v7.3_2to22/`。保留共享标定输入：`per_case_target_rms.json` / `per_case_rms_scan.csv` / `seed_config_bad_1e4.json` / `ddps_block_length.csv`。
-- **低SNR验证（2^18 单种子，已核）**：Base_IL10x10 secant=chain=9.92e-7（地板）；IL20x20 secant(K=3)=chain=3.97e-6（纯割线 K=0 卡 3.02e-4）；评估量 secant(K=3) 86 次 vs chain 226 次/用例 = **2.6× 减少**。
-- **等价性（低SNR bit级对齐，已核）**：Base + IL20x20 @ 2^16，Python vs C++ secant 轨迹 gdc/gdc2/gain/pred_a/pred_b/real_ber 最大相对差 ~5.9e-13（同 v7.3 门限）。
-- **C++ 高SNR 15 用例 2^22 运行中**（后台，secant，15 jobs，预计 ~2.5h）。C++ eval ≈105 s/次 @2^22（v7.3 每用例 226 eval / 23775 s）。
-- **编译器绕行（本机 WDAC 拦 g++.exe）**：`g++.exe` 被 Application Control 拦，用同源 `gcc.exe`（哈希未被拦）+ `-lstdc++` 编译 C++（.cpp 按扩展名走 cc1plus，链接补 libstdc++）；`cpp/build.ps1` 已改。
+  - gain 维（第 7 维）：解析闭式 `∂A/∂u_gain = ln(10)·Σ_j (∂A/∂feat_j)·feat_j`（Model A 8 维探针全部 ∝ gain，driver_gain 是 Tx 链末尾标量乘子），每步用当前落点探针现算、0 试探、永不陈旧。
+  - shape 维（4 FFE 旁瓣 + gDC + gDC2）：第 0 步一次性中心差分初始化（12 探针，唯一一轮试探态），此后每步割线 `g_{k+1} = g_k + (ΔA − g_gain·Δx_gain − g_kᵀΔx)·Δx/‖Δx‖²`（割线方程剔除 gain 的已知贡献）。
+  - Model A 只消费历史/当前落点探针（第 0 步之后不再制造任何参数微扰态）；Model B 在新参数 apply 前免费拒绝。
+  - 已移除周期刷新（`SECANT_REFRESH_EVERY`）与 Model B 全拒回退刷新——gain 维解析后不再需要。
+- **诊断结论（为什么 gain 维不割线）**：纯割线（K=0）shape 维收敛正常、gain 维卡 ×0.302 / u_gain=−0.52 不动——Broyden 秩-1 更新只沿已走过方向修正，gain 维方向分量弱被压塌（梯度幅值跌破门控冻结）。gain 用解析梯度后正常爬升并收敛到链式水平。根因不是「gain 不适合梯度下降」，也不是「缩放不匹配」。
+- **已归档**：v7.3（2^22 · 单种子 42 · 15 用例 · 链式梯度）→ `archive/20260930_ddps_v7.3_2to22/`。
+- **低SNR验证（2^18 单种子 42，已核）**：15/15 用例 secant(解析 gain) = chain（含 IL20x20 3.97e-6、Comb_IL20x20_CD15_DGD5 3.97e-6 硬用例）；评估量 28 vs 226 次/用例 = **8× 减少**。
+- **等价性（低SNR bit级对齐，已核）**：IL20x20 @ 2^18，Python vs C++ 轨迹 gdc/gdc2/gain/pred_a/pred_b/real_ber 最大相对差 ~4.6e-13。
+- **C++ 高SNR 15 用例 2^22 运行中**（后台，secant，15 jobs）。C++ eval ≈105 s/次 @2^22；新 secant 每用例 28 eval（vs 链式 226）→ 预计大幅缩短墙钟。
+- **编译器绕行（本机 WDAC 拦 g++.exe）**：用同源 `gcc.exe` + `-lstdc++` 编译 C++；`cpp/build.ps1` 注释已改 ASCII（Windows PowerShell 5.1 会把无 BOM UTF-8 中文按 GBK 误读、导致解析失败）。
 
-## 待办：v8 收尾
+## 待办
 
-1. 等 C++ 高SNR 15 用例完成（`result/ddps_cpp_secant/`，2^22 secant）。
-2. `report_ddps.py` 对 `result/ddps_cpp_secant` 出图（图源改 C++ 割线结果）。
-3. `make_deliverable.py` 改写在线调优方法节（割线 + 周期刷新）→ 数据源 `result/ddps_main`/`result/ddps_cpp_main` → `result/ddps_cpp_secant`；§6.3/§6.4 试探瞬时口径改为「仅第 0 步 + 刷新步有 ±ε 探针」；结论评估量 15/步 → 1+14/3 步。
-4. 刷新 README / HANDOFF / docs（DDPS_Method、DDPS_REQUIREMENTS、CHANGELOG）到 v8 口径。
-5. `git add` 全部 + 提交 + 推送。
-6. `present deliverables/DDPS_Deliverable.html`（最后动作）。
+1. ✅ C++ 高SNR 15 用例完成（`result/ddps_cpp_secant/`，2^22 secant，墙钟 4134.7s）。
+2. ✅ `report_ddps.py` 出图。
+3. ✅ `make_deliverable.py` 改写文案 + 替换 §6.1/§7 结论数字 + 重新生成 HTML。
+4. ✅ README / HANDOFF / docs（DDPS_Method、CHANGELOG）刷新到 v8 口径（含结果数字）。
+5. ✅ 旧 K=3 scratch（`result/ddps_secant_refresh3/`、`result/ddps_secant_sanity/`、`result/ddps_cpp_secant_equiv/`、`result/ddps_secant_equiv_il20/`、`result/ddps_secant_equiv_py/`、`_diag_gain.py`）归档至 `archive/20260930_ddps_secant_k3_scratch/`。
+6. `git add` 全部 + 提交 + 推送。
+7. `present deliverables/DDPS_Deliverable.html`（最后动作）。
 
-## 本次 session 做的事（v8）
+## 本次 session 做的事（v8：gain 解析梯度）
 
-1. 归档 v7.3 结果 + 交付件快照到 `archive/20260930_ddps_v7.3_2to22/`（git mv，保留共享标定输入）。
-2. Python 实现 `_stage2_descent_secant`（一次性初始化 + Broyden 割线 + 周期刷新 K=3 + B 拒时刷新）；`test_generalization.py` 加 `--method {chain,secant}`。
-3. 低SNR验证：纯割线在 IL20x20 卡 3.0e-4（Broyden 未探索方向陈旧，gain 维塌缩被门控）；加周期刷新 K=3 后到 3.97e-6，与 chain 一致。Base 两者都到地板。
-4. C++ 一比一复刻 `stage2_descent_secant` + `main.cpp --method` + `run_all_cases.py --method/--out-dir`（修 Windows Pool spawn 全局不传播的 bug，改任务元组显式传参）。
-5. 低SNR bit级对齐核验：Base + IL20x20 @ 2^16，Python vs C++ 最大相对差 ~5.9e-13。
-6. 编译器绕行：WDAC 拦 g++.exe → gcc.exe + `-lstdc++`；`cpp/build.ps1` 改注释 + 驱动 + 链接。
+1. 定位纯割线（K=0）失败根因：shape 维收敛、gain 维冻结（Broyden 秩-1 压塌 gain 弱方向分量）。
+2. Python 实现 `_analytic_gain_grad`（8 维探针链式法则）+ 重写 `_stage2_descent_secant`（step0 只 shape 中心差分 12 探针 + gain 解析；每步 gain 解析现算 + shape 割线剔除 gain 贡献；移除 K=3 刷新与 B 全拒刷新）。
+3. 低SNR验证：15/15 用例 secant(解析 gain) = chain（含 IL20x20 3.97e-6、Comb_IL20x20 3.97e-6）。
+4. C++ 一比一复刻 `stage2_descent_secant` + `grad_a_chain` 加 dims 参数 + `analytic_gain_grad`；移除 `SECANT_REFRESH_EVERY` + B 全拒刷新。
+5. 低SNR bit级对齐：IL20x20 @ 2^18，Python vs C++ 最大相对差 ~4.6e-13。
+6. 编译器绕行：WDAC 拦 g++.exe → gcc.exe + `-lstdc++`；`cpp/build.ps1` 注释改 ASCII（Windows PowerShell 5.1 GBK 误读问题）。
+7. 交付件 + docs 文案全量刷新到「gain 解析 + shape 割线 + 零后续试探」口径。
 
 ## 未提交变更（当前 working tree）
 
-- 现役代码：`ddps_optimizer.py`（+`_stage2_descent_secant`）、`test_generalization.py`、`cpp/src/optimizer.hpp`、`cpp/main.cpp`、`cpp/run_all_cases.py`、`cpp/build.ps1`。
-- 结果：`result/ddps_cpp_secant/`（运行中）、`result/ddps_secant_*`/`result/ddps_chain_sanity`/`result/ddps_cpp_secant_equiv`（低SNR验证/等价 scratch）。
-- 归档：`archive/20260930_ddps_v7.3_2to22/`（已提交推送）。
+- 现役代码：`ddps_optimizer.py`（`_analytic_gain_grad` + `_stage2_descent_secant` 重写）、`test_generalization.py`、`cpp/src/optimizer.hpp`、`cpp/build.ps1`。
+- 结果：`result/ddps_cpp_secant/`（新 secant 结果，已就位）、`result/ddps_secant_analytic_py/`（低SNR Python 参照）、`result/ddps_cpp_secant_analytic_equiv/`（低SNR C++ 等价）。
+- 归档：`archive/20260930_ddps_v7.3_2to22/`、`archive/20260930_ddps_secant_k3_scratch/`（旧 K=3 scratch）。
 
 1. **交付件 HTML 交互化**：6.2 图改 tab 切换（A+B / A-only）；第 9 节复现命令、4.3 复杂度、4.4 可靠性、2.3 参数表、2.4 用例表、5 块长表、5 采样口径、6.3 核验表共 8 处 details 折叠；全文 h2/h3/h4 标题级折叠（点击标题收起下属内容，打印时自动展开、打印后恢复）。
 2. **梯度数字全链修正**：交付件 4.2/4.3/4.6/结论 + 图 4 两个 SVG + docs/DDPS_Method、docs/DDPS_REQUIREMENTS 里的"每步 8 次评估（1 基准 + 7 维扰动）"统一改为"7 维双边中心差分 = 14 次探针 + 14 次 A 前向"，eps 分档补齐 0.01/0.1/0.05。

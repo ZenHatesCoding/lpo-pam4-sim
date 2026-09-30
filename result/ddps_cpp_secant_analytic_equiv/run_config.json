@@ -1,0 +1,19 @@
+{
+  "backend": "cpp",
+  "exe": "cpp\\build\\run_ddps.exe",
+  "model_dir": "models/ddps",
+  "n_steps": 15,
+  "num_symbols": 262144,
+  "sim_seeds": [
+    42
+  ],
+  "seed_config": "result/seed_config_bad_1e4.json",
+  "tx_noise_snr_db": 0.0,
+  "envs": [
+    "Base_IL10x10",
+    "IL20x20"
+  ],
+  "jobs": 2,
+  "total_wall_sec": 59.56204843521118,
+  "method": "secant"
+}

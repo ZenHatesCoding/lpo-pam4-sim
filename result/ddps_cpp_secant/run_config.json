@@ -27,6 +27,6 @@
     "HighNoise_IL16x16"
   ],
   "jobs": 15,
-  "total_wall_sec": 12752.245862483978,
+  "total_wall_sec": 4134.730431318283,
   "method": "secant"
 }

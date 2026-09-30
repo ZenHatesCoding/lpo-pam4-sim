@@ -223,6 +223,26 @@ def _predict_a_probe(model_a, probe_feat):
     return float(np.asarray(model_a.predict(x_n)).ravel()[0])
 
 
+def _analytic_gain_grad(model_a, probe_feat):
+    """gain 维解析梯度 ∂A/∂u_gain（零试探态）。
+
+    Model A 的 8 维探针 = [绝对标定 7-tap FIR, drive_rms]；driver_gain 是 Tx 链最后的
+    标量乘子，故全部 8 个特征都严格 ∝ gain。gain = g0·10^u => ∂feat_j/∂u = ln(10)·feat_j。
+
+        ∂A/∂u_gain = Σ_j (∂A/∂feat_j)·(∂feat_j/∂u) = ln(10)·Σ_j (∂A/∂feat_j)·feat_j
+
+    其中 ∂A/∂feat_j 由 WhiteBoxRidge.grad() 解析给出（输入为标准化特征，需除以 sd 换算回
+    原始量纲）。零 ±ε 扰动、零真实 BER，只消耗当前落点的探针特征。
+    """
+    x = np.asarray(probe_feat, dtype=float).reshape(1, -1)
+    mu = np.asarray(getattr(model_a, 'mu', np.zeros(x.shape[1])), dtype=float)
+    sd = np.asarray(getattr(model_a, 'sd', np.ones(x.shape[1])), dtype=float)
+    xn = (x - mu) / sd
+    gn = np.asarray(model_a.grad(xn), dtype=float)   # ∂pred/∂xn (1, d)
+    g_raw = (gn / sd).ravel()                         # ∂pred/∂raw_feat (d,)
+    return np.log(10.0) * float(np.sum(g_raw * x.ravel()))
+
+
 def _predict_b_params(model_b, x_shape, drive_rms):
     """Model B 对参数域特征的预测（7 维 = x_shape + drive_rms）。"""
     feat = np.concatenate([np.asarray(x_shape, dtype=float), [drive_rms]])
@@ -244,8 +264,8 @@ def _bounds(x0):
                      np.minimum(b[:, 1], x0 + radius)], axis=1)
 
 
-def _grad_a_chain(model_a, config, x, ffe_pre, eps=0.01, eps_u=0.05, record_probe_ber=False):
-    """七维链式梯度：∂A/∂x = [∂A/∂shape(6), ∂A/∂u_gain]。
+def _grad_a_chain(model_a, config, x, ffe_pre, eps=0.01, eps_u=0.05, record_probe_ber=False, dims=None):
+    """链式梯度：∂A/∂x = [∂A/∂shape(6), ∂A/∂u_gain]；dims 给定则只算指定维（其余维 g=0）。
 
     x = [4 FFE 旁瓣, gDC, gDC2, u_gain]（7 维）。
     shape 维：±eps 扰动参数 -> 重算探针 -> 查 A -> 中心差分（gain 固定）。
@@ -265,7 +285,7 @@ def _grad_a_chain(model_a, config, x, ffe_pre, eps=0.01, eps_u=0.05, record_prob
     eps_vec = np.array([eps] * N_SIDE + [eps * 10] * 2 + [eps_u])
     probe_iter = []
 
-    for i in range(len(x)):
+    for i in (range(len(x)) if dims is None else dims):
         xp = x.copy(); xp[i] += eps_vec[i]
         xm = x.copy(); xm[i] -= eps_vec[i]
         if i < N_SIDE + 2:
@@ -508,20 +528,23 @@ def _stage2_descent_aonly(config, model_a, x0, ffe_pre, n_steps, lr):
 
 
 # ---------------------------------------------------------------------------
-# 在线调优：割线（secant / Broyden "good"）梯度维持。
+# 在线调优：割线（secant / Broyden "good"）梯度维持 + gain 维解析梯度。
 #
-#   动机：每步 14 个 ±ε 试探态（中心差分）在真实在线系统里是 14 次真实参数微扰，
-#   会真实改变链路 BER；只在第 0 步做一次中心差分初始化梯度，之后每一步用
-#   「上一步实际位移 + Model A 预测变化」做割线更新（免费算术），把每步成本从
-#   「14 试探 + 1 落点」降到「1 落点」。
+#   核心约束（在线系统的物理事实）：Model A 的输入是物理探针，而拿到探针 = 已经把
+#   参数真应用到系统 = 真实改变该时刻链路 BER。所以除了第 0 步获取初始梯度，后续
+#   每一步绝不为了测梯度把 live 链路摆进任何 x±ε 过渡态——每步只短暂停留在「已落地
+#   的工作点」，梯度只能用历史落点的结果来维持。
 #
-#   Model A / B 的边界（关键）：
-#     - Model A 输入 = 物理探针；要拿探针就必须先把参数真应用到系统（真实改变 BER）。
-#       所以 Model A 只消费【历史落点】的探针结果，不再为梯度制造新的微扰态。
+#   梯度来源（三件事缺一不可）：
+#     - gain 维：解析 ∂A/∂u_gain = ln(10)·Σ_j (∂A/∂feat_j)·feat_j（8 维探针特征全部 ∝ gain），
+#       每步用当前落点探针现算，零试探、永不陈旧。
+#     - shape 维（4 FFE + 2 CTLE）：第 0 步一次中心差分初始化（唯一一轮 12 个 ±ε 试探态），
+#       此后每步用「历史落点位移 + Model A 预测变化」做割线更新（免费算术）。
+#       割线方程剔除 gain 的贡献：dA_shape = dA - g_gain·dx_gain。
 #     - Model B 输入 = 新参数；在新参数 apply 到系统之前就能预测，用于拒绝候选。
-#       割线方向被 B 全部拒绝时，回退一次中心差分刷新 g 再试（上限 = 偶尔重新试探）。
+#   全程无周期刷新、无 B 全拒刷新：live 链路步间只落一个点，绝不进入 x±ε 过渡态。
 # ---------------------------------------------------------------------------
-SECANT_REFRESH_EVERY = 3        # 每 N 步周期性中心差分刷新一次梯度；>0 修正 Broyden 未探索方向的陈旧分量
+
 
 
 def _secant_direction(g):
@@ -556,11 +579,16 @@ def _secant_line_search(model_b, config, x, direction, tr_bounds, alpha, ffe_pre
 
 
 def _stage2_descent_secant(config, model_a, model_b, x0, ffe_pre, n_steps, lr):
-    """在线调优：一次性中心差分初始化 + 割线（Broyden good）更新梯度。
+    """在线调优：第 0 步 shape 维中心差分初始化 + gain 维解析梯度；此后零试探态。
 
-    搜索空间 / 信任域 / B 拦截 / 红线 / 边际门控与 _stage2_descent 完全一致；
-    唯一区别是梯度来源：不再每步 14 试探，而是第 0 步一次中心差分、此后割线维持。
-    真实 BER 仅记账，不回传决策。
+    满足的核心约束：除第 0 步获取初始梯度外，live 链路每一步只短暂停留在「已落地的工作点」，
+    绝不为了测梯度进入任何 x±ε 过渡态。梯度来源（详见模块头注释）：
+
+      - gain 维：解析 ∂A/∂u_gain（零试探、每步现算、永不陈旧）。
+      - shape 维：第 0 步一次中心差分初始化（唯一一轮 12 个 ±ε 试探态），此后每步
+        割线更新，割线方程剔除 gain 贡献（dA_shape = dA - g_gain·dx_gain）。
+
+    搜索空间 / 信任域 / B 拦截 / 红线 / 边际门控与 _stage2_descent 一致；真实 BER 仅记账。
     """
     x = np.array(x0, dtype=float)
     tr_bounds = _bounds(x)
@@ -580,17 +608,16 @@ def _stage2_descent_secant(config, model_a, model_b, x0, ffe_pre, n_steps, lr):
     z0 = (x[:6] - mu_vec) / sd_vec
     path_limit = TRUST_PATH_K * rho if rho > 0 else None
 
-    # 一次性中心差分初始化梯度（唯一一轮 14 试探态）；并取种子点 A 预测（历史落点探针）。
-    g, probe_iter0 = _grad_a_chain(model_a, config, x, ffe_pre, record_probe_ber=True)
+    # 第 0 步：shape 维中心差分（唯一一轮 12 个 ±ε 试探态）；gain 维解析（0 试探）。
+    g, probe_iter0 = _grad_a_chain(model_a, config, x, ffe_pre, record_probe_ber=True, dims=range(N_SIDE + 2))
     probe0 = _probe_features(config, taps0, gdc0, gdc2, gain0)
+    g[N_SIDE + 2] = _analytic_gain_grad(model_a, probe0)
     a_prev = _predict_a_probe(model_a, probe0)
 
     trace = []
     for step in range(n_steps):
-        # 第 0 步携带初始化那轮的 14 个 ±ε 试探态（透明记账）；此后正常步无试探态。
+        # 只有第 0 步携带初始化那轮的 12 个 ±ε 试探态（透明记账）；此后每步 0 试探态。
         step_probes = probe_iter0 if step == 0 else []
-        if SECANT_REFRESH_EVERY > 0 and step > 0 and (step % SECANT_REFRESH_EVERY) == 0:
-            g, step_probes = _grad_a_chain(model_a, config, x, ffe_pre, record_probe_ber=True)
 
         direction, active = _secant_direction(g)
         if not active:
@@ -599,14 +626,6 @@ def _stage2_descent_secant(config, model_a, model_b, x0, ffe_pre, n_steps, lr):
 
         alpha = lr * (ALPHA_DECAY ** step)
         x_new = _secant_line_search(model_b, config, x, direction, tr_bounds, alpha, ffe_pre, allowed_ber)
-
-        # 割线方向被 B 全部拒绝 -> 回退一次中心差分刷新 g，再重试线搜索
-        if x_new is None:
-            g, step_probes = _grad_a_chain(model_a, config, x, ffe_pre, record_probe_ber=True)
-            direction, active = _secant_direction(g)
-            if not active:
-                break
-            x_new = _secant_line_search(model_b, config, x, direction, tr_bounds, alpha, ffe_pre, allowed_ber)
         if x_new is None:
             print(f'[Secant] stop: 无候选点通过 Model B 拦截（step {step}）')
             break
@@ -626,12 +645,16 @@ def _stage2_descent_secant(config, model_a, model_b, x0, ffe_pre, n_steps, lr):
         pred_b = _predict_b_params(model_b, x_new[:N_SIDE + 2], rms_actual)
         real_logber, real_mlse = _physical_eval(config, taps_new, gdc_new, gdc2_new, gain_new)
 
-        # 割线更新：g += (ΔA - g^T Δx) · Δx / ‖Δx‖²（只用历史落点的 A 预测变化，免费）
+        # gain 维：解析梯度（每步现算，零试探、永不陈旧）
+        g[N_SIDE + 2] = _analytic_gain_grad(model_a, probe_new)
+        # shape 维：割线更新（只用历史落点；剔除 gain 的贡献）
         dx = x_new - x
         dA = pred_a - a_prev
-        dx_norm2 = float(np.dot(dx, dx))
+        dA_shape = dA - g[N_SIDE + 2] * dx[N_SIDE + 2]
+        dx_shape = dx[:N_SIDE + 2]
+        dx_norm2 = float(np.dot(dx_shape, dx_shape))
         if dx_norm2 > 1e-18:
-            g = g + ((dA - float(np.dot(g, dx))) / dx_norm2) * dx
+            g[:N_SIDE + 2] = g[:N_SIDE + 2] + ((dA_shape - float(np.dot(g[:N_SIDE + 2], dx_shape))) / dx_norm2) * dx_shape
 
         if pred_b < best_pred_b:
             best_pred_b = pred_b

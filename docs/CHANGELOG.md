@@ -2,20 +2,27 @@
 
 > 本文件记录每个版本的核心变化。只记"变了什么"，不记排错过程。
 
-## v8（当前版本 · 割线在线调优）
+## v8（当前版本 · 割线在线调优 + gain 解析梯度）
 
 ### 在线调优方式重做（模型不重训）
-- 把每步 14 个 ±ε 试探态（中心差分链式梯度）换成**一次性初始化 + 割线（Broyden "good"）更新 + 周期性中心差分刷新（K=3）**。
-- 第 0 步 `_grad_a_chain` 一次性中心差分初始化梯度；此后每步割线更新 `g_{k+1} = g_k + (ΔA − g_kᵀΔx)·Δx/‖Δx‖²`（Δx=上一步实际位移、ΔA=Model A 预测变化，历史落点探针免费算术）；每 3 步 + Model B 全拒时回退一次中心差分刷新。
-- 在线真实评估量从「每步 15 次（14 试探 + 1 落点）」降到「每步 1 次落点 + 每 3 步 14 次刷新」（2^18 实测 86 vs 226 次/用例 = 2.6×）。
-- 新增 `ddps_optimizer._stage2_descent_secant`（Python）+ `cpp` `stage2_descent_secant`（一比一）+ `--method {chain,secant}`。
+- 把每步 14 个 ±ε 试探态（中心差分链式梯度）换成 **gain 维解析梯度 + shape 维割线更新**：除第 0 步外全程零 ±ε 过渡态。
+- gain 维（第 7 维）：解析闭式 `∂A/∂u_gain = ln(10)·Σ_j (∂A/∂feat_j)·feat_j`（Model A 8 维探针全部严格 ∝ gain，driver_gain 是 Tx 链末尾的标量乘子），每步用当前落点探针现算、0 试探、永不陈旧。
+- shape 维（4 FFE 旁瓣 + gDC + gDC2）：第 0 步一次性中心差分初始化（12 探针），此后每步割线 `g_{k+1} = g_k + (ΔA − g_gain·Δx_gain − g_kᵀΔx)·Δx/‖Δx‖²`（割线方程剔除 gain 的已知贡献）。
+- 在线真实评估量从「每步 15 次（14 试探 + 1 落点）」降到「第 0 步 12 试探 + 每步 1 落点」（2^18 实测 28 vs 226 次/用例 = 8×）。
+- 新增 `ddps_optimizer._stage2_descent_secant`（Python）+ `cpp` `stage2_descent_secant`（一比一）+ `_analytic_gain_grad` / `analytic_gain_grad`。
+- 移除周期刷新（`SECANT_REFRESH_EVERY`）与 Model B 全拒回退刷新——gain 维解析后不再需要。
 
-### 低SNR验证（2^18 · 单种子 42 · 15 步 · 次优起点）
-- Base_IL10x10：secant=chain=9.92e-7（0 错误地板）。
-- IL20x20：纯割线（无刷新）卡 3.02e-4；加周期刷新 K=3 后 3.97e-6 与 chain 一致。（根因：Broyden 只沿已走过方向更新，未探索的 gain 维梯度塌缩被门控。）
+### 低SNR验证（2^18 · 单种子 42 · 15 步 · 次优起点 · 全 15 用例）
+- 15/15 用例 secant(解析 gain) 与 chain 收敛一致（含 IL20x20 3.97e-6、Comb_IL20x20_CD15_DGD5 3.97e-6 等硬用例）。
 
 ### 等价性（低SNR bit级对齐）
-- Python vs C++ 割线轨迹（Base + IL20x20 @ 2^16）gdc/gdc2/gain/pred_a/pred_b/real_ber 最大相对差 ~5.9e-13。
+- Python vs C++ 割线轨迹（Base + IL20x20 @ 2^18）gdc/gdc2/gain/pred_a/pred_b/real_ber 最大相对差 ~4.6e-13。
+
+### 结果（2^22 · 单种子 42 · 15 用例 · C++）
+- 15/15 改善、0 退步，几何平均改善 **×33292**（最高 IL20x20 ×453351）。
+- 11 用例到 0 错误检测底 5.97e-8；4 个强损伤/高噪声用例到残差底（IL20x20 1.20e-7、Comb_IL20x20_CD15_DGD5 2.39e-7、HighNoise_IL16x16 2.39e-7、HighNoise_IL10x10 3.58e-7）。
+- 与 v7.3 链式（每步中心差分）结果逐位一致；最硬联合用例 Comb_IL20x20_CD15_DGD5 与链式同为 2.39e-7——gain 解析梯度消除了纯割线的陈旧滞后。
+- 全程除第 0 步外零 ±ε 试探态（probes CSV 固定 12 行、step=0）；墙钟 4134.7s（15 路并行，vs 链式 28 eval→226 eval 的 8× 评估量缩减）。
 
 ### 归档
 - v7.3（2^22 链式梯度，Python+C++）归档至 `archive/20260930_ddps_v7.3_2to22/`。
