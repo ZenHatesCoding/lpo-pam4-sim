@@ -30,7 +30,7 @@ def run_case(cfg, model_a, model_b, env, n_steps=25, per_case_gain=None, method=
     """在线调优（含 Model B 安全拦截）：7 维梯度下降（4 FFE 旁瓣 + gDC + gDC2 + u_gain）。
 
     gain 初值 = 该 case per-case RMS 扫描最优 gain（per_case_gain），之后放开走梯度。
-    method: 'chain' = v7 每步 14 试探中心差分；'secant' = v8 一次性初始化 + 割线更新。
+    method: 'chain' = 每步 14 试探中心差分；'secant' = 一次性初始化 + 割线更新。
     """
     ffe_pre = int(cfg['tx'].get('ffe_pre', D.FFE_PRE))
     seed_pre_post = np.concatenate([D.SEED_TAPS[:ffe_pre], D.SEED_TAPS[ffe_pre + 1:]])
@@ -345,7 +345,7 @@ if __name__ == "__main__":
     ap.add_argument('--tx-noise-snr-db', type=float, default=0.0,
                     help='发端人为加噪 SNR（dB，相对 PAM4 满量程 RMS=√5）；>0 抬升 BER 地板用于快速验证')
     ap.add_argument('--method', type=str, default='chain', choices=['chain', 'secant'],
-                    help='在线调优方式：chain = v7 每步 14 试探中心差分；secant = v8 一次性初始化 + 割线更新')
+                    help='在线调优方式：chain = 每步 14 试探中心差分；secant = 一次性初始化 + 割线更新')
     a = ap.parse_args()
     # 覆盖种子点（用于非基线环境训练的模型 / 次优种子演示）：统一走 apply_seed_config。
     if a.seed_config:

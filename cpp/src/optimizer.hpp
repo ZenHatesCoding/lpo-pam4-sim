@@ -33,7 +33,7 @@ static constexpr double ALPHA_DECAY = 0.97;
 static constexpr double TRUST_PATH_K = 2.0;
 static constexpr double GROUP_GATE = 1e-3;
 static constexpr double MIN_GAIN_DEX = 0.01;
-static constexpr int SECANT_REFRESH_EVERY = 3;    // v8 割线周期性中心差分刷新间隔
+static constexpr int SECANT_REFRESH_EVERY = 3;    // 割线周期性中心差分刷新间隔
 
 // STEP_SPAN（满箱宽度，分组归一化步长）
 inline std::vector<double> step_span() {
@@ -348,7 +348,7 @@ inline std::vector<Stage2Step> stage2_descent(Config& cfg, const WhiteBoxRidge& 
     return trace;
 }
 
-// ---- v8 割线（secant / Broyden good）梯度维持 ----
+// ---- 割线（secant / Broyden good）梯度维持 ----
 // 与 stage2_descent 唯一区别：梯度不再每步 14 试探，而是第 0 步一次中心差分 + 割线更新。
 
 inline bool secant_direction(const std::vector<double>& g, std::vector<double>& direction) {
@@ -397,7 +397,7 @@ inline bool secant_line_search(const WhiteBoxRidge& model_b, Config& cfg, const 
     return false;
 }
 
-// v8 在线调优：一次性中心差分初始化 + 割线（Broyden good）更新梯度。
+// 在线调优：一次性中心差分初始化 + 割线（Broyden good）更新梯度。
 inline std::vector<Stage2Step> stage2_descent_secant(Config& cfg, const WhiteBoxRidge& model_a,
                                                      const WhiteBoxRidge& model_b,
                                                      const std::vector<double>& x0, int ffe_pre, int n_steps, double lr,

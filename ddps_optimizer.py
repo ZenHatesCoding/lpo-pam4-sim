@@ -56,7 +56,7 @@ MAX_DEGRADE_FRAC = 0.25       # 允许 Model B 预测相对种子最多变差 25
 TRUST_FFE = 0.10              # FFE 信任域半径（相对起点）
 TRUST_CTLE = 3.0              # CTLE 信任域半径（dB）
 GAIN_TRUST = 0.30             # gain 信任域半径（log10 dex，围绕 per-case 初值）
-                               # v7 物理层 per-case 最优 gain 跨 ×0.30~×0.91（0.48 dex），
+                               # 物理层 per-case 最优 gain 跨 ×0.30~×0.91（0.48 dex），
                                # 需 ±0.30 才能从居中次优点覆盖全用例（仍落在训练采样带 ×0.20~×1.26 内）
 GD_LR = 0.05                  # 初始步长（相对各维箱宽的比例，随 step 以 ALPHA_DECAY 衰减）
 ALPHA_DECAY = 0.97            # 步长衰减：越走越稳（末期用于收敛落点）
@@ -508,10 +508,10 @@ def _stage2_descent_aonly(config, model_a, x0, ffe_pre, n_steps, lr):
 
 
 # ---------------------------------------------------------------------------
-# v8 在线调优：割线（secant / Broyden "good"）梯度维持。
+# 在线调优：割线（secant / Broyden "good"）梯度维持。
 #
-#   动机：v7 每步 14 个 ±ε 试探态（中心差分）在真实在线系统里是 14 次真实参数微扰，
-#   会真实改变链路 BER；v8 只在第 0 步做一次中心差分初始化梯度，之后每一步用
+#   动机：每步 14 个 ±ε 试探态（中心差分）在真实在线系统里是 14 次真实参数微扰，
+#   会真实改变链路 BER；只在第 0 步做一次中心差分初始化梯度，之后每一步用
 #   「上一步实际位移 + Model A 预测变化」做割线更新（免费算术），把每步成本从
 #   「14 试探 + 1 落点」降到「1 落点」。
 #
@@ -556,7 +556,7 @@ def _secant_line_search(model_b, config, x, direction, tr_bounds, alpha, ffe_pre
 
 
 def _stage2_descent_secant(config, model_a, model_b, x0, ffe_pre, n_steps, lr):
-    """v8 在线调优：一次性中心差分初始化 + 割线（Broyden good）更新梯度。
+    """在线调优：一次性中心差分初始化 + 割线（Broyden good）更新梯度。
 
     搜索空间 / 信任域 / B 拦截 / 红线 / 边际门控与 _stage2_descent 完全一致；
     唯一区别是梯度来源：不再每步 14 试探，而是第 0 步一次中心差分、此后割线维持。
@@ -637,7 +637,7 @@ def _stage2_descent_secant(config, model_a, model_b, x0, ffe_pre, n_steps, lr):
             best_pred_b = pred_b
             allowed_ber = (10.0 ** best_pred_b) * (1.0 + MAX_DEGRADE_FRAC)
 
-        # 边际改善门控（step 0 与 v7 一致不判，避免首步误停）
+        # 边际改善门控（step 0 不判，避免首步误停）
         if step > 0 and (a_prev - pred_a) < MIN_GAIN_DEX:
             trace.append({
                 'step': step, 'x': x_new, 'taps': taps_new,
