@@ -28,6 +28,7 @@ from ddps_cases import ENV_CASES, apply_env_to_config
 EXE = r"cpp\build\run_ddps.exe"
 CFG_DIR = r"cpp\build\cfg"
 OUT_DIR = "result/ddps_cpp_main"
+METHOD = "chain"
 SEED_CONFIG = "result/seed_config_bad_1e4.json"
 NUM_SYM = 4194304
 SEED = 42
@@ -69,10 +70,10 @@ def _safe(name):
 
 
 def run_one(args):
-    env, num_sym, n_steps = args
+    env, num_sym, n_steps, out_root, method = args
     name = env['name']
     safe = _safe(name)
-    out_dir = os.path.join(OUT_DIR, '_parts', safe)
+    out_dir = os.path.join(out_root, '_parts', safe)
     os.makedirs(out_dir, exist_ok=True)
     cfg_path = os.path.join(CFG_DIR, 'cfg_%s.txt' % safe)
     out_json = os.path.join(out_dir, 'case_summary.json')
@@ -81,7 +82,7 @@ def run_one(args):
     cmd = [EXE, cfg_path, '--num-symbols', str(num_sym), '--tx-noise-snr', '0',
            '--seed', str(SEED), '--n-steps', str(n_steps),
            '--seed-config', SEED_CONFIG, '--env-name', name,
-           '--model-dir', MODEL_DIR, '--out', out_json]
+           '--model-dir', MODEL_DIR, '--method', method, '--out', out_json]
     t0 = time.time()
     with open(log, 'w', encoding='utf-8') as lf:
         rc = subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT).returncode
@@ -109,12 +110,17 @@ def run_one(args):
 
 
 def main():
+    global OUT_DIR, METHOD
     ap = argparse.ArgumentParser()
     ap.add_argument('--jobs', type=int, default=15)
     ap.add_argument('--only-envs', type=str, default=None)
     ap.add_argument('--num-symbols', type=int, default=NUM_SYM)
     ap.add_argument('--n-steps', type=int, default=N_STEPS)
+    ap.add_argument('--method', type=str, default='chain', choices=['chain', 'secant'])
+    ap.add_argument('--out-dir', type=str, default=OUT_DIR)
     a = ap.parse_args()
+    METHOD = a.method
+    OUT_DIR = a.out_dir
     num_sym = a.num_symbols
     n_steps = a.n_steps
     cases = [e for e in ENV_CASES if (a.only_envs is None or e['name'] in a.only_envs.split(','))]
@@ -126,7 +132,7 @@ def main():
         len(cases), jobs, num_sym, n_steps), flush=True)
     t0 = time.time()
     with Pool(jobs) as pool:
-        results = pool.map(run_one, [(e, num_sym, n_steps) for e in cases])
+        results = pool.map(run_one, [(e, num_sym, n_steps, OUT_DIR, METHOD) for e in cases])
     total_wall = time.time() - t0
 
     oks = [r for r in results if r.get('ok')]
@@ -171,7 +177,7 @@ def main():
         'backend': 'cpp', 'exe': EXE, 'model_dir': MODEL_DIR, 'n_steps': n_steps,
         'num_symbols': num_sym, 'sim_seeds': [SEED], 'seed_config': SEED_CONFIG,
         'tx_noise_snr_db': 0.0, 'envs': [e['name'] for e in cases],
-        'jobs': jobs, 'total_wall_sec': total_wall,
+        'jobs': jobs, 'total_wall_sec': total_wall, 'method': METHOD,
     }
     with open(os.path.join(OUT_DIR, 'run_config.json'), 'w', encoding='utf-8') as f:
         json.dump(run_cfg, f, indent=2, ensure_ascii=False)

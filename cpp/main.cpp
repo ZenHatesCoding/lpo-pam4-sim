@@ -53,6 +53,7 @@ int main(int argc, char** argv) {
     std::string out_path;
     std::string seed_config_path;
     std::string env_name;
+    std::string method = "chain";
 
     for (int i = 2; i < argc; i++) {
         std::string a = argv[i];
@@ -65,6 +66,7 @@ int main(int argc, char** argv) {
         else if (a == "--out") { if (i + 1 < argc) out_path = argv[++i]; }
         else if (a == "--env-name") { if (i + 1 < argc) env_name = argv[++i]; }
         else if (a == "--seed-config") { if (i + 1 < argc) seed_config_path = argv[++i]; }
+        else if (a == "--method") { if (i + 1 < argc) method = argv[++i]; }
     }
 
     Config cfg; cfg.load(config_path);
@@ -119,7 +121,12 @@ int main(int argc, char** argv) {
             cfg.d("system.tx_noise_snr_db", 0.0), n_steps);
 
     auto t0 = std::chrono::high_resolution_clock::now();
-    auto trace = stage2_descent(cfg, model_a, model_b, x0, FFE_PRE, n_steps, GD_LR, &nw, &nw, sim_seeds);
+    std::vector<Stage2Step> trace;
+    if (method == "secant") {
+        trace = stage2_descent_secant(cfg, model_a, model_b, x0, FFE_PRE, n_steps, GD_LR, &nw, &nw, sim_seeds);
+    } else {
+        trace = stage2_descent(cfg, model_a, model_b, x0, FFE_PRE, n_steps, GD_LR, &nw, &nw, sim_seeds);
+    }
     auto t1 = std::chrono::high_resolution_clock::now();
     double secs = std::chrono::duration<double>(t1 - t0).count();
 

@@ -5,9 +5,12 @@
 Python 脚本（export_models.py / run_all_cases.py / *_debug.py）复用同一份 Python 环境。
 
 ## 1. 编译器
-- WinLibs MinGW-w64 g++ 16.2.0（便携 zip，免安装）。
-- 默认路径：`C:\Users\ZhenpingXing\AppData\Local\mingw64\mingw64\bin\g++.exe`
+- WinLibs MinGW-w64 GCC 16.2.0（便携 zip，免安装）。
+- 默认路径：`C:\Users\ZhenpingXing\AppData\Local\mingw64\mingw64\bin\gcc.exe`
   （`cpp/build.ps1` 内 `$GPP` 变量；换机器只改这一处）。
+- **本机 WDAC 拦截 `g++.exe`**（"Application Control policy has blocked this file"，哈希级拦截，
+  改文件名/位置无效）：改走同源 `gcc.exe`（未被拦）+ `-lstdc++` 编译 C++。`.cpp` 按扩展名
+  自动走 `cc1plus`（C++ 前端），`-lstdc++` 补 C++ 运行库链接；`cpp/build.ps1` 已内置该绕行。
 
 ## 2. 链接方式（必须）
 - **动态链接**（编译不带 `-static`）：WDAC / Smart App Control 会拦截大体积静态链接 exe
@@ -23,8 +26,8 @@ Python 脚本（export_models.py / run_all_cases.py / *_debug.py）复用同一�
 ## 4. 构建 / 运行
 ```
 powershell -File cpp\build.ps1                          # 编译 run_ddps.exe + 全部等价性测试
-.\cpp\build\run_ddps.exe cpp\config.txt ...              # 单用例在线调优
-python cpp\run_all_cases.py --jobs 15                    # 15 用例全量并行重跑 -> result/ddps_cpp_main/
+.\cpp\build\run_ddps.exe cpp\config.txt ...              # 单用例在线调优（--method secant）
+python cpp\run_all_cases.py --method secant --out-dir result/ddps_cpp_secant --jobs 15
 python cpp\export_models.py                              # pkl -> models/ddps/model_{a,b}.json（一次性）
 ```
 

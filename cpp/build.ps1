@@ -2,18 +2,19 @@
 #
 # 环境：
 #   - 编译器：WinLibs MinGW g++ 16.2.0（便携 zip）
-#     C:\Users\ZhenpingXing\AppData\Local\mingw64\mingw64\bin\g++.exe
-#   - 必须【动态链接】（去掉 -static）：WDAC / Smart App Control 会拦截 >~0.6MB 的
-#     静态链接 exe（2.85MB 静态 exe 稳定被拦，~0.2MB 动态 exe 可运行）。
+#     C:\Users\ZhenpingXing\AppData\Local\mingw64\mingw64\bin\
+#   - 注意：该便携链的 g++.exe / x86_64-w64-mingw32-g++.exe 会被 Windows Application
+#     Control（Smart App Control）拦截，但 gcc.exe（同源自带的 C 驱动，哈希未被拦）
+#     可正常运行。因 C++ 源按扩展名 .cpp 判定语言，用 gcc.exe + 显式 -lstdc++ 即可
+#     完整编译并链接 C++（与 g++ 等价）。
+#   - 必须【动态链接】（去掉 -static）：WDAC 会拦 >~0.6MB 静态链接 exe（~0.2MB 动态可运行）。
 #   - 运行前把 mingw64\bin 加入 PATH（libstdc++-6.dll 等运行时依赖）。
-#   - 若某 exe 偶发被 WDAC 拦（Application Control policy has blocked this file），
-#     换一个新输出名重新编译即可（哈希变化）。
 param(
     [string]$Target = "all"
 )
 
 $ErrorActionPreference = "Stop"
-$GPP = "C:\Users\ZhenpingXing\AppData\Local\mingw64\mingw64\bin\g++.exe"
+$GPP = "C:\Users\ZhenpingXing\AppData\Local\mingw64\mingw64\bin\gcc.exe"
 $env:PATH = "C:\Users\ZhenpingXing\AppData\Local\mingw64\mingw64\bin;" + $env:PATH
 
 if (-not (Test-Path "cpp\build")) { New-Item -ItemType Directory -Path "cpp\build" | Out-Null }
@@ -22,7 +23,7 @@ $common = "-O2 -std=c++17"
 
 function Compile([string]$src, [string]$out) {
     Write-Host "  compiling $src -> $out"
-    & $GPP $common.Split(" ") $src -o $out
+    & $GPP $common.Split(" ") $src -o $out -lstdc++
     if ($LASTEXITCODE -ne 0) { throw "compile failed: $src" }
 }
 

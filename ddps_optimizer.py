@@ -508,6 +508,180 @@ def _stage2_descent_aonly(config, model_a, x0, ffe_pre, n_steps, lr):
 
 
 # ---------------------------------------------------------------------------
+# v8 在线调优：割线（secant / Broyden "good"）梯度维持。
+#
+#   动机：v7 每步 14 个 ±ε 试探态（中心差分）在真实在线系统里是 14 次真实参数微扰，
+#   会真实改变链路 BER；v8 只在第 0 步做一次中心差分初始化梯度，之后每一步用
+#   「上一步实际位移 + Model A 预测变化」做割线更新（免费算术），把每步成本从
+#   「14 试探 + 1 落点」降到「1 落点」。
+#
+#   Model A / B 的边界（关键）：
+#     - Model A 输入 = 物理探针；要拿探针就必须先把参数真应用到系统（真实改变 BER）。
+#       所以 Model A 只消费【历史落点】的探针结果，不再为梯度制造新的微扰态。
+#     - Model B 输入 = 新参数；在新参数 apply 到系统之前就能预测，用于拒绝候选。
+#       割线方向被 B 全部拒绝时，回退一次中心差分刷新 g 再试（上限 = 偶尔重新试探）。
+# ---------------------------------------------------------------------------
+SECANT_REFRESH_EVERY = 3        # 每 N 步周期性中心差分刷新一次梯度；>0 修正 Broyden 未探索方向的陈旧分量
+
+
+def _secant_direction(g):
+    """把梯度估计转成组归一化方向（与 _stage2_descent 同口径）。返回 (direction, active)。"""
+    gs = g * STEP_SPAN
+    direction = np.zeros_like(g)
+    active = []
+    for sl, name in zip(GROUP_SLICES, GROUP_NAMES):
+        nrm = float(np.linalg.norm(gs[sl]))
+        if nrm >= GROUP_GATE:
+            direction[sl] = gs[sl] / nrm
+            active.append(name)
+    return direction, active
+
+
+def _secant_line_search(model_b, config, x, direction, tr_bounds, alpha, ffe_pre, allowed_ber):
+    """回溯线搜索 + Model B 先验拒绝（参数域，无真实 BER）。返回 x_new 或 None。"""
+    alpha_k = alpha
+    for _ in range(20):
+        x_cand = np.clip(x - alpha_k * STEP_SPAN * direction,
+                         tr_bounds[:, 0], tr_bounds[:, 1])
+        if np.linalg.norm(x_cand - x) < 1e-9:
+            break
+        taps_c = construct_taps(x_cand[:N_SIDE], ffe_pre)
+        gdc_c = float(x_cand[N_SIDE]); gdc2_c = float(x_cand[N_SIDE + 1])
+        gain_c = gain_from_u(float(x_cand[N_SIDE + 2]))
+        rms_c = _measure_drive_rms(config, taps_c, gdc_c, gdc2_c, gain_c)
+        if _predict_b_params(model_b, x_cand[:N_SIDE + 2], rms_c) <= np.log10(allowed_ber):
+            return x_cand
+        alpha_k *= 0.5
+    return None
+
+
+def _stage2_descent_secant(config, model_a, model_b, x0, ffe_pre, n_steps, lr):
+    """v8 在线调优：一次性中心差分初始化 + 割线（Broyden good）更新梯度。
+
+    搜索空间 / 信任域 / B 拦截 / 红线 / 边际门控与 _stage2_descent 完全一致；
+    唯一区别是梯度来源：不再每步 14 试探，而是第 0 步一次中心差分、此后割线维持。
+    真实 BER 仅记账，不回传决策。
+    """
+    x = np.array(x0, dtype=float)
+    tr_bounds = _bounds(x)
+    span = STEP_SPAN.copy()
+
+    taps0 = construct_taps(x[:N_SIDE], ffe_pre)
+    gdc0 = float(x[N_SIDE]); gdc2 = float(x[N_SIDE + 1])
+    gain0 = gain_from_u(float(x[N_SIDE + 2]))
+    rms0 = _measure_drive_rms(config, taps0, gdc0, gdc2, gain0)
+    seed_pred_b = _predict_b_params(model_b, x[:N_SIDE + 2], rms0)
+    best_pred_b = seed_pred_b
+    allowed_ber = (10.0 ** best_pred_b) * (1.0 + MAX_DEGRADE_FRAC)
+
+    rho = float(getattr(model_b, 'local_spacing_', 0.0) or 0.0)
+    sd_vec = np.asarray(getattr(model_b, 'sd', np.ones(7)), dtype=float)[:6]
+    mu_vec = np.asarray(getattr(model_b, 'mu', np.zeros(7)), dtype=float)[:6]
+    z0 = (x[:6] - mu_vec) / sd_vec
+    path_limit = TRUST_PATH_K * rho if rho > 0 else None
+
+    # 一次性中心差分初始化梯度（唯一一轮 14 试探态）；并取种子点 A 预测（历史落点探针）。
+    g, probe_iter0 = _grad_a_chain(model_a, config, x, ffe_pre, record_probe_ber=True)
+    probe0 = _probe_features(config, taps0, gdc0, gdc2, gain0)
+    a_prev = _predict_a_probe(model_a, probe0)
+
+    trace = []
+    for step in range(n_steps):
+        # 第 0 步携带初始化那轮的 14 个 ±ε 试探态（透明记账）；此后正常步无试探态。
+        step_probes = probe_iter0 if step == 0 else []
+        if SECANT_REFRESH_EVERY > 0 and step > 0 and (step % SECANT_REFRESH_EVERY) == 0:
+            g, step_probes = _grad_a_chain(model_a, config, x, ffe_pre, record_probe_ber=True)
+
+        direction, active = _secant_direction(g)
+        if not active:
+            print(f'[Secant] stop: 三组梯度均低于门控 {GROUP_GATE:g}（step {step}）')
+            break
+
+        alpha = lr * (ALPHA_DECAY ** step)
+        x_new = _secant_line_search(model_b, config, x, direction, tr_bounds, alpha, ffe_pre, allowed_ber)
+
+        # 割线方向被 B 全部拒绝 -> 回退一次中心差分刷新 g，再重试线搜索
+        if x_new is None:
+            g, step_probes = _grad_a_chain(model_a, config, x, ffe_pre, record_probe_ber=True)
+            direction, active = _secant_direction(g)
+            if not active:
+                break
+            x_new = _secant_line_search(model_b, config, x, direction, tr_bounds, alpha, ffe_pre, allowed_ber)
+        if x_new is None:
+            print(f'[Secant] stop: 无候选点通过 Model B 拦截（step {step}）')
+            break
+
+        if path_limit is not None:
+            z_new = (x_new[:6] - mu_vec) / sd_vec
+            if float(np.linalg.norm(z_new - z0)) > path_limit:
+                print(f'[Secant] stop: 轨迹位移超过信任域（step {step}）')
+                break
+
+        taps_new = construct_taps(x_new[:N_SIDE], ffe_pre)
+        gdc_new = float(x_new[N_SIDE]); gdc2_new = float(x_new[N_SIDE + 1])
+        gain_new = gain_from_u(float(x_new[N_SIDE + 2]))
+        probe_new = _probe_features(config, taps_new, gdc_new, gdc2_new, gain_new)
+        pred_a = _predict_a_probe(model_a, probe_new)
+        rms_actual = _measure_drive_rms(config, taps_new, gdc_new, gdc2_new, gain_new)
+        pred_b = _predict_b_params(model_b, x_new[:N_SIDE + 2], rms_actual)
+        real_logber, real_mlse = _physical_eval(config, taps_new, gdc_new, gdc2_new, gain_new)
+
+        # 割线更新：g += (ΔA - g^T Δx) · Δx / ‖Δx‖²（只用历史落点的 A 预测变化，免费）
+        dx = x_new - x
+        dA = pred_a - a_prev
+        dx_norm2 = float(np.dot(dx, dx))
+        if dx_norm2 > 1e-18:
+            g = g + ((dA - float(np.dot(g, dx))) / dx_norm2) * dx
+
+        if pred_b < best_pred_b:
+            best_pred_b = pred_b
+            allowed_ber = (10.0 ** best_pred_b) * (1.0 + MAX_DEGRADE_FRAC)
+
+        # 边际改善门控（step 0 与 v7 一致不判，避免首步误停）
+        if step > 0 and (a_prev - pred_a) < MIN_GAIN_DEX:
+            trace.append({
+                'step': step, 'x': x_new, 'taps': taps_new,
+                'gdc': gdc_new, 'gdc2': gdc2_new, 'gain': gain_new,
+                'gain_ratio': gain_new / DRIVER_GAIN_NOMINAL,
+                'u_gain': float(x_new[N_SIDE + 2]),
+                'drive_rms': rms_actual,
+                'pred_a': pred_a, 'pred_b': pred_b,
+                'pred_b_ber': 10.0 ** pred_b, 'allowed_ber': allowed_ber,
+                'real_logber': real_logber, 'real_mlse': real_mlse,
+                'probes': step_probes,
+                'grad_norm': float(np.linalg.norm(g)), 'stop_reason': 'marginal_gain',
+            })
+            print(f"[Secant] stop: marginal predicted gain "
+                  f"({a_prev - pred_a:+.4f} < {MIN_GAIN_DEX}) at step {step}")
+            break
+
+        trace.append({
+            'step': step, 'x': x_new, 'taps': taps_new,
+            'gdc': gdc_new, 'gdc2': gdc2_new, 'gain': gain_new,
+            'gain_ratio': gain_new / DRIVER_GAIN_NOMINAL,
+            'u_gain': float(x_new[N_SIDE + 2]),
+            'drive_rms': rms_actual,
+            'pred_a': pred_a, 'pred_b': pred_b,
+            'pred_b_ber': 10.0 ** pred_b, 'allowed_ber': allowed_ber,
+            'real_logber': real_logber, 'real_mlse': real_mlse,
+            'probes': step_probes,
+            'grad_norm': float(np.linalg.norm(g)), 'stop_reason': '',
+        })
+
+        print(f"[Secant] gd {step + 1}/{n_steps} | ModelA {10.0 ** pred_a:.2e} "
+              f"| real {real_mlse:.2e} | gain x{gain_new / DRIVER_GAIN_NOMINAL:.3f} "
+              f"| u_gain {float(x_new[N_SIDE + 2]):+.3f} | gDC {gdc_new:+.2f} "
+              f"| gDC2 {gdc2_new:+.2f} | 组 {active}")
+
+        if np.linalg.norm(x_new - x) < 1e-6:
+            break
+        a_prev = pred_a
+        x = x_new
+
+    return trace
+
+
+# ---------------------------------------------------------------------------
 # DDPS 现役接口关系（三段式流水线，无单一 run_ddps 入口）：
 #   1) dataset_generator.py  生成环境锚定邻域数据集；
 #   2) train_surrogates.train()  训练 A/B 双代理（固化模型）；

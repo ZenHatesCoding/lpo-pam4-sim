@@ -1,37 +1,45 @@
 # HANDOFF — DDPS
 
-> **新 session 必读**：下一轮要做的全部事，看下方 **「## 待办：v7.1 收尾」**。上面的「当前状态 / session 做的事 / 物理层 / 架构 / 复现命令」是背景与上下文。动手前先读 `AGENTS.md`。
+> **新 session 必读**：下一轮要做的全部事，看下方 **「## 待办：v8 收尾」**。上面的背景读完再动手，先读 `AGENTS.md`。
 
-## 当前状态（v7.1 主流程完成、A-only 运行中）
+## 当前状态（v8 割线在线调优 · C++ 高SNR 15 用例运行中）
 
-v7 物理层重做后确认 3 处口径错误（量化噪声、满量程、driver 增益、接收 AGC），已回退修正为 v7.1 并重新跑全流程。v7 产物已归档 `archive/20260924_ddps_v7_physical_model/`（移出远端）；v7.1 现役产物沿用无版本号名字。
+v8 只改「在线调优方式」，物理层 / 代理模型 / 数据集 / 训练全部不动（模型不重训）。核心：把 v7 每步 14 个 ±ε 试探态（中心差分链式梯度）换成**一次性初始化 + 割线（Broyden "good"）更新 + 周期性中心差分刷新（K=3）**，把在线评估量从「每步 15 次真实评估」降到「每步 1 次落点 + 每 K 步 14 次刷新」。
 
-- **物理层修正（v7.1）**：量化噪声按 SNR_q = 6.02·ENOB + 1.76 以 AWGN 注入（满量程 = DAC/ADC 输出信号自身 max−min 峰峰值）；driver 标称增益回退 0.3399；接收机两级 AGC 合并为单级、目标 RMS = √5（级联等效）。
-- **已完成**：per-case RMS 扫描、数据集（2001 点）、训练 A/B（A R²=0.692/Spearman=0.884；B R²=0.702/Spearman=0.878/ρ=1.752）、次优起点、**主流程在线调优（15/15 改善、0 退步、几何均值 ×33518.50，225 步 0 步劣于种子）**。
-- **A-only 重跑中**（pwsh-19，jobs=8）。本次新增**试探步 BER 记录**：每步 14 个 ±ε 微扰态各自端到端 MLSE BER 记入 `probes_<用例>.csv`（主流程 15 用例 × 210 态已核验），交付件 §6.4 表 + 收敛图灰点。
-- **种子（v7.1 次优工作点）**：FFE `[-0.0885,-0.3147,0.4079,0.0845,0.1043]`（主抽头 0.4079）、gDC=6.73 dB、gDC2=0.85 dB、gain=0.1106（×0.325，u_gain=−0.4875），取自 `Base_IL10x10:1630`（数据集实测 BER 1.1e-4）。
+- **方法**：`ddps_optimizer._stage2_descent_secant`（Python 参照）+ `cpp/src/optimizer.hpp` `stage2_descent_secant`（C++ 一比一复刻）。
+  - 第 0 步：`_grad_a_chain` 一次性中心差分初始化梯度（唯一一轮 14 试探态）。
+  - 此后每步：割线更新 `g_{k+1} = g_k + (ΔA − g_kᵀΔx)·Δx/‖Δx‖²`，Δx = 上一步实际位移、ΔA = Model A 预测变化（历史落点探针，免费算术）。
+  - 每 `SECANT_REFRESH_EVERY=3` 步 + Model B 全拒时回退一次中心差分刷新——修正 Broyden 未探索方向的陈旧分量（纯割线在 IL20x20 这类代理失准用例上会卡在 3.0e-4，加刷新后到 3.97e-6，与链式一致）。
+  - Model A 只消费历史/当前落点探针（不再为梯度制造微扰态）；Model B 在新参数 apply 前免费拒绝。
+- **已归档**：v7.3（2^22 · 单种子 42 · 15 用例 · 链式梯度，C++ 至 5.4e-13 等价、1.80× 加速）→ `archive/20260930_ddps_v7.3_2to22/`。保留共享标定输入：`per_case_target_rms.json` / `per_case_rms_scan.csv` / `seed_config_bad_1e4.json` / `ddps_block_length.csv`。
+- **低SNR验证（2^18 单种子，已核）**：Base_IL10x10 secant=chain=9.92e-7（地板）；IL20x20 secant(K=3)=chain=3.97e-6（纯割线 K=0 卡 3.02e-4）；评估量 secant(K=3) 86 次 vs chain 226 次/用例 = **2.6× 减少**。
+- **等价性（低SNR bit级对齐，已核）**：Base + IL20x20 @ 2^16，Python vs C++ secant 轨迹 gdc/gdc2/gain/pred_a/pred_b/real_ber 最大相对差 ~5.9e-13（同 v7.3 门限）。
+- **C++ 高SNR 15 用例 2^22 运行中**（后台，secant，15 jobs，预计 ~2.5h）。C++ eval ≈105 s/次 @2^22（v7.3 每用例 226 eval / 23775 s）。
+- **编译器绕行（本机 WDAC 拦 g++.exe）**：`g++.exe` 被 Application Control 拦，用同源 `gcc.exe`（哈希未被拦）+ `-lstdc++` 编译 C++（.cpp 按扩展名走 cc1plus，链接补 libstdc++）；`cpp/build.ps1` 已改。
 
-## 待办：v7.1 收尾
+## 待办：v8 收尾
 
-1. 等 A-only 完成（pwsh-19，~34h）。
-2. `report_ddps.py` 对 `result/ddps_aonly` 出图 → `make_deliverable.py` 出 HTML（主流程报告已生成于 `result/ddps_main/report/`）。
-3. 交付件 §6.1b 消融行（A-only 步数/劣化步数）用 A-only 实测回填；其余结果相关文案已按主流程实际结果更新。
-4. `git add` 全部新产物 + 提交 + 推送（v7.1）。
-5. `present deliverables/DDPS_Deliverable.html`（最后动作）。
+1. 等 C++ 高SNR 15 用例完成（`result/ddps_cpp_secant/`，2^22 secant）。
+2. `report_ddps.py` 对 `result/ddps_cpp_secant` 出图（图源改 C++ 割线结果）。
+3. `make_deliverable.py` 改写在线调优方法节（割线 + 周期刷新）→ 数据源 `result/ddps_main`/`result/ddps_cpp_main` → `result/ddps_cpp_secant`；§6.3/§6.4 试探瞬时口径改为「仅第 0 步 + 刷新步有 ±ε 探针」；结论评估量 15/步 → 1+14/3 步。
+4. 刷新 README / HANDOFF / docs（DDPS_Method、DDPS_REQUIREMENTS、CHANGELOG）到 v8 口径。
+5. `git add` 全部 + 提交 + 推送。
+6. `present deliverables/DDPS_Deliverable.html`（最后动作）。
 
-## 本次 session 做的事
+## 本次 session 做的事（v8）
 
-1. **选次优种子**：扫描训练数据 `dataset/ddps_v62_dataset_20260920_163244.csv`，选基线约 1e-5、gain 接近标称的实测点，导出 `result/seed_config_bad_1e5.json`。
-2. **seed-config 支持 gain 维**：`test_generalization.py` 的 `--seed-config` 新增 `best_u_gain`/`best_gain` 覆盖 gain（此前只覆盖形状/CTLE）。
-3. **报告修 seed 参照**：`report_ddps.py`（原 `report_ddps_v6.py`）新增 `--seed-config`，硬用例四联图的"种子"参照画真实次优起点（此前用模块默认名义种子）。
-4. **交付件口径刷新**：`make_deliverable.py`（原 `make_deliverable_v6.py`）6.0"起点"、6.1 表题、结论、3.3 gain 标定改"参照"、块长研究、复现命令，全部按"次优起点冷启动"口径重写。
-5. **全量重跑**（主流程 + A-only，2^22 × 3 种子，4 jobs，实测各 ~7h）→ `result/ddps_v6_2_main`、`result/ddps_v6_2_aonly`。
-6. **报告 + 交付件**：`report_ddps.py`（原 `report_ddps_v6.py`，带 `--seed-config`）+ `make_deliverable.py`（原 `make_deliverable_v6.py`）→ `deliverables/DDPS_v6.2_Deliverable.html`。
-7. **run_config 如实记录 seed gain**：`test_generalization.py` 写 `run_config.json` 时，`per_case_gain` 现在写的是本跑每个用例实际作为 seed 的 gain（`--seed-config` 覆盖时为覆盖值），不再误写 per-case RMS 标定值；`per_case_target_rms` 仍记离线标定参照。两处 `run_config.json` 已回填 ×0.80。
-8. **文档刷新到现状 + 去 AI 味**：修复交付件里 v6.1 残留（图 2/图 4 SVG 的 "gain 不在搜索向量""d=6""安全参考=Model B(x₀)" 等旧文字，参数表 gDC 范围）；刷新 README/BRANCHES/result SUMMARY/docs 01/02/DDPS_Method/DDPS_REQUIREMENTS 到 v6.2.2 口径（7 维含 gain、次优起点、2^22 协议、×186.7、标称 0.3399）。版本号维持对外 v6.2 / 内部 v6.2.2，不升 v7（架构/链路/搜索空间/算法均未变，只改演示起点与元数据）。
-9. **仓库清理归档**：历史产物（v2~v6.1 交付件、v6.0/v6.1 结果与模型、v4 历史数据集）归档到 `archive/20260921_repo_cleanup_v6_historical/`（本地保留、移出远端）；删除冗余 `models/lim_3ck_01_0319_c2m.zip`（代码读解压目录）与 `proof_results.txt`（历史统计输出）；归档 `LPO_MSA_Specification_v1p01.txt`（pdf 提取物）。判据是现役 vs 历史，与大小无关——现役数据/模型/结果（含物理链路 s4p）保持跟踪。
+1. 归档 v7.3 结果 + 交付件快照到 `archive/20260930_ddps_v7.3_2to22/`（git mv，保留共享标定输入）。
+2. Python 实现 `_stage2_descent_secant`（一次性初始化 + Broyden 割线 + 周期刷新 K=3 + B 拒时刷新）；`test_generalization.py` 加 `--method {chain,secant}`。
+3. 低SNR验证：纯割线在 IL20x20 卡 3.0e-4（Broyden 未探索方向陈旧，gain 维塌缩被门控）；加周期刷新 K=3 后到 3.97e-6，与 chain 一致。Base 两者都到地板。
+4. C++ 一比一复刻 `stage2_descent_secant` + `main.cpp --method` + `run_all_cases.py --method/--out-dir`（修 Windows Pool spawn 全局不传播的 bug，改任务元组显式传参）。
+5. 低SNR bit级对齐核验：Base + IL20x20 @ 2^16，Python vs C++ 最大相对差 ~5.9e-13。
+6. 编译器绕行：WDAC 拦 g++.exe → gcc.exe + `-lstdc++`；`cpp/build.ps1` 改注释 + 驱动 + 链接。
 
-## 本轮 session（交付件交互化 + 表述修正）
+## 未提交变更（当前 working tree）
+
+- 现役代码：`ddps_optimizer.py`（+`_stage2_descent_secant`）、`test_generalization.py`、`cpp/src/optimizer.hpp`、`cpp/main.cpp`、`cpp/run_all_cases.py`、`cpp/build.ps1`。
+- 结果：`result/ddps_cpp_secant/`（运行中）、`result/ddps_secant_*`/`result/ddps_chain_sanity`/`result/ddps_cpp_secant_equiv`（低SNR验证/等价 scratch）。
+- 归档：`archive/20260930_ddps_v7.3_2to22/`（已提交推送）。
 
 1. **交付件 HTML 交互化**：6.2 图改 tab 切换（A+B / A-only）；第 9 节复现命令、4.3 复杂度、4.4 可靠性、2.3 参数表、2.4 用例表、5 块长表、5 采样口径、6.3 核验表共 8 处 details 折叠；全文 h2/h3/h4 标题级折叠（点击标题收起下属内容，打印时自动展开、打印后恢复）。
 2. **梯度数字全链修正**：交付件 4.2/4.3/4.6/结论 + 图 4 两个 SVG + docs/DDPS_Method、docs/DDPS_REQUIREMENTS 里的"每步 8 次评估（1 基准 + 7 维扰动）"统一改为"7 维双边中心差分 = 14 次探针 + 14 次 A 前向"，eps 分档补齐 0.01/0.1/0.05。

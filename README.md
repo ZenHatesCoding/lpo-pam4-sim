@@ -38,13 +38,13 @@ DEFAULT_MODE = '112G'
 
 | 文档 | 内容 |
 | --- | --- |
-| [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_Deliverable.html) | Python 参照 + C++ 一比一复刻平台、等价性验证（BER 逐位一致）、速度对比（C++ 1.80×）、单种子（42）2^22 在线调优结果、统一入口 |
-| [历史交付件与历史实验](archive/) | v2~v6.1 各版本交付件 HTML、训练环境对比实验、历史结果/模型/数据集（本地归档，不入远端） |
+| [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_Deliverable.html) | Python 参照 + C++ 一比一复刻平台、割线在线调优（一次性初始化 + Broyden 更新 + 周期刷新）、等价性验证（BER 逐位一致）、单种子（42）2^22 在线调优结果、统一入口 |
+| [历史交付件与历史实验](archive/) | v2~v7.3 各版本交付件 HTML、训练环境对比实验、历史结果/模型/数据集（本地归档，不入远端） |
 | [01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md) | 收发机模型、多采样率机制、`config.xlsx` 参数物理含义 |
 | [02. 独立分析与诊断工具集](docs/02_Utility_Scripts.md) | optimizers/ + tools/ 目录 + 核心脚本 |
-| [DDPS 方法](docs/DDPS_Method.md) | A=探针→BER 方向代理 + B=参数→BER 风险控制、7 维链式梯度（含 gain）、安全红线、次优起点 |
+| [DDPS 方法](docs/DDPS_Method.md) | A=探针→BER 方向代理 + B=参数→BER 风险控制、7 维割线梯度（含 gain）、安全红线、次优起点 |
 | [DDPS 要求清单](docs/DDPS_REQUIREMENTS.md) | 架构、安全红线、对比实验、交付件的全部要求 |
-| [版本变更记录](docs/CHANGELOG.md) | 每个版本的核心变化（v1→v7.3） |
+| [版本变更记录](docs/CHANGELOG.md) | 每个版本的核心变化（v1→v8） |
 | [LPO MSA 规范核心参数提炼](docs/LPO_MSA_Specification_Summary.md) | 电气/光学/信道参数标准依据 |
 | [分支关系与版本导览](BRANCHES.md) | 仓库各分支的关系与差异 |
 

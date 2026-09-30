@@ -33,6 +33,7 @@ static constexpr double ALPHA_DECAY = 0.97;
 static constexpr double TRUST_PATH_K = 2.0;
 static constexpr double GROUP_GATE = 1e-3;
 static constexpr double MIN_GAIN_DEX = 0.01;
+static constexpr int SECANT_REFRESH_EVERY = 3;    // v8 割线周期性中心差分刷新间隔
 
 // STEP_SPAN（满箱宽度，分组归一化步长）
 inline std::vector<double> step_span() {
@@ -342,6 +343,189 @@ inline std::vector<Stage2Step> stage2_descent(Config& cfg, const WhiteBoxRidge& 
         double step_diff = 0.0;
         for (int i = 0; i < N_DIM; i++) { double d = x_new[i] - x[i]; step_diff += d * d; }
         if (std::sqrt(step_diff) < 1e-6) break;
+        x = x_new;
+    }
+    return trace;
+}
+
+// ---- v8 割线（secant / Broyden good）梯度维持 ----
+// 与 stage2_descent 唯一区别：梯度不再每步 14 试探，而是第 0 步一次中心差分 + 割线更新。
+
+inline bool secant_direction(const std::vector<double>& g, std::vector<double>& direction) {
+    std::vector<double> span = step_span();
+    std::vector<double> gs(N_DIM);
+    for (int i = 0; i < N_DIM; i++) gs[i] = g[i] * span[i];
+    const int group_slices[3][2] = { {0, N_SIDE}, {N_SIDE, N_SIDE + 2}, {N_SIDE + 2, N_SIDE + 3} };
+    std::fill(direction.begin(), direction.end(), 0.0);
+    bool any_active = false;
+    for (int gi = 0; gi < 3; gi++) {
+        int a = group_slices[gi][0], b = group_slices[gi][1];
+        double acc = 0.0;
+        for (int i = a; i < b; i++) acc += gs[i] * gs[i];
+        double nrm = std::sqrt(acc);
+        if (nrm >= GROUP_GATE) {
+            for (int i = a; i < b; i++) direction[i] = gs[i] / nrm;
+            any_active = true;
+        }
+    }
+    return any_active;
+}
+
+inline bool secant_line_search(const WhiteBoxRidge& model_b, Config& cfg, const std::vector<double>& x,
+                               const std::vector<double>& direction, const std::vector<double>& tr_lo,
+                               const std::vector<double>& tr_hi, double alpha, int ffe_pre,
+                               double allowed_ber, const S4P* s4p_tx, std::vector<double>& x_new_out) {
+    std::vector<double> span = step_span();
+    double alpha_k = alpha;
+    for (int it = 0; it < 20; it++) {
+        std::vector<double> x_cand(N_DIM);
+        for (int i = 0; i < N_DIM; i++) {
+            double v = x[i] - alpha_k * span[i] * direction[i];
+            x_cand[i] = std::min(std::max(v, tr_lo[i]), tr_hi[i]);
+        }
+        double diff = 0.0;
+        for (int i = 0; i < N_DIM; i++) { double d = x_cand[i] - x[i]; diff += d * d; }
+        if (std::sqrt(diff) < 1e-9) return false;
+        std::vector<double> taps_c = construct_taps({ x_cand[0], x_cand[1], x_cand[2], x_cand[3] }, ffe_pre);
+        double gdc_c = x_cand[N_SIDE], gdc2_c = x_cand[N_SIDE + 1];
+        double gain_c = gain_from_u(x_cand[N_SIDE + 2]);
+        double rms_c = measure_drive_rms(cfg, taps_c, gdc_c, gdc2_c, gain_c, s4p_tx);
+        double pb = predict_b_params(model_b, { x_cand[0], x_cand[1], x_cand[2], x_cand[3], x_cand[4], x_cand[5] }, rms_c);
+        if (pb <= std::log10(allowed_ber)) { x_new_out = x_cand; return true; }
+        alpha_k *= 0.5;
+    }
+    return false;
+}
+
+// v8 在线调优：一次性中心差分初始化 + 割线（Broyden good）更新梯度。
+inline std::vector<Stage2Step> stage2_descent_secant(Config& cfg, const WhiteBoxRidge& model_a,
+                                                     const WhiteBoxRidge& model_b,
+                                                     const std::vector<double>& x0, int ffe_pre, int n_steps, double lr,
+                                                     const S4P* s4p_tx, const S4P* s4p_rx,
+                                                     const std::vector<int>& sim_seeds) {
+    std::vector<double> x = x0;
+    std::vector<double> tr_lo, tr_hi; bounds(x, tr_lo, tr_hi);
+    std::vector<double> span = step_span();
+
+    std::vector<double> taps0 = construct_taps({ x[0], x[1], x[2], x[3] }, ffe_pre);
+    double gdc0 = x[N_SIDE], gdc2 = x[N_SIDE + 1];
+    double gain0 = gain_from_u(x[N_SIDE + 2]);
+    double rms0 = measure_drive_rms(cfg, taps0, gdc0, gdc2, gain0, s4p_tx);
+    double seed_pred_b = predict_b_params(model_b, { x[0], x[1], x[2], x[3], x[4], x[5] }, rms0);
+    double best_pred_b = seed_pred_b;
+    double allowed_ber = std::pow(10.0, best_pred_b) * (1.0 + MAX_DEGRADE_FRAC);
+
+    double rho = model_b.local_spacing;
+    std::vector<double> mu6(model_b.mu.begin(), model_b.mu.begin() + 6);
+    std::vector<double> sd6(model_b.sd.begin(), model_b.sd.begin() + 6);
+    std::vector<double> z0(6);
+    for (int i = 0; i < 6; i++) z0[i] = (x[i] - mu6[i]) / sd6[i];
+    bool has_path = (rho > 0.0);
+    double path_limit = TRUST_PATH_K * rho;
+
+    // 一次性中心差分初始化梯度（唯一一轮 14 试探态）；种子点 A 预测（历史落点探针）。
+    auto [g, probe_iter0] = grad_a_chain(model_a, cfg, x, ffe_pre, s4p_tx, s4p_rx, sim_seeds, 0.01, 0.05, true);
+    auto probe0 = probe_features(cfg, taps0, gdc0, gdc2, gain0, s4p_tx);
+    double a_prev = predict_a_probe(model_a, probe0);
+
+    std::vector<Stage2Step> trace;
+    for (int step = 0; step < n_steps; step++) {
+        std::vector<ProbeRecord> step_probes = (step == 0) ? probe_iter0 : std::vector<ProbeRecord>();
+        if (SECANT_REFRESH_EVERY > 0 && step > 0 && (step % SECANT_REFRESH_EVERY) == 0) {
+            auto fr = grad_a_chain(model_a, cfg, x, ffe_pre, s4p_tx, s4p_rx, sim_seeds, 0.01, 0.05, true);
+            g = fr.first; step_probes = fr.second;
+        }
+
+        std::vector<double> direction(N_DIM, 0.0);
+        bool any_active = secant_direction(g, direction);
+        if (!any_active) {
+            printf("[Secant] stop: all group grads below gate at step %d\n", step);
+            break;
+        }
+
+        double alpha = lr * std::pow(ALPHA_DECAY, (double)step);
+        std::vector<double> x_new;
+        bool found = secant_line_search(model_b, cfg, x, direction, tr_lo, tr_hi, alpha, ffe_pre, allowed_ber, s4p_tx, x_new);
+
+        // 割线方向被 B 全部拒绝 -> 回退一次中心差分刷新 g，再重试
+        if (!found) {
+            auto fr = grad_a_chain(model_a, cfg, x, ffe_pre, s4p_tx, s4p_rx, sim_seeds, 0.01, 0.05, true);
+            g = fr.first; step_probes = fr.second;
+            any_active = secant_direction(g, direction);
+            if (any_active) {
+                found = secant_line_search(model_b, cfg, x, direction, tr_lo, tr_hi, alpha, ffe_pre, allowed_ber, s4p_tx, x_new);
+            }
+        }
+        if (!found) {
+            printf("[Secant] stop: no candidate passes Model B veto at step %d\n", step);
+            break;
+        }
+
+        if (has_path) {
+            std::vector<double> z_new(6);
+            for (int i = 0; i < 6; i++) z_new[i] = (x_new[i] - mu6[i]) / sd6[i];
+            double d = 0.0;
+            for (int i = 0; i < 6; i++) { double e = z_new[i] - z0[i]; d += e * e; }
+            if (std::sqrt(d) > path_limit) {
+                printf("[Secant] stop: path displacement exceeds trust region at step %d\n", step);
+                break;
+            }
+        }
+
+        std::vector<double> taps_new = construct_taps({ x_new[0], x_new[1], x_new[2], x_new[3] }, ffe_pre);
+        double gdc_new = x_new[N_SIDE], gdc2_new = x_new[N_SIDE + 1];
+        double gain_new = gain_from_u(x_new[N_SIDE + 2]);
+        auto probe_new = probe_features(cfg, taps_new, gdc_new, gdc2_new, gain_new, s4p_tx);
+        double pred_a = predict_a_probe(model_a, probe_new);
+        double rms_actual = measure_drive_rms(cfg, taps_new, gdc_new, gdc2_new, gain_new, s4p_tx);
+        double pred_b = predict_b_params(model_b, { x_new[0], x_new[1], x_new[2], x_new[3], x_new[4], x_new[5] }, rms_actual);
+        auto [real_logber, real_mlse] = physical_eval(cfg, taps_new, gdc_new, gdc2_new, gain_new, s4p_tx, s4p_rx, sim_seeds);
+
+        // 割线更新：g += (ΔA - g^T Δx) · Δx / ‖Δx‖²
+        double dA = pred_a - a_prev;
+        double dx_norm2 = 0.0, g_dot_dx = 0.0;
+        std::vector<double> dx(N_DIM);
+        for (int i = 0; i < N_DIM; i++) {
+            dx[i] = x_new[i] - x[i]; dx_norm2 += dx[i] * dx[i]; g_dot_dx += g[i] * dx[i];
+        }
+        if (dx_norm2 > 1e-18) {
+            double c = (dA - g_dot_dx) / dx_norm2;
+            for (int i = 0; i < N_DIM; i++) g[i] += c * dx[i];
+        }
+
+        if (pred_b < best_pred_b) {
+            best_pred_b = pred_b;
+            allowed_ber = std::pow(10.0, best_pred_b) * (1.0 + MAX_DEGRADE_FRAC);
+        }
+
+        double grad_norm = norm2(g);
+
+        Stage2Step rec;
+        rec.step = step; rec.x = x_new; rec.taps = taps_new;
+        rec.gdc = gdc_new; rec.gdc2 = gdc2_new; rec.gain = gain_new;
+        rec.gain_ratio = gain_new / DRIVER_GAIN_NOMINAL; rec.u_gain = x_new[N_SIDE + 2];
+        rec.drive_rms = rms_actual; rec.pred_a = pred_a; rec.pred_b = pred_b;
+        rec.pred_b_ber = std::pow(10.0, pred_b); rec.allowed_ber = allowed_ber;
+        rec.real_logber = real_logber; rec.real_mlse = real_mlse; rec.grad_norm = grad_norm;
+        rec.probes = step_probes;
+
+        if (step > 0 && (a_prev - pred_a) < MIN_GAIN_DEX) {
+            rec.stop_reason = "marginal_gain";
+            trace.push_back(rec);
+            printf("[Secant] stop: marginal predicted gain (%+.4f < %g) at step %d\n",
+                   a_prev - pred_a, MIN_GAIN_DEX, step);
+            break;
+        }
+
+        trace.push_back(rec);
+        printf("[Secant] gd %d/%d | ModelA %.2e | real %.2e | gain x%.3f | u_gain %+.3f | gDC %+.2f | gDC2 %+.2f\n",
+               step + 1, n_steps, std::pow(10.0, pred_a), real_mlse, gain_new / DRIVER_GAIN_NOMINAL,
+               x_new[N_SIDE + 2], gdc_new, gdc2_new);
+
+        double step_diff = 0.0;
+        for (int i = 0; i < N_DIM; i++) { double d = x_new[i] - x[i]; step_diff += d * d; }
+        if (std::sqrt(step_diff) < 1e-6) break;
+        a_prev = pred_a;
         x = x_new;
     }
     return trace;
