@@ -563,6 +563,29 @@ TEMPLATE = r'''<!DOCTYPE html>
 </div>
 </details>
 
+<h3>2.5 三个自由度的参数化公式（复现所需的完整映射）</h3>
+<p>搜索向量 <span class="mono">x = [x₀ x₁ x₂ x₃, x₄, x₅, x₆]</span> 到物理器件的映射如下，是复现本方案必须写死的三处参数化。</p>
+<div class="card">
+<h4 style="margin-top:0">① 5 抽头 Tx FFE（4 个自由旁瓣 + 1 个派生主抽头）</h4>
+<pre style="margin:6px 0"><code>h = [h₀, h₁, h₂, h₃, h₄]，T-spaced，主抽头在 t₂（2 个前游标 + 2 个后游标）
+h₂ = 1 − Σ_{k≠2} |h_k|（主抽头由能量恒等式派生）；Σ_{k≠2}|h_k| ≤ 0.8 ⇒ h₂ ≥ 0.2；|h_k| ≤ 0.3</code></pre>
+<p style="margin:6px 0">搜索变量 x₀…x₃ = [h₀, h₁, h₃, h₄]（4 个旁瓣），主抽头不进搜索向量。</p>
+</div>
+<div class="card">
+<h4 style="margin-top:0">② Tx 模拟 CTLE（gDC、gDC2 两维，OIF 2Z3P peaking 拓扑）</h4>
+<pre style="margin:6px 0"><code>K_DC  = 10^(gDC/20)，  K_DC2 = 10^(gDC2/20)
+H_S1(f) = (1 + j·f·K_DC/f_z) / [(1 + j·f/f_p1)(1 + j·f/f_p2)]     高频 peaking（有效零点 f_z/K_DC，峰值 ≈ K_DC）
+H_S2(f) = (1 + j·f·K_DC2/f_lf) / (1 + j·f/f_lf)                     低频 shelf（转折 f_lf，增益 K_DC2）
+H_CTLE(f) = H_S1(f) · H_S2(f)，直流增益恒 0 dB
+f_z = f_b/2.862，f_p1 = f_b/1.884，f_p2 = f_b/1.0，f_lf = f_b/40，f_b = 56 GHz</code></pre>
+<p style="margin:6px 0">搜索变量 x₄ = gDC（dB，[0,12]）、x₅ = gDC2（dB，[0,4]）。高频 peaking 只抬 Nyquist 附近、不抬直流，驱动幅度由 gain 维独立控制，两者不冗余。</p>
+</div>
+<div class="card">
+<h4 style="margin-top:0">③ driver_gain（第 7 维，对数参数化）</h4>
+<pre style="margin:6px 0"><code>gain = g₀ · 10^u_gain，  u_gain = log₁₀(gain / g₀)，  g₀ = 0.3399（标称 driver_gain）</code></pre>
+<p style="margin:6px 0">搜索变量 x₆ = u_gain。driver_gain 是 Tx 链末尾的标量乘子，只整体缩放波形——这是 gain 维能用解析梯度的根因（§4.2.1）。</p>
+</div>
+
 <h2 id="s3"><span class="num">3</span>代理模型</h2>
 
 <h3>3.1 两个模型的输入输出与分工</h3>
@@ -1020,6 +1043,71 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
   <li><strong>下一轮</strong>：以 x₁ 为新起点回到第 2 步，直到位移 &lt; 1e-6、梯度门控触发、边际改善 &lt; 0.01 dex 或步数到 15。</li>
 </ol>
 <p>整条链路真实 BER 只记账、不回传决策——下一步往哪走由探针 + A/B 给出，真实评估留给事后核验。</p>
+
+<h3>4.7 算法伪代码与超参数汇总（可直接照此实现）</h3>
+<p>记 <span class="mono">p(x)</span> 为参数 x 对应的 8 维探针（7-tap 绝对标定 FIR + drive_rms，§3.1）、<span class="mono">A(p)</span> 为 Model A 预测的 log10 BER、<span class="mono">B(x₀…₅, rms)</span> 为 Model B 对 7 维参数域的预测（§3.1）。完整 Stage-2 在线调优：</p>
+<pre><code>输入：冻结 Model A、Model B；次优起点 x₀ ∈ R⁷（含 gain ×0.325）；步数上限 n_steps = 15
+输出：落点轨迹 {x_k} 与每步真实 BER（仅记账）
+
+1   # 立安全基准（1 次探针 + 1 次 B 前向）
+2   p₀ = p(x₀)； rms₀ = p₀ 的第 8 维； best_B = B(x₀[0..5], rms₀)
+3   allowed = 10^best_B × 1.25                          # 百分比红线
+4
+5   # 第 0 步梯度（全程唯一一轮 ±ε 试探态）
+6   for i in 0..5:   g[i] = [A(p(x₀+εᵢeᵢ)) − A(p(x₀−εᵢeᵢ))] / (2εᵢ)    # εᵢ = 0.01(FFE)/0.1(gDC,gDC2)
+7   g[6] = ln10 · Σⱼ (∂A/∂pⱼ)·p₀ⱼ                       # gain 解析（§4.2.1）
+8   A_prev = A(p₀)
+9
+10  for k = 0 .. n_steps−1:
+11      # 组归一化方向（span = [0.20×4, 6.0, 6.0, 0.60]）
+12      d_组 = (g·span)_组 / ‖(g·span)_组‖ 对每组；‖(g·span)_组‖ &lt; 1e-3 的组冻结（d=0）
+13      # 回溯线搜索（含 B 先验否决，无真实 BER）
+14      α = 0.05 × 0.97^k
+15      repeat ≤20:  x_cand = clip(x_k − α·span·d, 信任域)；
+16                   if B(x_cand[0..5], rms(x_cand)) ≤ log10(allowed):  x_new = x_cand; break
+17                   else: α ← α/2
+18      if 无候选通过: 停止
+19
+20      # 落地记账（1 次真实 BER，不参与决策）
+21      p_new = p(x_new)； A_new = A(p_new)； B_new = B(x_new[0..5], rms(x_new))
+22      real_ber = 真实 MLSE BER(x_new)                   # 4194304 符号 × 单种子 42
+23
+24      # 梯度更新（零试探态；§4.2.1）
+25      g[6]  = ln10 · Σⱼ (∂A/∂pⱼ)·p_newⱼ                # gain 解析重算
+26      dx = x_new − x_k； dA = A_new − A_prev； dA_shape = dA − g[6]·dx[6]； s = dx[0..5]
+27      g[0..5] += [ (dA_shape − g[0..5]ᵀ·s) / ‖s‖² ] · s   # shape 割线修正
+28
+29      if B_new &lt; best_B:  best_B = B_new； allowed = 10^best_B × 1.25
+30      A_prev = A_new； x_k = x_new
+31      if ‖x_new − x_k‖ &lt; 1e-6 或 三组全冻结 或 (A_prev − A_new) &lt; 0.01: 停止</code></pre>
+
+<div class="tw">
+<table class="wide">
+  <caption>全部超参数与常量（复现本结果需原样使用） <span class="sh">· 可左右滑动</span></caption>
+  <tr><th>类别</th><th>参数</th><th class="n">取值</th></tr>
+  <tr><td rowspan="4">代理模型</td><td>多项式阶数</td><td class="n">2（一次项 + 平方项 + 交叉项）</td></tr>
+  <tr><td>Ridge 正则 α</td><td class="n">A = 1.0，B = 0.5</td></tr>
+  <tr><td>train / test 划分</td><td class="n">80 / 20，seed 42</td></tr>
+  <tr><td>标准化</td><td class="n">逐维 (x − μ)/σ，μ、σ 取训练集</td></tr>
+  <tr><td rowspan="4">数据集</td><td>行数 / 采样</td><td class="n">2001 行，LatinHypercube d=7, seed 42</td></tr>
+  <tr><td>采样盒</td><td class="n">FFE ±0.10、CTLE ±3.0 dB、gain ×0.20~×1.26</td></tr>
+  <tr><td>标签</td><td class="n">log10(BER_MLSE)，只取 &lt; −0.1 的行</td></tr>
+  <tr><td>训练评估</td><td class="n">2^20 符号 × 3 种子（42,43,44）</td></tr>
+  <tr><td rowspan="6">寻优</td><td>中心差分 εᵢ</td><td class="n">0.01（FFE×4）/ 0.1（gDC、gDC2）</td></tr>
+  <tr><td>初始步长 / 衰减</td><td class="n">GD_LR = 0.05 / ALPHA_DECAY = 0.97</td></tr>
+  <tr><td>组梯度门控</td><td class="n">‖(g·span)_组‖ &lt; 1e-3 dex 冻结</td></tr>
+  <tr><td>边际改善门控</td><td class="n">A 预测改善 &lt; 0.01 dex 停止</td></tr>
+  <tr><td>线搜索</td><td class="n">回溯折半，≤20 次</td></tr>
+  <tr><td>步数上限</td><td class="n">15</td></tr>
+  <tr><td rowspan="4">信任域 / 安全</td><td>逐维信任域半径</td><td class="n">FFE ±0.10 / CTLE ±3.0 dB / gain ±0.30 dex</td></tr>
+  <tr><td>轨迹信任域</td><td class="n">标准化 shape 位移 ≤ 2.0 × ρ（ρ = 训练 B 空间第 32 近邻中位距离）</td></tr>
+  <tr><td>Model B 红线</td><td class="n">当前最优点 B 预测 BER × 1.25</td></tr>
+  <tr><td>FFE 主抽头约束</td><td class="n">Σ|旁瓣| ≤ 0.8 ⇒ 主抽头 ≥ 0.2</td></tr>
+  <tr><td rowspan="3">评估</td><td>在线 / 报告符号数</td><td class="n">2^22 = 4194304</td></tr>
+  <tr><td>仿真种子</td><td class="n">42（单种子）</td></tr>
+  <tr><td>0 错误检测限</td><td class="n">5.97e-8（= 1/(2·N_bits)，N_bits = 8 368 608）</td></tr>
+</table>
+</div>
 
 <h2 id="s5"><span class="num">5</span>数据集与评估协议</h2>
 
