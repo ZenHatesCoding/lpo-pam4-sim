@@ -683,9 +683,16 @@ TEMPLATE = r'''<!DOCTYPE html>
 </div>
 
 <h3>3.2 模型形式、超参数与指标</h3>
-<p>两个模型共用同一学习器：手写二阶多项式特征 + L2 正则 Ridge 回归闭式解，纯 NumPy。</p>
-<pre><code>Φ(X) = [1, x₁…x_d, x₁²…x_d², x₁x₂…x_(d−1)x_d]        D = 1 + 2d + d(d−1)/2
-W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</code></pre>
+<p>两个模型共用同一学习器：手写二阶多项式特征 + L2 正则 Ridge 回归闭式解，纯 NumPy。输入先逐维标准化到零均值单位方差再进多项式，权重用闭式解一次求定（无迭代、无第三方求解器）。</p>
+<pre><code>输入标准化    x̂ = (x − μ) / σ                             μ、σ = 训练集逐维均值 / 标准差
+特征展开      φ(x̂) = [1, x̂₁…x̂_d, x̂₁²…x̂_d², x̂₁x̂₂…x̂_{d−1}x̂_d]    D = 1 + 2d + d(d−1)/2
+拟合闭式解    W = (ΦᵀΦ + α·I)⁻¹ Φᵀ y                    Φ = φ(X̂)：标准化后的设计矩阵
+推理          ŷ(x) = φ(x̂)ᵀ W
+解析梯度      ∂ŷ/∂x̂ᵢ = wᵢ + 2·w_ii·x̂ᵢ + Σ_{k≠i} w_ik·x̂_k
+原始量纲梯度  ∂ŷ/∂xᵢ = (∂ŷ/∂x̂ᵢ) / σᵢ                      （链式法则 dŷ/dx = dŷ/dx̂ · 1/σ）
+
+Model A：d = 8（7-tap 绝对标定 FIR + drive_rms），α = 1.0，预测 log10(BER_MLSE) 条件均值，需解析梯度。
+Model B：d = 7（4 旁瓣 + gDC + gDC2 + drive_rms），α = 0.5，预测 log10(BER_MLSE) 保守上包络，只用预测、不取梯度。</code></pre>
 
 <div class="tw">
 <table class="wide">
@@ -881,16 +888,43 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 <div class="card">
   <ol style="margin-bottom:0">
     <li><strong>安全红线</strong>：红线 = 当前已知最优点的 Model B 预测 BER × 1.25。每步若 B 预测改善，红线跟着下移；若 B 预测突然变差（方向错），红线挡住该步。</li>
-    <li><strong>梯度</strong>：<strong>gain 维解析、零试探</strong>——Model A 的 8 维探针 = [绝对标定 7-tap FIR, drive_rms]，driver_gain 是 Tx 链末尾的标量乘子，故 8 个特征都严格 ∝ gain，<span class="mono">∂A/∂u_gain = ln(10)·Σ<sub>j</sub>(∂A/∂feat<sub>j</sub>)·feat<sub>j</sub></span>（用 Model A 解析多项式梯度 + 当前落点探针每步现算，永不陈旧）。<strong>shape 维（4 FFE 旁瓣 + gDC + gDC2）</strong>第 0 步做一次 6 维双边中心差分初始化（±eps 扰动参数 → 重算探针 → 查 A → <span class="mono">gᵢ = (A⁺ − A⁻) / (2·eps)</span>；eps 分档 <span class="mono">0.01（FFE）/ 0.1（gDC、gDC2）</span>，共 12 次探针）。此后每步用<strong>割线更新</strong>免费维持 shape 梯度 <span class="mono">g_{k+1} = g_k + (ΔA − g_gain·Δx_gain − g_kᵀΔx)·Δx / ‖Δx‖²</span>（Δx = 上一步实际位移、ΔA = Model A 预测变化，只消费历史落点探针；割线方程剔除 gain 的已知贡献）。<strong>除第 0 步外全程零 ±ε 试探态</strong>，live 链路每步只短暂停留在已落地工作点。</li>
-    <li><strong>梯度门控</strong>：<span class="mono">|g| &lt; 1e-3</span> 时某组梯度低于门控，冻结该组，避免沿拟合噪声继续移动。</li>
-    <li><strong>方向</strong>：组内归一化方向（FFE 组 / CTLE 组 / gain 组各自归一化）。</li>
-    <li><strong>步长</strong>：<span class="mono">α_k = 0.05 × 0.97^k</span>，乘以各维箱宽（FFE 0.20 / CTLE 6.0 dB / gain 0.30 dex）。</li>
-    <li><strong>投影</strong>：候选点裁剪至 <span class="mono">x₀ ± [0.10, 0.10, 0.10, 0.10, 3.0, 3.0, 0.30]</span>（7 维信任域，gain 收紧到 ±0.30 dex）。</li>
+    <li><strong>梯度（两部分，公式见 4.2.1）</strong>：<strong>gain 维解析、零试探</strong>（driver_gain 是 Tx 链末尾标量乘子，8 维探针全 ∝ gain，有闭式链式解，每步用当前落点探针现算、永不陈旧）；<strong>shape 维（4 FFE 旁瓣 + gDC + gDC2）第 0 步中心差分初始化后割线更新</strong>（此后只消费历史落点探针，零试探态）。<strong>除第 0 步外全程零 ±ε 试探态</strong>，live 链路每步只短暂停留在已落地工作点。</li>
+    <li><strong>梯度门控</strong>：分组看缩放后梯度范数 <span class="mono">‖(g·span)_组‖</span>，低于 <span class="mono">1e-3</span>（dex）的组冻结（方向置 0），避免沿拟合噪声移动。</li>
+    <li><strong>方向</strong>：g 乘各维箱宽 <span class="mono">span</span> 后按 FFE / CTLE / gain 三组各自单位归一化：<span class="mono">d_组 = (g·span)_组 / ‖(g·span)_组‖</span>。</li>
+    <li><strong>步长</strong>：<span class="mono">α_k = 0.05 × 0.97^k</span>；候选点 <span class="mono">x = clip(x − α_k·span·方向, 信任域)</span>，<span class="mono">span = [0.20, 0.20, 0.20, 0.20, 6.0, 6.0, 0.60]</span>（gain 维满箱 0.60 dex = 2 × ±0.30 信任域）。</li>
+    <li><strong>投影</strong>：候选点裁剪至 <span class="mono">x₀ ± [0.10, 0.10, 0.10, 0.10, 3.0, 3.0, 0.30]</span>（7 维信任域半径，gain 收紧到 ±0.30 dex）。</li>
     <li><strong>安全审查</strong>：候选点 B 预测超过红线时步长折半重试（最多 20 次）；始终不通过则停止，不强行落地。</li>
     <li><strong>记账</strong>：写入代理预测与真实 BER_MLSE（协议 4194304 符号 × 单种子 42），供事后核验。</li>
     <li><strong>终止</strong>：位移 <span class="mono">&lt; 1e-6</span>、或梯度门控触发、或边际改善 <span class="mono">&lt; 0.01 dex</span>、或达到步数上限。</li>
   </ol>
 </div>
+
+<h4>4.2.1 梯度公式（解析 + 割线，全展开）</h4>
+<p>搜索向量 <span class="mono">x = [x₀ x₁ x₂ x₃, x₄, x₅, x₆] ∈ R⁷</span>，依次是 4 个 FFE 旁瓣、gDC、gDC2、<span class="mono">u_gain</span>；其中 <span class="mono">u_gain = log₁₀(gain / g₀)</span>，<span class="mono">g₀ = 0.3399</span> 为标称 gain。探针 <span class="mono">p(x) = [tx_fir₀…tx_fir₆, drive_rms] ∈ R⁸</span>，<span class="mono">A(p)</span> 是 Model A 预测的 log10 BER。</p>
+
+<div class="card" style="border-left:4px solid #0f8a4a">
+<h4 style="margin-top:0">gain 维（第 7 维）——解析梯度，全程 0 试探</h4>
+<p style="margin-bottom:0"><span class="mono">driver_gain</span> 是 Tx 链末尾的标量乘子，调它只整体缩放波形，不改变波形形状，所以 8 个探针特征都严格正比于 gain：</p>
+<pre style="margin:6px 0"><code>pⱼ(g) = pⱼ(g₀) · (g / g₀)         对每个探针特征 j = 0…7</code></pre>
+<p style="margin:6px 0">由 <span class="mono">u = log₁₀(g/g₀)</span> 得 <span class="mono">g = g₀·10^u</span>，故 <span class="mono">dg/du = g·ln10</span>，于是每个特征对 u 的偏导：</p>
+<pre style="margin:6px 0"><code>∂pⱼ/∂u = (∂pⱼ/∂g)·(dg/du) = (pⱼ/g)·(g·ln10) = ln10 · pⱼ</code></pre>
+<p style="margin:6px 0">链式法则把 8 维特征梯度合成 gain 维梯度：</p>
+<pre style="margin:6px 0"><code>∂A/∂u_gain = Σⱼ (∂A/∂pⱼ)·(∂pⱼ/∂u) = ln10 · Σⱼ (∂A/∂pⱼ)·pⱼ</code></pre>
+<p style="margin:6px 0">其中 <span class="mono">∂A/∂pⱼ</span> 是 Model A 的 WhiteBoxRidge 解析梯度（§3.2）再除以该特征标准差 σⱼ（把标准化坐标的梯度换算回原始量纲）。每步用<strong>当前落点探针</strong>现算一次，零 ±ε 扰动、零真实 BER。</p>
+</div>
+
+<div class="card" style="border-left:4px solid #0f8a4a">
+<h4 style="margin-top:0">shape 维（前 6 维）——第 0 步中心差分 + 此后割线</h4>
+<p style="margin:6px 0"><strong>第 0 步初始化</strong>（唯一一轮 ±ε 试探态，共 12 个探针）：对 6 个 shape 维逐一做双边中心差分——</p>
+<pre style="margin:6px 0"><code>gᵢ = [ A(p(x + εᵢ·eᵢ)) − A(p(x − εᵢ·eᵢ)) ] / (2·εᵢ)，   i = 0…5
+εᵢ = 0.01（FFE 旁瓣 ×4） / 0.1（gDC、gDC2）</code></pre>
+<p style="margin:6px 0"><strong>此后每步割线更新</strong>（Broyden「good」秩-1 修正，只消费历史落点、0 试探）：记本步位移 <span class="mono">dx = x_{k+1} − x_k</span>、Model A 预测变化 <span class="mono">dA = A(p(x_{k+1})) − A(p(x_k))</span>。先剔掉 gain 维的已知贡献，再只沿 shape 位移方向修正 shape 梯度：</p>
+<pre style="margin:6px 0"><code>dA_shape = dA − g₆·dx₆                    （dx₆、g₆ 是 gain 维位移与解析梯度）
+s        = [dx₀ … dx₅]                    （shape 维位移）
+g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] · s</code></pre>
+<p style="margin:6px 0">上式满足割线方程 <span class="mono">g_{k+1}ᵀ s = dA_shape</span>（新梯度沿已走过的方向精确拟合 Model A 的实际变化），是满足该方程的最小范数修正。gain 维 <span class="mono">g₆</span> 不进上式，每步由解析公式重算。</p>
+</div>
+
 <p>端到端实操走查（训练完有什么 → 第一个梯度怎么来 → 怎么迭代）见 §4.6。</p>
 
 <h3>4.3 复杂度与实测耗时</h3>
@@ -963,14 +997,14 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <li>初始红线 = <span class="mono">10^B(x₀) × 1.25</span>（当前最优点允许恶化 25%，§4.5）。</li>
 </ol>
 
-<h4>4.6.3 第一个梯度：7 维双边差分</h4>
-<p>红线立好后，逐维算 g ∈ R⁷（§4.2）：</p>
+<h4>4.6.3 第一个梯度：shape 维中心差分 + gain 维解析</h4>
+<p>红线立好后，算 g ∈ R⁷（公式见 §4.2.1），两个来源分开：</p>
 <ol style="margin-bottom:0">
-  <li>第 i 维取 <span class="mono">x⁺ = x₀ + epsᵢ·eᵢ</span>、<span class="mono">x⁻ = x₀ − epsᵢ·eᵢ</span>；</li>
-  <li>各自重算探针（FIR 形状 + 驱动 RMS）后查 Model A，得 <span class="mono">A(x⁺)</span>、<span class="mono">A(x⁻)</span>；</li>
-  <li><span class="mono">gᵢ = (A(x⁺) − A(x⁻)) / (2·epsᵢ)</span>，<span class="mono">epsᵢ = 0.01（FFE×4）/ 0.1（gDC、gDC2）/ 0.05（u_gain）</span>。</li>
+  <li><strong>shape 维（前 6 维）中心差分</strong>：第 i 维取 <span class="mono">x⁺ = x₀ + εᵢ·eᵢ</span>、<span class="mono">x⁻ = x₀ − εᵢ·eᵢ</span>，各自重算探针（FIR 形状 + 驱动 RMS）后查 Model A，得 <span class="mono">gᵢ = (A(x⁺) − A(x⁻)) / (2·εᵢ)</span>，<span class="mono">εᵢ = 0.01（FFE×4）/ 0.1（gDC、gDC2）</span>。</li>
+  <li><strong>gain 维（第 7 维）解析</strong>：用当前落点探针直接算 <span class="mono">g₆ = ln10 · Σⱼ (∂A/∂pⱼ)·pⱼ</span>，不做任何扰动。</li>
 </ol>
-<p>一共 14 次探针 + 14 次 A 前向，约 0.4 s，<strong>期间没有一次真实 BER 评估</strong>。</p>
+<p>决策本身只花 12 次物理探针 + 12 次 A 前向（中心差分）+ 1 次解析梯度，约 0.4 s，<strong>不含任何真实 BER 评估</strong>。本实验为透明记账，还会顺带实测这 12 个试探态各自的真实 BER（见 §6.4）——只作记录、不参与方向。</p>
+<p>这 12 个 ±ε 试探态是<strong>全程唯一一轮</strong>：此后每一步都不再为测梯度进入任何 x±ε 过渡态。</p>
 <div class="card" style="border-left:4px solid #0f8a4a">
 <h4 style="margin-top:0">第一个梯度告诉你什么</h4>
 <p style="margin-bottom:0">g 的每个分量是该参数对 log10 BER 的局部斜率（负值 = 加大该参数使 BER 下降）。7 个数里模越大的维越值得动；本实验 gain 维（第 7 维）是主导项（§6.0）。</p>
@@ -978,11 +1012,12 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
 
 <h4>4.6.4 第一次迭代到收敛</h4>
 <ol style="margin-bottom:0">
-  <li><strong>组方向</strong>：g 乘各维箱宽后按 FFE / CTLE / gain 三组归一化成单位方向；<span class="mono">|g·span| &lt; 1e-3</span> 的组冻结。</li>
+  <li><strong>组方向</strong>：g 乘各维箱宽 span 后按 FFE / CTLE / gain 三组各自单位归一化：<span class="mono">d_组 = (g·span)_组 / ‖(g·span)_组‖</span>；<span class="mono">‖(g·span)_组‖ &lt; 1e-3</span> 的组冻结（§4.2）。</li>
   <li><strong>步长</strong>：<span class="mono">α = 0.05 × 0.97^k</span>；候选点 <span class="mono">x₁ = clip(x₀ − α·span·方向, 信任域)</span>。</li>
   <li><strong>Model B 审查</strong>：候选点 B 预测超红线则步长折半重试（≤20 次），始终不过则本环境停止。</li>
   <li><strong>落地记账</strong>：对 x₁ 做一次真实 BER（2^22 × 单种子 42）写进 trace；B 改善则红线随之下移。</li>
-  <li><strong>下一轮</strong>：以 x₁ 为新起点回到「第一个梯度」，直到位移 &lt; 1e-6、梯度门控触发、边际改善 &lt; 0.01 dex 或步数到 15。</li>
+  <li><strong>梯度更新（零试探态）</strong>：gain 维按 §4.2.1 解析公式重算；shape 维按 §4.2.1 割线公式（用位移 dx、Model A 预测变化 dA 与剔除 gain 后的 dA_shape）修正——两者都不做任何 ±ε 扰动，只消费已落地的 x₀ → x₁。</li>
+  <li><strong>下一轮</strong>：以 x₁ 为新起点回到第 2 步，直到位移 &lt; 1e-6、梯度门控触发、边际改善 &lt; 0.01 dex 或步数到 15。</li>
 </ol>
 <p>整条链路真实 BER 只记账、不回传决策——下一步往哪走由探针 + A/B 给出，真实评估留给事后核验。</p>
 
@@ -1099,7 +1134,7 @@ W = (ΦᵀΦ + αI)⁻¹ Φᵀ y                                 ŷ = Φ(X)·W</
   <p><strong>口径 2 · 含 ±ε 试探瞬时</strong>：割线法下只有第 0 步的 12 个 shape 维 ±ε 微扰态落在真实链路上（gain 维解析、0 试探；此后全程 0 试探态）。按「试探步取 12 试探态 + 1 落点中的最坏 BER、其余步取落点」与种子比较，<strong><!--PROBE_WORSE_STEPS--> 步</strong>的瞬时最坏 BER 超过种子（集中在第 0 步初始化——±ε 绕种子 x<sub>0</sub> 展开，向劣化侧的那支探针必然超过种子本身）；全程最坏瞬时 = 种子 × <strong><!--PROBE_WORST_RATIO--></strong>（<!--PROBE_WORST_ENV-->：<!--PROBE_WORST_BER--> vs 种子）。</p>
   <div class="tw">
   <table class="wide" id="tbl-safety-probe" style="margin-bottom:8px">
-    <caption>含试探瞬时口径：逐用例「每步最坏 BER（含 14 试探态）」超过种子的步数 · 可左右滑动</caption>
+    <caption>含试探瞬时口径：逐用例「每步最坏 BER（含 ±ε 试探态）」超过种子的步数 · 可左右滑动</caption>
     <tr><th>用例</th><th class="n">种子 BER</th><th class="n">含试探瞬时超种子步数</th><th class="n">全程最坏瞬时 BER</th><th class="n">相对种子倍率</th></tr>
     <!--SAFETY_PROBE_ROWS-->
   </table>
@@ -1194,14 +1229,19 @@ python test_generalization.py --model-dir models/ddps --out-dir result/ddps_seca
     --method secant --seed-config result/seed_config_bad_1e4.json --n-steps 15 \
     --num-symbols 262144 --sim-seeds 42
 
-# 5) C++ 一比一复刻全量重跑（高SNR大点数；结果写 result/ddps_cpp_secant/）
-python cpp\run_all_cases.py --method secant --out-dir result/ddps_cpp_secant --jobs 15
+# 5) C++ 编译 + 模型转换（gcc.exe 编译，mingw64\bin 需在 PATH；pkl -> json 一次性）
+powershell -File cpp\build.ps1
+python cpp\export_models.py
 
-# 6) 可视化报告
+# 6) C++ 一比一复刻全量重跑（高SNR大点数；结果写 result/ddps_cpp_secant/）
+python cpp\run_all_cases.py --method secant --out-dir result/ddps_cpp_secant \
+    --num-symbols 4194304 --n-steps 15 --jobs 15
+
+# 7) 可视化报告
 python report_ddps.py --test-dir result/ddps_cpp_secant --model-dir models/ddps \
     --seed-config result/seed_config_bad_1e4.json --summary-out result/SUMMARY.md
 
-# 7) 交付件
+# 8) 交付件
 python make_deliverable.py --baseline result/ddps_cpp_secant --model-dir models/ddps \
     --out deliverables/DDPS_Deliverable.html</code></pre>
 </div>
