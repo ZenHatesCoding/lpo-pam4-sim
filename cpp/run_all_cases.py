@@ -2,6 +2,10 @@
 # -*- coding: utf-8 -*-
 """run_all_cases.py — 15 环境 C++ 全量在线调优（单种子 42、2^22 符号、无人工噪声、次优起点）。
 
+全量规模仿真（高 SNR 大点数）的唯一入口（AGENTS.md「开发方式」）：Python 与 C++ 的
+比对只在 2^18 小点数低 SNR 下做，通过比对后的全量规模仿真一律走本脚本调度的
+run_ddps.exe，不允许用 Python 跑高 SNR 大点数。
+
 每个环境：apply_env_to_config -> dump per-env config.txt -> run_ddps.exe -> case_summary.json + trace/probes CSV。
 聚合输出到 result/ddps_cpp_main/（case_summary.csv/json + trace/probes + run_config.json + _parts/<env>/）。
 并行度 = 逻辑核数（每个 run_ddps.exe 单线程）。

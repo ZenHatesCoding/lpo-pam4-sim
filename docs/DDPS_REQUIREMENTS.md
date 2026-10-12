@@ -92,3 +92,9 @@ PAM4（电平 [-3,-1,1,3]，RMS = √5）→ 5-tap Tx FFE → DAC(ZOH,ENOB 5.5 �
 - 所有重做要求沉淀到本文件
 - 代码变更记录到 docs/ 和 git commit
 - 交付件不包含版本历史、排错过程
+
+## 六、双后端分工与比对口径（不可违反）
+
+- **Python 定原理，C++ 一比一复刻**（算法、物理层模型、参数、调优算法全部一致；见 `AGENTS.md`「开发方式」）。
+- **比对口径**：Python 与 C++ 的等价性验证、收敛对比只在 **2^18 小点数低 SNR** 下做——唯一允许的比对口径，不允许在大点数/高 SNR 下比对。
+- **规模仿真分工**：全量规模仿真（高 SNR 大点数，如 2^22 在线调优与全量评估）**只用通过比对的 C++ 入口**（`cpp/run_all_cases.py` / `cpp/build/run_ddps.exe`）；**不允许用 Python 跑高 SNR 大点数**（`test_generalization.py` / `tools/run_parallel_envs.py` 等 Python 入口只用于小点数低 SNR 验证）。

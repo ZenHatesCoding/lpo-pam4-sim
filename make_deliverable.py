@@ -1312,7 +1312,7 @@ python -c "from train_surrogates import train; import glob; \
 # 3) per-case target_rms 扫描（gain 维标定参照）
 python tools/scan_per_case_rms.py --jobs 8
 
-# 4) 低SNR验证（Python 参照，2^18 少点数：割线(解析 gain) 与链式收敛对比，全 15 用例）
+# 4) Python 小点数低 SNR 验证（比对口径：2^18、单种子 42；割线(解析 gain) 与链式收敛对比，全 15 用例）
 python test_generalization.py --model-dir models/ddps --out-dir result/ddps_secant_analytic_py \
     --method secant --seed-config result/seed_config_bad_1e4.json --n-steps 15 \
     --num-symbols 262144 --sim-seeds 42
@@ -1321,7 +1321,7 @@ python test_generalization.py --model-dir models/ddps --out-dir result/ddps_seca
 powershell -File cpp\build.ps1
 python cpp\export_models.py
 
-# 6) C++ 一比一复刻全量重跑（高SNR大点数；结果写 result/ddps_cpp_secant/）
+# 6) 全量规模仿真（高 SNR 大点数，只允许 C++；结果写 result/ddps_cpp_secant/）
 python cpp\run_all_cases.py --method secant --out-dir result/ddps_cpp_secant \
     --num-symbols 4194304 --n-steps 15 --jobs 15
 
@@ -1341,7 +1341,7 @@ python make_deliverable.py --baseline result/ddps_cpp_secant --model-dir models/
   <tr><td>数据集</td><td class="mono">dataset/ddps_dataset_&lt;ts&gt;.csv</td><td>2001 行 × 45 列（7 维 x = 4 FFE 旁瓣 + gDC + gDC2 + u_gain；另含 5-tap FFE、驱动 RMS、7-tap FIR 探针、真实 BER）</td></tr>
   <tr><td>模型</td><td class="mono">models/ddps/</td><td>A=探针 8 维 / B=参数 7 维 + meta.json</td></tr>
     <tr><td>主结果</td><td class="mono">result/ddps_cpp_secant/</td><td>C++ 15 用例 secant case_summary.csv/json、trace_&lt;用例&gt;.csv、probes_&lt;用例&gt;.csv、run_config.json、report/</td></tr>
-      <tr><td>Python 参照结果</td><td class="mono">result/ddps_secant_analytic_py/</td><td>低SNR少点数 secant(解析 gain)/chain 收敛与等价性参照（Python 侧，全 15 用例）</td></tr>
+      <tr><td>Python 参照结果</td><td class="mono">result/ddps_secant_analytic_py/</td><td>2^18 小点数低 SNR（比对口径）secant(解析 gain)/chain 收敛与等价性参照（Python 侧，全 15 用例）</td></tr>
       <tr><td>跨实验汇总</td><td class="mono">result/SUMMARY.md</td><td>15 用例结果汇总</td></tr>
   <tr><td>块长研究</td><td class="mono">result/ddps_block_length.csv</td><td>最优工作点不同块长的 BER 估计精度</td></tr>
   <tr><td>低SNR验证</td><td class="mono">result/ddps_secant_analytic_py/、result/ddps_chain_sanity/</td><td>2^18 少点数 secant(解析 gain) vs chain 收敛对比（15 用例全一致、评估量 8×）</td></tr>
@@ -1353,7 +1353,7 @@ python make_deliverable.py --baseline result/ddps_cpp_secant --model-dir models/
 
 <h2 id="s10"><span class="num">10</span>C++ 平台与等价性</h2>
 
-<p>平台提供两套同源实现：Python（原理参照）与 C++17（一比一复刻）。两实现读同一 <span class="mono">config.xlsx</span> 配置口径、装载同一冻结模型转换产物（<span class="mono">models/ddps/model_{a,b}.json</span>，由 <span class="mono">cpp/export_models.py</span> 从 pkl 转出，不重训），在线调优结果数值等价。</p>
+<p>平台提供两套同源实现：Python（原理参照）与 C++17（一比一复刻）。两实现读同一 <span class="mono">config.xlsx</span> 配置口径、装载同一冻结模型转换产物（<span class="mono">models/ddps/model_{a,b}.json</span>，由 <span class="mono">cpp/export_models.py</span> 从 pkl 转出，不重训），在线调优结果数值等价。两实现的比对只在 2<sup>18</sup> 小点数低 SNR 口径下进行（本节 10.2~10.4 的等价性数字均出自该口径）；全量规模仿真（高 SNR 大点数）只用通过比对的 C++ 入口执行，Python 不承担高 SNR 大点数仿真。</p>
 
 <h3>10.1 模块映射（一比一复刻）</h3>
 <div class="tw">

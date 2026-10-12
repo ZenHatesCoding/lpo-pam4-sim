@@ -2,6 +2,11 @@
 
 > **新 session 必读**：下一轮要做的全部事，看下方 **「## 待办」**。上面的背景读完再动手，先读 `AGENTS.md`。
 
+## 双后端分工（AGENTS.md 硬规则，2026-10-12 起固化）
+
+- **Python 定原理，C++ 一比一复刻**；两者比对（等价性验证、收敛对比）**只在 2^18 小点数低 SNR 下做**——唯一允许的比对口径，不允许在大点数/高 SNR 下比对。
+- **全量规模仿真（高 SNR 大点数，如 2^22 在线调优与全量评估）只允许用通过比对的 C++ 入口跑**（`cpp/run_all_cases.py` / `cpp/build/run_ddps.exe`）；**不允许用 Python 跑高 SNR 大点数**（`test_generalization.py` / `tools/run_parallel_envs.py` 等 Python 入口只用于小点数低 SNR 验证）。
+
 ## 当前状态（v8 割线在线调优 + gain 解析梯度 · C++ 高SNR 15 用例运行中）
 
 v8 只改「在线调优方式」，物理层 / 代理模型 / 数据集 / 训练全部不动（模型不重训）。核心：把 v7 每步 14 个 ±ε 试探态（中心差分链式梯度）换成 **gain 维解析梯度 + shape 维割线更新**，除第 0 步外全程零 ±ε 过渡态。
@@ -15,7 +20,7 @@ v8 只改「在线调优方式」，物理层 / 代理模型 / 数据集 / 训�
 - **已归档**：v7.3（2^22 · 单种子 42 · 15 用例 · 链式梯度）→ `archive/20260930_ddps_v7.3_2to22/`。
 - **低SNR验证（2^18 单种子 42，已核）**：15/15 用例 secant(解析 gain) = chain（含 IL20x20 3.97e-6、Comb_IL20x20_CD15_DGD5 3.97e-6 硬用例）；评估量 28 vs 226 次/用例 = **8× 减少**。
 - **等价性（低SNR bit级对齐，已核）**：IL20x20 @ 2^18，Python vs C++ 轨迹 gdc/gdc2/gain/pred_a/pred_b/real_ber 最大相对差 ~4.6e-13。
-- **C++ 高SNR 15 用例 2^22 运行中**（后台，secant，15 jobs）。C++ eval ≈105 s/次 @2^22；新 secant 每用例 28 eval（vs 链式 226）→ 预计大幅缩短墙钟。
+- **C++ 高SNR 15 用例 2^22 已完成**（secant，15 jobs，墙钟 4134.7s，`result/ddps_cpp_secant/`）。C++ eval ≈105 s/次 @2^22；secant 每用例 28 eval（vs 链式 226）= 8× 评估量缩减。
 - **编译器绕行（本机 WDAC 拦 g++.exe）**：用同源 `gcc.exe` + `-lstdc++` 编译 C++；`cpp/build.ps1` 注释已改 ASCII（Windows PowerShell 5.1 会把无 BOM UTF-8 中文按 GBK 误读、导致解析失败）。
 
 ## 待办
@@ -25,8 +30,16 @@ v8 只改「在线调优方式」，物理层 / 代理模型 / 数据集 / 训�
 3. ✅ `make_deliverable.py` 改写文案 + 替换 §6.1/§7 结论数字 + 重新生成 HTML。
 4. ✅ README / HANDOFF / docs（DDPS_Method、CHANGELOG）刷新到 v8 口径（含结果数字）。
 5. ✅ 旧 K=3 scratch（`result/ddps_secant_refresh3/`、`result/ddps_secant_sanity/`、`result/ddps_cpp_secant_equiv/`、`result/ddps_secant_equiv_il20/`、`result/ddps_secant_equiv_py/`、`_diag_gain.py`）归档至 `archive/20260930_ddps_secant_k3_scratch/`。
-6. `git add` 全部 + 提交 + 推送。
-7. `present deliverables/DDPS_Deliverable.html`（最后动作）。
+6. ✅ `git add` 全部 + 提交 + 推送。
+7. ✅ `present deliverables/DDPS_Deliverable.html`（最后动作）。
+
+本轮（2026-10-12 · 双后端分工规则固化）：
+
+1. ✅ AGENTS.md「开发方式」写入硬规则：Python 与 C++ 比对只在 2^18 小点数低 SNR 下做；全量规模仿真（高 SNR 大点数）只用通过比对的 C++ 入口；不允许用 Python 跑高 SNR 大点数。
+2. ✅ 刷新所有提及该规则的文档：README（导航表 + §4/§4b/§5 命令与表述）、HANDOFF（本文件：规则段 + 复现命令 + 并行内存约束）、docs/DDPS_REQUIREMENTS（新增「六、双后端分工与比对口径」）、docs/CHANGELOG（记录规则变更）、make_deliverable.py（§9/§10 表述）+ 重新生成交付件 HTML。
+3. ✅ 工具脚本 docstring 对齐：`tools/run_parallel_envs.py`（用法示例与默认值改为小点数）、`tools/run_py_cases_parallel.py`（标注不得用于高 SNR 大点数）、`cpp/run_all_cases.py`（标注为全量规模仿真唯一入口）。
+4. ✅ `git add` 全部 + 提交 + 推送。
+5. ✅ `present deliverables/DDPS_Deliverable.html`（最后动作）。
 
 ## 本次 session 做的事（v8：gain 解析梯度）
 
@@ -157,24 +170,31 @@ PAM4（数字电平 [-3,-1,1,3]，峰值 3）→ 5-tap Tx FFE → DAC(ZOH, ENOB 
 ## 复现命令
 
 ```powershell
-# 0) per-case RMS 扫描 + 数据集 + 训练
+# 0) 离线准备（Python）：per-case RMS 扫描 + 数据集 + 训练 + 次优起点
 .venv\Scripts\python.exe tools/scan_per_case_rms.py --jobs 12
 .venv\Scripts\python.exe dataset_generator.py --base-samples 2000 --only-envs Base_IL10x10 --num-symbols 1048576 --sim-seeds 42,43,44 --jobs 12 --core-samples 1200
 .venv\Scripts\python.exe -c "from train_surrogates import train; import glob; train(sorted(glob.glob('dataset/ddps_dataset_*.csv'))[-1], 'models/ddps', pipeline_tag='ddps', gain_mode='gradient_with_rms_init')"
 .venv\Scripts\python.exe tools/pick_seed_config.py --target-log10 -4.0 --env Base_IL10x10 --out result/seed_config_bad_1e4.json
 
-# 1) 主流程（2^22 × 3 种子，4 进程，从次优起点出发）
-.venv\Scripts\python.exe tools/run_parallel_envs.py --model-dir models/ddps --out-dir result/ddps_main --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44 --jobs 4
+# 1) Python 小点数低 SNR 验证（比对口径：2^18、单种子 42、次优起点、割线 + 解析 gain）
+.venv\Scripts\python.exe test_generalization.py --model-dir models/ddps --out-dir result/ddps_secant_analytic_py \
+    --method secant --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 262144 --sim-seeds 42
 
-# 2) A-only 消融
-.venv\Scripts\python.exe tools/run_parallel_envs.py --model-dir models/ddps --out-dir result/ddps_aonly --a-only --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 4194304 --sim-seeds 42,43,44 --jobs 4
+# 2) C++ 编译 + 模型转换（gcc.exe 编译，mingw64\bin 需在 PATH；pkl -> json 一次性）
+powershell -File cpp\build.ps1
+.venv\Scripts\python.exe cpp\export_models.py
 
-# 3) 报告 + 交付件
-.venv\Scripts\python.exe report_ddps.py --test-dir result/ddps_main --model-dir models/ddps --seed-config result/seed_config_bad_1e4.json --summary-out result/SUMMARY.md
-.venv\Scripts\python.exe report_ddps.py --test-dir result/ddps_aonly --model-dir models/ddps --seed-config result/seed_config_bad_1e4.json
-.venv\Scripts\python.exe make_deliverable.py --baseline result/ddps_main --a-only result/ddps_aonly
+# 3) 全量规模仿真（高 SNR 大点数，只允许 C++）：15 用例 2^22 在线调优
+.venv\Scripts\python.exe cpp\run_all_cases.py --method secant --out-dir result/ddps_cpp_secant \
+    --num-symbols 4194304 --n-steps 15 --jobs 15
+
+# 4) 报告 + 交付件
+.venv\Scripts\python.exe report_ddps.py --test-dir result/ddps_cpp_secant --model-dir models/ddps \
+    --seed-config result/seed_config_bad_1e4.json --summary-out result/SUMMARY.md
+.venv\Scripts\python.exe make_deliverable.py --baseline result/ddps_cpp_secant --model-dir models/ddps \
+    --out deliverables/DDPS_Deliverable.html
 ```
 
-## 并行内存约束
+## 并行内存约束（C++ 全量）
 
-`num_symbols=2^22` 时每进程峰值内存约 2~4GB；主流程 + A-only 同时 `--jobs 4`（共 8 进程）会互相拖慢（每 env ~135min，吞吐与串行相当），free RAM 实测 10~18GB 健康。换 4 进程单跑每 env ~70min。
+C++ 全量 15 用例（`cpp/run_all_cases.py --jobs 15`，每 `run_ddps.exe` 单线程）实测墙钟 4134.7s，15 路并行健康。Python 侧只跑 2^18 小点数低 SNR 验证，不承担全量规模仿真（AGENTS.md「开发方式」）。

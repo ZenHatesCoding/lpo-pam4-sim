@@ -11,10 +11,14 @@ pickle 问题），每个环境用 `--only-envs <env>` 让 test_generalization �
 写到独立分片目录；每个子进程设 OMP_NUM_THREADS=1 防止 BLAS 超订阅；
 全部完成后复用 `merge_test_parts.merge()` 按 ENV_CASES 顺序合并成一个结果目录。
 
-用法（等价于「串行跑 15 环境」，只是 14 并发，从 ~7.5h 降到 ~40-60min）：
+用法（等价于「串行跑 15 环境」，只是并发）：
     python tools/run_parallel_envs.py --model-dir models/ddps \
-        --out-dir result/ddps_aonly --a-only --n-steps 15 \
-        --num-symbols 2097152 --sim-seeds 42,43,44 --jobs 14
+        --out-dir result/ddps_secant_analytic_py --n-steps 15 \
+        --num-symbols 262144 --sim-seeds 42 --jobs 14
+
+注意（AGENTS.md「开发方式」）：本工具只用于 Python 小点数低 SNR 验证（2^18 及以下）。
+全量规模仿真（高 SNR 大点数，如 2^22）只用通过比对的 C++ 入口
+（cpp/run_all_cases.py），不允许用 Python 跑高 SNR 大点数。
 """
 import argparse
 import os
@@ -74,10 +78,11 @@ def main():
     ap = argparse.ArgumentParser(
         description='多进程并行跑 test_generalization 的 15 环境并合并结果')
     ap.add_argument('--model-dir', default='models/ddps')
-    ap.add_argument('--out-dir', default='result/ddps_main')
+    ap.add_argument('--out-dir', default='result/ddps_secant_analytic_py')
     ap.add_argument('--n-steps', type=int, default=15)
-    ap.add_argument('--num-symbols', type=int, default=2097152)
-    ap.add_argument('--sim-seeds', type=str, default='42,43,44')
+    ap.add_argument('--num-symbols', type=int, default=262144,
+                    help='每环境符号数；只允许小点数低 SNR 验证（2^18 及以下，AGENTS.md 开发方式）')
+    ap.add_argument('--sim-seeds', type=str, default='42')
     ap.add_argument('--only-envs', type=str, default=None,
                     help='只跑指定环境（逗号分隔）；缺省跑全部 15 环境')
     ap.add_argument('--a-only', action='store_true',

@@ -4,9 +4,11 @@
 
 ## 开发方式（不可违反）
 
-- **Python 先验证原理，C++ 跟上跑大规模仿真**。两条腿都要维护：
+- **Python 定原理，C++ 一比一复刻**。两条腿都要维护：
   - Python（`*.py`）：快速验证算法/物理模型/调优逻辑的正确性，是原理参照（reference）；
   - C++（`cpp/src/*.hpp` + `cpp/main.cpp`）：对 Python 做**一比一复刻**（算法、物理层模型、参数、调优算法全部一致），用于大规模仿真与加速。
+- **比对口径**：Python 与 C++ 的比对（等价性验证、收敛对比）**只在 2^18 小点数低 SNR 下做**——这是唯一允许的比对口径，不允许在大点数/高 SNR 下比对。
+- **规模仿真分工**：**全量规模仿真（高 SNR 大点数，如 2^22 在线调优与全量评估）只允许用通过比对的 C++ 入口跑；不允许用 Python 跑高 SNR 大点数**（`test_generalization.py` / `tools/run_parallel_envs.py` 等 Python 入口只用于小点数低 SNR 验证）。
 - 任何物理/算法改动，先在 Python 验证正确，再同步复刻进 C++；C++ 改动必须与 Python 数值等价（见 `cpp/` 目录下的等价性测试与 debug 脚本）。
 - 双方共享同一配置口径与同一冻结模型转换产物（`models/ddps/model_{a,b}.json` 由 `cpp/export_models.py` 从 pkl 转换）。
 

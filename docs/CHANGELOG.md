@@ -2,6 +2,12 @@
 
 > 本文件记录每个版本的核心变化。只记"变了什么"，不记排错过程。
 
+## 工作流规则（2026-10-12）：双后端分工固化
+
+- `AGENTS.md`「开发方式」新增硬规则：**Python 定原理，C++ 一比一复刻；两者比对（等价性验证、收敛对比）只在 2^18 小点数低 SNR 下做；全量规模仿真（高 SNR 大点数）只用通过比对的 C++ 入口跑；不允许用 Python 跑高 SNR 大点数**（`test_generalization.py` / `tools/run_parallel_envs.py` 等 Python 入口只用于小点数低 SNR 验证）。
+- 同步刷新提及该规则的文档：README（导航表 + §4 改为 Python 小点数低 SNR 验证命令 + §4b 标注 C++ 为全量规模仿真唯一入口 + §5 指向 `result/ddps_cpp_secant`）、HANDOFF（新增「双后端分工」段 + 复现命令/并行内存约束改口径）、docs/DDPS_REQUIREMENTS（新增「六、双后端分工与比对口径」）、make_deliverable.py §10（交付件同步表述）。
+- 工具脚本 docstring 对齐：`tools/run_parallel_envs.py` 用法示例与默认值改为 2^18 小点数；`tools/run_py_cases_parallel.py` 标注不得用于高 SNR 大点数；`cpp/run_all_cases.py` 标注为全量规模仿真唯一入口。
+
 ## v8（当前版本 · 割线在线调优 + gain 解析梯度）
 
 ### 在线调优方式重做（模型不重训）

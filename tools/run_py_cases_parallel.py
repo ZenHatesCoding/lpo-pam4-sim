@@ -4,6 +4,10 @@
 
 每个环境跑一个 test_generalization.py --only-envs 分片（_parts/<env>/），全部结束后用
 merge_test_parts.py 合并到 result/ddps_main/。
+
+注意（AGENTS.md「开发方式」）：Python 不允许跑高 SNR 大点数——全量规模仿真只用
+通过比对的 C++ 入口（cpp/run_all_cases.py）。本脚本保留仅作历史参考（双后端 2^22
+逐位一致核验时期产物），不得再用于全量规模仿真。
 """
 import os
 import sys
