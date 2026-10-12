@@ -35,7 +35,8 @@ def run_case(cfg, model_a, model_b, env, n_steps=25, per_case_gain=None, method=
     """在线调优（含 Model B 安全拦截）：7 维梯度下降（4 FFE 旁瓣 + gDC + gDC2 + u_gain）。
 
     gain 初值 = 该 case per-case RMS 扫描最优 gain（per_case_gain），之后放开走梯度。
-    method: 'chain' = 每步 14 试探中心差分；'secant' = 一次性初始化 + 割线更新。
+    method: 'chain' = 每步 14 试探中心差分；'secant' = 一次性初始化 + 割线更新；
+            'direct' = 端到端 BER 直接梯度下降（有回传通道时的参照，不用 Model A/B）。
     """
     ffe_pre = int(cfg['tx'].get('ffe_pre', D.FFE_PRE))
     seed_pre_post = np.concatenate([D.SEED_TAPS[:ffe_pre], D.SEED_TAPS[ffe_pre + 1:]])
@@ -43,16 +44,22 @@ def run_case(cfg, model_a, model_b, env, n_steps=25, per_case_gain=None, method=
     x0 = np.concatenate([seed_pre_post, [D.SEED_GDC, D.SEED_GDC2, D.u_from_gain(gain0)]])
 
     seed_lb, seed_ber = D._physical_eval(cfg, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, gain0)
-    taps_seed = D.construct_taps(x0[:D.N_SIDE], ffe_pre)
-    probe_seed = D._probe_features(cfg, taps_seed, float(x0[D.N_SIDE]),
-                                   float(x0[D.N_SIDE + 1]), gain0)
-    pa_seed = D._predict_a_probe(model_a, probe_seed)
-    rms_seed = D._measure_drive_rms(cfg, taps_seed, float(x0[D.N_SIDE]),
-                                     float(x0[D.N_SIDE + 1]), gain0)
-    pb_seed = D._predict_b_params(model_b, x0[:D.N_SIDE + 2], rms_seed)
+    if method == 'direct':
+        # direct：无代理。pa_seed 记目标初值（真实 log10 BER），pb_seed 恒 0。
+        pa_seed, pb_seed = float(seed_lb), 0.0
+    else:
+        taps_seed = D.construct_taps(x0[:D.N_SIDE], ffe_pre)
+        probe_seed = D._probe_features(cfg, taps_seed, float(x0[D.N_SIDE]),
+                                       float(x0[D.N_SIDE + 1]), gain0)
+        pa_seed = D._predict_a_probe(model_a, probe_seed)
+        rms_seed = D._measure_drive_rms(cfg, taps_seed, float(x0[D.N_SIDE]),
+                                         float(x0[D.N_SIDE + 1]), gain0)
+        pb_seed = D._predict_b_params(model_b, x0[:D.N_SIDE + 2], rms_seed)
 
     if method == 'secant':
         trace = D._stage2_descent_secant(cfg, model_a, model_b, x0, ffe_pre, n_steps, D.GD_LR)
+    elif method == 'direct':
+        trace = D._stage2_descent_direct(cfg, x0, ffe_pre, n_steps, D.GD_LR, f0=seed_lb)
     else:
         trace = D._stage2_descent(cfg, model_a, model_b, x0, ffe_pre, n_steps, D.GD_LR)
 
@@ -349,8 +356,9 @@ if __name__ == "__main__":
                          '不提供则用默认 SEED_TAPS + per-case RMS gain')
     ap.add_argument('--tx-noise-snr-db', type=float, default=0.0,
                     help='发端人为加噪 SNR（dB，相对 PAM4 满量程 RMS=√5）；>0 抬升 BER 地板用于快速验证')
-    ap.add_argument('--method', type=str, default='chain', choices=['chain', 'secant'],
-                    help='在线调优方式：chain = 每步 14 试探中心差分；secant = 一次性初始化 + 割线更新')
+    ap.add_argument('--method', type=str, default='chain', choices=['chain', 'secant', 'direct'],
+                    help='在线调优方式：chain = 每步 14 试探中心差分；secant = 一次性初始化 + 割线更新；'
+                         'direct = 端到端 BER 直接梯度下降（有回传通道时的参照，不用 A/B）')
     a = ap.parse_args()
     # 覆盖种子点（用于非基线环境训练的模型 / 次优种子演示）：统一走 apply_seed_config。
     if a.seed_config:

@@ -7,11 +7,15 @@
 //     --seed S              系统种子
 //     --n-steps N           Stage-2 最大步数
 //     --seed-gain-u U       seed gain 的 u_gain（log10(gain/0.3399)）
-//     --model-dir DIR       model_a.json / model_b.json 所在目录
+//     --seed-config PATH    次优起点 JSON（best_pre_post/best_gdc/best_gdc2/best_u_gain|best_gain）
+//     --model-dir DIR       model_a.json / model_b.json 所在目录（direct 方式不使用代理）
+//     --method M            chain | secant | direct（direct = 端到端 BER 直接梯度下降，
+//                           有回传通道时的参照，不用 Model A/B）
+//     --env-name NAME       用例名（trace/probes CSV 文件名后缀）
 //     --out PATH            结果 JSON 输出路径（可选）
 //
 // 与 Python 一一对应：物理链(run_sim) / 探针(extract_tx_s21+drive_rms) /
-// 代理(WhiteBoxRidge) / 在线调优(Stage-2 链式梯度下降)。
+// 代理(WhiteBoxRidge) / 在线调优(Stage-2 链式梯度下降 / 割线 / direct)。
 #include "src/physim.hpp"
 #include "src/probe.hpp"
 #include "src/surrogate.hpp"
@@ -111,10 +115,16 @@ int main(int argc, char** argv) {
     double gdc0 = x0[N_SIDE], gdc20 = x0[N_SIDE + 1];
     double gain0 = gain_from_u(x0[N_SIDE + 2]);
     auto [seed_lb, seed_ber] = physical_eval(cfg, taps0, gdc0, gdc20, gain0, &nw, &nw, sim_seeds);
-    auto seed_probe = probe_features(cfg, taps0, gdc0, gdc20, gain0, &nw);
-    double pa_seed = predict_a_probe(model_a, seed_probe);
-    double rms_seed = measure_drive_rms(cfg, taps0, gdc0, gdc20, gain0, &nw);
-    double pb_seed = predict_b_params(model_b, { x0[0], x0[1], x0[2], x0[3], x0[4], x0[5] }, rms_seed);
+    double pa_seed, pb_seed;
+    if (method == "direct") {
+        // direct：无代理。pa_seed 记目标初值（真实 log10 BER），pb_seed 恒 0（与 Python 一致）。
+        pa_seed = seed_lb; pb_seed = 0.0;
+    } else {
+        auto seed_probe = probe_features(cfg, taps0, gdc0, gdc20, gain0, &nw);
+        pa_seed = predict_a_probe(model_a, seed_probe);
+        double rms_seed = measure_drive_rms(cfg, taps0, gdc0, gdc20, gain0, &nw);
+        pb_seed = predict_b_params(model_b, { x0[0], x0[1], x0[2], x0[3], x0[4], x0[5] }, rms_seed);
+    }
 
     fprintf(stderr, "[run] env=%s config=%s num_symbols=%d tx_noise=%.1f n_steps=%d\n",
             env_name.c_str(), config_path.c_str(), (int)cfg.d("system.num_symbols", 0),
@@ -124,6 +134,8 @@ int main(int argc, char** argv) {
     std::vector<Stage2Step> trace;
     if (method == "secant") {
         trace = stage2_descent_secant(cfg, model_a, model_b, x0, FFE_PRE, n_steps, GD_LR, &nw, &nw, sim_seeds);
+    } else if (method == "direct") {
+        trace = stage2_descent_direct(cfg, x0, FFE_PRE, n_steps, GD_LR, seed_lb, &nw, &nw, sim_seeds);
     } else {
         trace = stage2_descent(cfg, model_a, model_b, x0, FFE_PRE, n_steps, GD_LR, &nw, &nw, sim_seeds);
     }

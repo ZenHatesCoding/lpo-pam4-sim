@@ -18,6 +18,11 @@ from channel_imdd import GAIN_LOG10_MIN, GAIN_LOG10_MAX, DRIVER_GAIN_NOMINAL
 #       - 安全：Model B 参数域保守上包络 + 红线（相对种子最多变差 25%）+ 轨迹信任域。
 #       - 真实 BER_MLSE 仅记账，不回传决策。
 #
+#   参照方案（_stage2_descent_direct）：端到端 BER 直接梯度下降。假设存在回传通道、
+#       端到端 BER 可得，则不再需要 Model A/B——目标 = 真实 log10(BER)，第 0 步
+#       7 维中心差分初始化，此后 Broyden 割线更新；下降机制与现役方案一致。
+#       用于回答"如果能回传端到端 BER，直接梯度下降能达到什么水平"。
+#
 # 白盒约束：不依赖任何第三方现成算法；Ridge 闭式解、梯度、线搜索均手写。
 # ============================================================
 
@@ -699,6 +704,151 @@ def _stage2_descent_secant(config, model_a, model_b, x0, ffe_pre, n_steps, lr):
         if np.linalg.norm(x_new - x) < 1e-6:
             break
         a_prev = pred_a
+        x = x_new
+
+    return trace
+
+
+def _grad_direct_chain(config, x, ffe_pre, eps=0.01, eps_u=0.05):
+    """direct 梯度初始化：7 维中心差分，目标 = 端到端真实 log10(BER_MLSE)。
+
+    有回传通道时端到端 BER 可得，梯度直接对真实目标做中心差分：
+    每维 ±eps 都是一次真实在线评估（共 14 次）。14 个 ±ε 试探态的真实 BER
+    逐一记账（与链式/割线的 probe 记录同 schema），用于透明度核验。
+    eps 分档与链式一致：FFE 0.01 / CTLE 0.1（dB）/ u_gain 0.05（dex）。
+    """
+    x = np.asarray(x, dtype=float)
+    g = np.zeros_like(x)
+    eps_vec = np.array([eps] * N_SIDE + [eps * 10.0] * 2 + [eps_u])
+    probe_iter = []
+    for i in range(len(x)):
+        xp = x.copy(); xp[i] += eps_vec[i]
+        xm = x.copy(); xm[i] -= eps_vec[i]
+        taps_p = construct_taps(xp[:N_SIDE], ffe_pre)
+        taps_m = construct_taps(xm[:N_SIDE], ffe_pre)
+        gdc_p = float(xp[N_SIDE]); gdc2_p = float(xp[N_SIDE + 1])
+        gain_p = gain_from_u(float(xp[N_SIDE + 2]))
+        gdc_m = float(xm[N_SIDE]); gdc2_m = float(xm[N_SIDE + 1])
+        gain_m = gain_from_u(float(xm[N_SIDE + 2]))
+        lb_p, ber_p = _physical_eval(config, taps_p, gdc_p, gdc2_p, gain_p)
+        lb_m, ber_m = _physical_eval(config, taps_m, gdc_m, gdc2_m, gain_m)
+        g[i] = (lb_p - lb_m) / (2.0 * eps_vec[i])
+        probe_iter.append({
+            'param': i, 'sign': +1, 'x': xp.copy(), 'taps': taps_p,
+            'gdc': gdc_p, 'gdc2': gdc2_p, 'gain': gain_p,
+            'gain_ratio': gain_p / DRIVER_GAIN_NOMINAL,
+            'u_gain': float(xp[N_SIDE + 2]),
+            'real_logber': lb_p, 'real_mlse': ber_p,
+        })
+        probe_iter.append({
+            'param': i, 'sign': -1, 'x': xm.copy(), 'taps': taps_m,
+            'gdc': gdc_m, 'gdc2': gdc2_m, 'gain': gain_m,
+            'gain_ratio': gain_m / DRIVER_GAIN_NOMINAL,
+            'u_gain': float(xm[N_SIDE + 2]),
+            'real_logber': lb_m, 'real_mlse': ber_m,
+        })
+    return g, probe_iter
+
+
+def _stage2_descent_direct(config, x0, ffe_pre, n_steps, lr, f0=None):
+    """direct：端到端 BER 直接梯度下降（有回传通道时的参照方案，不用 Model A/B）。
+
+    回答的问题：如果收端 BER 可以回传（在线调优拿得到端到端 BER），直接对
+    真实目标做梯度下降能达到什么水平——以此对照"拿不到 BER、只能靠发端探针
+    代理"的现役方案。
+
+    与现役割线方案同一套下降机制（搜索盒 / 组归一化步长 / 步长衰减 / 组门控 /
+    边际改善停止）；差别只在目标与梯度来源：
+      - 目标 = 端到端真实 log10(BER)（回传通道），不是代理预测；
+      - 第 0 步 7 维全部中心差分初始化（唯一一轮 14 个 ±ε 试探态；无解析
+        gain 梯度可用——那依赖 Model A 的探针比例性）；
+      - 此后每步 Broyden 全 7 维割线更新（用真实 Δlog10(BER)，零试探态）；
+      - 无 Model B 红线 / 候选否决 / 轨迹信任域（三者都是代理可靠性保障，
+        无代理即无保护对象）。
+    trace 的 pred_a 列记录当前落点目标值（= real_lb）；pred_b / allowed 恒 0。
+    """
+    x = np.array(x0, dtype=float)
+    tr_bounds = _bounds(x)
+    span = STEP_SPAN.copy()
+
+    taps0 = construct_taps(x[:N_SIDE], ffe_pre)
+    gdc0 = float(x[N_SIDE]); gdc2_0 = float(x[N_SIDE + 1])
+    gain0 = gain_from_u(float(x[N_SIDE + 2]))
+    if f0 is None:
+        f_prev, _ = _physical_eval(config, taps0, gdc0, gdc2_0, gain0)
+    else:
+        f_prev = float(f0)
+
+    # 第 0 步：7 维中心差分初始化（唯一一轮 14 个 ±ε 试探态，全真实评估）
+    g, probe_iter0 = _grad_direct_chain(config, x, ffe_pre)
+
+    trace = []
+    for step in range(n_steps):
+        # 只有第 0 步携带初始化那轮的 14 个 ±ε 试探态（透明记账）；此后每步 0 试探态。
+        step_probes = probe_iter0 if step == 0 else []
+
+        direction, active = _secant_direction(g)
+        if not active:
+            print(f'[Direct] stop: 三组梯度均低于门控 {GROUP_GATE:g}（step {step}）')
+            break
+
+        alpha = lr * (ALPHA_DECAY ** step)
+        x_new = np.clip(x - alpha * span * direction, tr_bounds[:, 0], tr_bounds[:, 1])
+        if np.linalg.norm(x_new - x) < 1e-9:
+            break
+
+        taps_new = construct_taps(x_new[:N_SIDE], ffe_pre)
+        gdc_new = float(x_new[N_SIDE]); gdc2_new = float(x_new[N_SIDE + 1])
+        gain_new = gain_from_u(float(x_new[N_SIDE + 2]))
+        rms_actual = _measure_drive_rms(config, taps_new, gdc_new, gdc2_new, gain_new)
+        f_new, real_mlse = _physical_eval(config, taps_new, gdc_new, gdc2_new, gain_new)
+
+        # Broyden 割线更新（全 7 维；用真实 Δlog10(BER)，零试探态）
+        dx = x_new - x
+        df = f_new - f_prev
+        dx_norm2 = float(np.dot(dx, dx))
+        if dx_norm2 > 1e-18:
+            g = g + ((df - float(np.dot(g, dx))) / dx_norm2) * dx
+
+        # 边际改善门控（step 0 不判，避免首步误停；口径 = 真实改善 dex）
+        if step > 0 and (f_prev - f_new) < MIN_GAIN_DEX:
+            trace.append({
+                'step': step, 'x': x_new, 'taps': taps_new,
+                'gdc': gdc_new, 'gdc2': gdc2_new, 'gain': gain_new,
+                'gain_ratio': gain_new / DRIVER_GAIN_NOMINAL,
+                'u_gain': float(x_new[N_SIDE + 2]),
+                'drive_rms': rms_actual,
+                'pred_a': f_new, 'pred_b': 0.0,
+                'pred_b_ber': 0.0, 'allowed_ber': 0.0,
+                'real_logber': f_new, 'real_mlse': real_mlse,
+                'probes': step_probes,
+                'grad_norm': float(np.linalg.norm(g)), 'stop_reason': 'marginal_gain',
+            })
+            print(f"[Direct] stop: marginal real gain "
+                  f"({f_prev - f_new:+.4f} < {MIN_GAIN_DEX}) at step {step}")
+            break
+
+        trace.append({
+            'step': step, 'x': x_new, 'taps': taps_new,
+            'gdc': gdc_new, 'gdc2': gdc2_new, 'gain': gain_new,
+            'gain_ratio': gain_new / DRIVER_GAIN_NOMINAL,
+            'u_gain': float(x_new[N_SIDE + 2]),
+            'drive_rms': rms_actual,
+            'pred_a': f_new, 'pred_b': 0.0,
+            'pred_b_ber': 0.0, 'allowed_ber': 0.0,
+            'real_logber': f_new, 'real_mlse': real_mlse,
+            'probes': step_probes,
+            'grad_norm': float(np.linalg.norm(g)), 'stop_reason': '',
+        })
+
+        print(f"[Direct] gd {step + 1}/{n_steps} | real {real_mlse:.2e} "
+              f"| gain x{gain_new / DRIVER_GAIN_NOMINAL:.3f} "
+              f"| u_gain {float(x_new[N_SIDE + 2]):+.3f} | gDC {gdc_new:+.2f} "
+              f"| gDC2 {gdc2_new:+.2f} | 组 {active}")
+
+        if np.linalg.norm(x_new - x) < 1e-6:
+            break
+        f_prev = f_new
         x = x_new
 
     return trace

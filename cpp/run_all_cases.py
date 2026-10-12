@@ -4,11 +4,19 @@
 
 全量规模仿真（高 SNR 大点数）的唯一入口（AGENTS.md「开发方式」）：Python 与 C++ 的
 比对只在 2^18 小点数低 SNR 下做，通过比对后的全量规模仿真一律走本脚本调度的
-run_ddps.exe，不允许用 Python 跑高 SNR 大点数。
+run_ddps（不允许用 Python 跑高 SNR 大点数）。
 
-每个环境：apply_env_to_config -> dump per-env config.txt -> run_ddps.exe -> case_summary.json + trace/probes CSV。
-聚合输出到 result/ddps_cpp_main/（case_summary.csv/json + trace/probes + run_config.json + _parts/<env>/）。
-并行度 = 逻辑核数（每个 run_ddps.exe 单线程）。
+每个环境：apply_env_to_config -> dump per-env config.txt -> run_ddps -> case_summary.json + trace/probes CSV。
+聚合输出到 result/<out-dir>/（case_summary.csv/json + trace/probes + run_config.json + _parts/<env>/）。
+并行度 = 逻辑核数（每个 run_ddps 单线程）。
+
+后端（--backend）：
+  win — 直接调 cpp/build/run_ddps.exe（Windows MinGW 产物）。
+  wsl — 经 wsl.exe 调 WSL 内 g++ 编译的 cpp/build/run_ddps（Linux ELF）。
+        2026-10-12 起本机 Smart App Control 强制模式拦截本地无签名 exe（含旧
+        run_ddps.exe 与 MinGW cc1plus 依赖的 libisl-23.dll），Windows 侧无法编译
+        或运行；WSL 内 Linux 进程不受 Windows 代码完整性策略管辖。数值等价性
+        仍按 2^18 比对口径验证（cpp/compare_traces.py），通过后才能跑全量。
 """
 import os
 import sys
@@ -30,6 +38,9 @@ from utils_config import load_config
 from ddps_cases import ENV_CASES, apply_env_to_config
 
 EXE = r"cpp\build\run_ddps.exe"
+EXE_LINUX = "cpp/build/run_ddps"   # WSL g++ 产物（Linux ELF）
+WSL_DISTRO = "Ubuntu"
+BACKEND = "win"
 CFG_DIR = r"cpp\build\cfg"
 OUT_DIR = "result/ddps_cpp_main"
 METHOD = "chain"
@@ -74,7 +85,7 @@ def _safe(name):
 
 
 def run_one(args):
-    env, num_sym, n_steps, out_root, method = args
+    env, num_sym, n_steps, out_root, method, backend, distro, root_linux = args
     name = env['name']
     safe = _safe(name)
     out_dir = os.path.join(out_root, '_parts', safe)
@@ -83,10 +94,19 @@ def run_one(args):
     out_json = os.path.join(out_dir, 'case_summary.json')
     log = os.path.join(out_dir, 'run.log')
     dump_config(env, cfg_path, num_sym)
-    cmd = [EXE, cfg_path, '--num-symbols', str(num_sym), '--tx-noise-snr', '0',
-           '--seed', str(SEED), '--n-steps', str(n_steps),
-           '--seed-config', SEED_CONFIG, '--env-name', name,
-           '--model-dir', MODEL_DIR, '--method', method, '--out', out_json]
+    if backend == 'wsl':
+        # WSL：Linux 进程不受 Windows 代码完整性策略管辖；所有路径转 posix 相对形式，
+        # 由 --cd 锚定仓库根。产物/日志仍落 Windows 文件树（/mnt/c），git 照常跟踪。
+        cmd = ['wsl', '-d', distro, '--cd', root_linux, './' + EXE_LINUX,
+               _posix(cfg_path), '--num-symbols', str(num_sym), '--tx-noise-snr', '0',
+               '--seed', str(SEED), '--n-steps', str(n_steps),
+               '--seed-config', _posix(SEED_CONFIG), '--env-name', name,
+               '--model-dir', _posix(MODEL_DIR), '--method', method, '--out', _posix(out_json)]
+    else:
+        cmd = [EXE, cfg_path, '--num-symbols', str(num_sym), '--tx-noise-snr', '0',
+               '--seed', str(SEED), '--n-steps', str(n_steps),
+               '--seed-config', SEED_CONFIG, '--env-name', name,
+               '--model-dir', MODEL_DIR, '--method', method, '--out', out_json]
     t0 = time.time()
     with open(log, 'w', encoding='utf-8') as lf:
         rc = subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT).returncode
@@ -113,6 +133,16 @@ def run_one(args):
     return full
 
 
+def _posix(p):
+    return p.replace('\\', '/')
+
+
+def _wsl_path(win_abs):
+    """C:\\DSPPlayground\\... -> /mnt/c/DSPPlayground/...（仓库根锚定用）"""
+    drive = win_abs[0].lower()
+    return '/mnt/%s%s' % (drive, win_abs[2:].replace('\\', '/'))
+
+
 def main():
     global OUT_DIR, METHOD
     ap = argparse.ArgumentParser()
@@ -120,11 +150,19 @@ def main():
     ap.add_argument('--only-envs', type=str, default=None)
     ap.add_argument('--num-symbols', type=int, default=NUM_SYM)
     ap.add_argument('--n-steps', type=int, default=N_STEPS)
-    ap.add_argument('--method', type=str, default='chain', choices=['chain', 'secant'])
+    ap.add_argument('--method', type=str, default='chain', choices=['chain', 'secant', 'direct'])
     ap.add_argument('--out-dir', type=str, default=OUT_DIR)
+    ap.add_argument('--backend', type=str, default='win', choices=['win', 'wsl'],
+                    help='win = 直接调 cpp/build/run_ddps.exe；wsl = WSL 内 g++ 编译的 '
+                         'cpp/build/run_ddps（Smart App Control 强制模式下的可用路线）')
+    ap.add_argument('--wsl-distro', type=str, default=WSL_DISTRO, help='WSL 发行版名（--backend wsl 时生效）')
     a = ap.parse_args()
     METHOD = a.method
     OUT_DIR = a.out_dir
+    backend = a.backend
+    distro = a.wsl_distro
+    root_linux = _wsl_path(os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')))
     num_sym = a.num_symbols
     n_steps = a.n_steps
     cases = [e for e in ENV_CASES if (a.only_envs is None or e['name'] in a.only_envs.split(','))]
@@ -132,11 +170,12 @@ def main():
     os.makedirs(OUT_DIR, exist_ok=True)
 
     jobs = min(a.jobs, len(cases))
-    print('[cpp] %d envs, %d parallel workers (num_symbols=%d n_steps=%d)' % (
-        len(cases), jobs, num_sym, n_steps), flush=True)
+    print('[cpp] %d envs, %d parallel workers (num_symbols=%d n_steps=%d backend=%s)' % (
+        len(cases), jobs, num_sym, n_steps, backend), flush=True)
     t0 = time.time()
     with Pool(jobs) as pool:
-        results = pool.map(run_one, [(e, num_sym, n_steps, OUT_DIR, METHOD) for e in cases])
+        results = pool.map(run_one, [(e, num_sym, n_steps, OUT_DIR, METHOD, backend, distro,
+                                      root_linux) for e in cases])
     total_wall = time.time() - t0
 
     oks = [r for r in results if r.get('ok')]
@@ -178,7 +217,9 @@ def main():
                 shutil.copy(src, os.path.join(OUT_DIR, fn))
 
     run_cfg = {
-        'backend': 'cpp', 'exe': EXE, 'model_dir': MODEL_DIR, 'n_steps': n_steps,
+        'backend': 'cpp' if backend == 'win' else 'cpp-wsl',
+        'exe': EXE if backend == 'win' else 'wsl -d %s %s' % (distro, EXE_LINUX),
+        'model_dir': MODEL_DIR, 'n_steps': n_steps,
         'num_symbols': num_sym, 'sim_seeds': [SEED], 'seed_config': SEED_CONFIG,
         'tx_noise_snr_db': 0.0, 'envs': [e['name'] for e in cases],
         'jobs': jobs, 'total_wall_sec': total_wall, 'method': METHOD,

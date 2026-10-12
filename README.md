@@ -89,20 +89,41 @@ python test_generalization.py --model-dir models/ddps --out-dir result/ddps_seca
 
 ### 4b. C++ 复刻平台（一比一，同一入口同一口径；全量规模仿真唯一入口）
 ```bash
-# 构建（动态链接；编译器/路径见 cpp/build.ps1）
-powershell -File cpp\build.ps1
+# 构建：WSL 内 g++（本机 Smart App Control 强制模式拦本地无签名 exe，含旧 run_ddps.exe
+#       与 MinGW cc1plus 依赖的 libisl-23.dll；Linux 进程不受 Windows 代码完整性策略管辖，
+#       源码纯标准 C++17。Windows 侧 gcc.exe 路线见 cpp/build.ps1，仅在策略放开后可用）
+wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity bash cpp/build_wsl.sh
 
 # 模型转换（一次性）：pkl → models/ddps/model_{a,b}.json
 python cpp\export_models.py
 
 # 全量规模仿真：15 用例 2^22 在线调优（高 SNR 大点数、单种子 42、次优起点；只允许走 C++）
-python cpp\run_all_cases.py --method secant --out-dir result/ddps_cpp_secant \
-    --num-symbols 4194304 --n-steps 15 --jobs 15
+python cpp\run_all_cases.py --backend wsl --method secant --out-dir result/ddps_cpp_secant \
+    --num-symbols 4194304 --n-steps 15 --jobs 2
 
 # 快速验证：低 SNR 人为噪声 + 少点数（发端 DSP 出口 SNR=23 dB、2^14 符号）
-.\cpp\build\run_ddps.exe cpp\config.txt --num-symbols 16384 --tx-noise-snr 23 --seed 42
+wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity ./cpp/build/run_ddps cpp/config.txt \
+    --num-symbols 16384 --tx-noise-snr 23 --seed 42
 ```
 > C++ 与 Python 读同一配置、同一模型转换产物，数值等价（BER 逐位一致、探针/模型 ≤1e-13、下降路径逐步一致）。开发方式：**Python 定原理，C++ 一比一复刻；两者比对只在 2^18 小点数低 SNR 下做，全量规模仿真（高 SNR 大点数）只用通过比对的 C++ 跑，不允许用 Python 跑高 SNR 大点数**。C++ 环境依赖见 [`cpp/requirements.txt`](cpp/requirements.txt)。
+
+### 4c. 对比实验 direct（有回传通道时的参照：端到端 BER 直接梯度下降，不用 Model A/B）
+```bash
+# 1) Python 小点数低 SNR 验证（比对口径，全 15 用例）
+python tools/run_parallel_envs.py --model-dir models/ddps --out-dir result/ddps_direct_py \
+    --method direct --seed-config result/seed_config_bad_1e4.json --n-steps 15 \
+    --num-symbols 262144 --sim-seeds 42 --jobs 12
+
+# 2) C++ 2^18 等价比对（Base_IL10x10 + IL20x20；与 secant 时代同口径）
+python cpp/run_all_cases.py --backend wsl --method direct --out-dir result/ddps_cpp_direct_equiv \
+    --only-envs Base_IL10x10,IL20x20 --num-symbols 262144 --n-steps 15 --jobs 2
+python cpp/compare_traces.py --py result/ddps_direct_py --cpp result/ddps_cpp_direct_equiv
+
+# 3) C++ 全量规模仿真（2^22、15 用例；与现役方案同协议）
+python cpp/run_all_cases.py --backend wsl --method direct --out-dir result/ddps_cpp_direct \
+    --num-symbols 4194304 --n-steps 15 --jobs 2
+```
+> direct 回答的问题：若收端端到端 BER 可回传，直接对真实目标做梯度下降能达到什么水平（下降机制与现役割线一致：同搜索盒/步长调度/组门控/边际停止；差别只在目标与梯度来源，无代理即无 B 红线/否决/轨迹信任域）。用于对照「无回传通道、只能靠发端探针代理」的现役方案。结果对比刷进交付件 6.5 节页签。
 
 ### 5. 报告与交付件
 ```bash
@@ -112,7 +133,7 @@ python report_ddps.py --test-dir result/ddps_cpp_secant --model-dir models/ddps 
 
 # 交付件（自包含 HTML）
 python make_deliverable.py --baseline result/ddps_cpp_secant --model-dir models/ddps \
-    --out deliverables/DDPS_Deliverable.html
+    --direct result/ddps_cpp_direct --out deliverables/DDPS_Deliverable.html
 ```
 
 ### 6. 历史实验（结果已归档）

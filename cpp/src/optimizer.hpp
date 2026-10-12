@@ -538,4 +538,146 @@ inline std::vector<Stage2Step> stage2_descent_secant(Config& cfg, const WhiteBox
     return trace;
 }
 
+// ---- direct：端到端 BER 直接梯度下降（有回传通道时的参照，不用 Model A/B）----
+// 回答的问题：若收端 BER 可回传，直接对真实目标做梯度下降能达到什么水平。
+// 与 stage2_descent_secant 同一套下降机制（搜索盒 / 组归一化步长 / 步长衰减 / 组门控 /
+// 边际改善停止）；差别：目标 = 真实 log10(BER)，第 0 步 7 维全部中心差分（14 次真实
+// 评估；无解析 gain 梯度可用——那依赖 Model A 的探针比例性），此后 Broyden 全 7 维
+// 割线更新；无 B 红线 / 候选否决 / 轨迹信任域（三者都是代理可靠性保障，无代理即无
+// 保护对象）。trace 的 pred_a 列记录当前落点目标值（= real_logber）；pred_b/allowed 恒 0。
+
+inline std::pair<std::vector<double>, std::vector<ProbeRecord>>
+grad_direct_chain(Config& cfg, const std::vector<double>& x, int ffe_pre,
+                  const S4P* s4p_tx, const S4P* s4p_rx,
+                  const std::vector<int>& sim_seeds, double eps = 0.01, double eps_u = 0.05) {
+    std::vector<double> g(N_DIM, 0.0);
+    std::vector<double> taps = construct_taps({ x[0], x[1], x[2], x[3] }, ffe_pre);
+    double gdc = x[N_SIDE], gdc2 = x[N_SIDE + 1];
+    double gain = gain_from_u(x[N_SIDE + 2]);
+    double eps_vec[N_DIM] = { eps, eps, eps, eps, eps * 10.0, eps * 10.0, eps_u };
+    std::vector<ProbeRecord> probe_iter;
+
+    for (int i = 0; i < N_DIM; i++) {
+        std::vector<double> xp = x, xm = x;
+        xp[i] += eps_vec[i]; xm[i] -= eps_vec[i];
+        std::vector<double> taps_p, taps_m;
+        double gdc_p, gdc_m, gdc2_p, gdc2_m, gain_p, gain_m;
+        if (i < N_SIDE + 2) {
+            taps_p = construct_taps({ xp[0], xp[1], xp[2], xp[3] }, ffe_pre);
+            taps_m = construct_taps({ xm[0], xm[1], xm[2], xm[3] }, ffe_pre);
+            gdc_p = xp[N_SIDE]; gdc2_p = xp[N_SIDE + 1];
+            gdc_m = xm[N_SIDE]; gdc2_m = xm[N_SIDE + 1];
+            gain_p = gain_m = gain;
+        } else {
+            taps_p = taps_m = taps;
+            gdc_p = gdc_m = gdc; gdc2_p = gdc2_m = gdc2;
+            gain_p = gain_from_u(xp[N_SIDE + 2]);
+            gain_m = gain_from_u(xm[N_SIDE + 2]);
+        }
+        // direct：目标就是端到端真实 BER，±ε 态的实测既供梯度也记账（与 Python 一致）
+        auto [lb_p, ber_p] = physical_eval(cfg, taps_p, gdc_p, gdc2_p, gain_p, s4p_tx, s4p_rx, sim_seeds);
+        auto [lb_m, ber_m] = physical_eval(cfg, taps_m, gdc_m, gdc2_m, gain_m, s4p_tx, s4p_rx, sim_seeds);
+        g[i] = (lb_p - lb_m) / (2.0 * eps_vec[i]);
+        ProbeRecord rp; rp.param = i; rp.sign = +1; rp.x = xp; rp.taps = taps_p;
+        rp.gdc = gdc_p; rp.gdc2 = gdc2_p; rp.gain = gain_p;
+        rp.gain_ratio = gain_p / DRIVER_GAIN_NOMINAL; rp.u_gain = xp[N_SIDE + 2];
+        rp.real_logber = lb_p; rp.real_mlse = ber_p;
+        probe_iter.push_back(rp);
+        ProbeRecord rm; rm.param = i; rm.sign = -1; rm.x = xm; rm.taps = taps_m;
+        rm.gdc = gdc_m; rm.gdc2 = gdc2_m; rm.gain = gain_m;
+        rm.gain_ratio = gain_m / DRIVER_GAIN_NOMINAL; rm.u_gain = xm[N_SIDE + 2];
+        rm.real_logber = lb_m; rm.real_mlse = ber_m;
+        probe_iter.push_back(rm);
+    }
+    return { g, probe_iter };
+}
+
+inline std::vector<Stage2Step> stage2_descent_direct(Config& cfg, const std::vector<double>& x0,
+                                                     int ffe_pre, int n_steps, double lr, double f0,
+                                                     const S4P* s4p_tx, const S4P* s4p_rx,
+                                                     const std::vector<int>& sim_seeds) {
+    std::vector<double> x = x0;
+    std::vector<double> tr_lo, tr_hi; bounds(x, tr_lo, tr_hi);
+    std::vector<double> span = step_span();
+
+    std::vector<double> taps0 = construct_taps({ x[0], x[1], x[2], x[3] }, ffe_pre);
+    double gdc0 = x[N_SIDE], gdc2 = x[N_SIDE + 1];
+    double gain0 = gain_from_u(x[N_SIDE + 2]);
+    double f_prev = f0;   // 起点目标值（由调用方传入，避免重复评估）
+
+    // 第 0 步：7 维中心差分初始化（唯一一轮 14 个 ±ε 试探态，全真实评估）
+    auto [g, probe_iter0] = grad_direct_chain(cfg, x, ffe_pre, s4p_tx, s4p_rx, sim_seeds);
+
+    std::vector<Stage2Step> trace;
+    for (int step = 0; step < n_steps; step++) {
+        // 只有第 0 步携带初始化那轮的 14 个 ±ε 试探态（透明记账）；此后每步 0 试探态。
+        std::vector<ProbeRecord> step_probes = (step == 0) ? probe_iter0 : std::vector<ProbeRecord>();
+
+        std::vector<double> direction(N_DIM, 0.0);
+        bool any_active = secant_direction(g, direction);
+        if (!any_active) {
+            printf("[Direct] stop: all group grads below gate at step %d\n", step);
+            break;
+        }
+
+        double alpha = lr * std::pow(ALPHA_DECAY, (double)step);
+        std::vector<double> x_new(N_DIM);
+        for (int i = 0; i < N_DIM; i++) {
+            double v = x[i] - alpha * span[i] * direction[i];
+            x_new[i] = std::min(std::max(v, tr_lo[i]), tr_hi[i]);
+        }
+        double diff0 = 0.0;
+        for (int i = 0; i < N_DIM; i++) { double d = x_new[i] - x[i]; diff0 += d * d; }
+        if (std::sqrt(diff0) < 1e-9) break;
+
+        std::vector<double> taps_new = construct_taps({ x_new[0], x_new[1], x_new[2], x_new[3] }, ffe_pre);
+        double gdc_new = x_new[N_SIDE], gdc2_new = x_new[N_SIDE + 1];
+        double gain_new = gain_from_u(x_new[N_SIDE + 2]);
+        double rms_actual = measure_drive_rms(cfg, taps_new, gdc_new, gdc2_new, gain_new, s4p_tx);
+        auto [f_new, real_mlse] = physical_eval(cfg, taps_new, gdc_new, gdc2_new, gain_new, s4p_tx, s4p_rx, sim_seeds);
+
+        // Broyden 割线更新（全 7 维；用真实 Δlog10(BER)，零试探态）
+        double dx_norm2 = 0.0, g_dot_dx = 0.0;
+        for (int i = 0; i < N_DIM; i++) {
+            double d = x_new[i] - x[i];
+            dx_norm2 += d * d; g_dot_dx += g[i] * d;
+        }
+        if (dx_norm2 > 1e-18) {
+            double c = ((f_new - f_prev) - g_dot_dx) / dx_norm2;
+            for (int i = 0; i < N_DIM; i++) g[i] += c * (x_new[i] - x[i]);
+        }
+
+        Stage2Step rec;
+        rec.step = step; rec.x = x_new; rec.taps = taps_new;
+        rec.gdc = gdc_new; rec.gdc2 = gdc2_new; rec.gain = gain_new;
+        rec.gain_ratio = gain_new / DRIVER_GAIN_NOMINAL; rec.u_gain = x_new[N_SIDE + 2];
+        rec.drive_rms = rms_actual;
+        rec.pred_a = f_new; rec.pred_b = 0.0; rec.pred_b_ber = 0.0; rec.allowed_ber = 0.0;
+        rec.real_logber = f_new; rec.real_mlse = real_mlse;
+        rec.grad_norm = norm2(g);
+        rec.probes = step_probes;
+
+        // 边际改善门控（step 0 不判，避免首步误停；口径 = 真实改善 dex）
+        if (step > 0 && (f_prev - f_new) < MIN_GAIN_DEX) {
+            rec.stop_reason = "marginal_gain";
+            trace.push_back(rec);
+            printf("[Direct] stop: marginal real gain (%+.4f < %g) at step %d\n",
+                   f_prev - f_new, MIN_GAIN_DEX, step);
+            break;
+        }
+
+        trace.push_back(rec);
+        printf("[Direct] gd %d/%d | real %.2e | gain x%.3f | u_gain %+.3f | gDC %+.2f | gDC2 %+.2f\n",
+               step + 1, n_steps, real_mlse, gain_new / DRIVER_GAIN_NOMINAL,
+               x_new[N_SIDE + 2], gdc_new, gdc2_new);
+
+        double step_diff = 0.0;
+        for (int i = 0; i < N_DIM; i++) { double d = x_new[i] - x[i]; step_diff += d * d; }
+        if (std::sqrt(step_diff) < 1e-6) break;
+        f_prev = f_new;
+        x = x_new;
+    }
+    return trace;
+}
+
 } // namespace dsh

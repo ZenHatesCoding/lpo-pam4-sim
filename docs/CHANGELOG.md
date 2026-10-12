@@ -2,6 +2,37 @@
 
 > 本文件记录每个版本的核心变化。只记"变了什么"，不记排错过程。
 
+## 对比实验 direct（2026-10-12）：有回传通道时的端到端 BER 直接梯度下降
+
+### 动机
+- 现役方案假设没有回传通道（在线拿不到收端端到端 BER，只能靠发端探针训练 A/B 代理）。direct 回答：若 BER 可回传，直接对真实目标做梯度下降能达到什么水平——作为现役方案的参照，照实对比，不是替代方案。
+
+### 实现
+- Python `ddps_optimizer._grad_direct_chain` + `_stage2_descent_direct`；C++ `grad_direct_chain` + `stage2_descent_direct`（一比一）。入口：`test_generalization.py --method direct`、`tools/run_parallel_envs.py --method` 透传、`cpp/main.cpp --method direct`。
+- 下降机制与现役割线一致（同搜索盒 / GD_LR=0.05 + 0.97^k 衰减 / 组归一化跨度 / GROUP_GATE / MIN_GAIN_DEX 边际停止）；差别只在目标与梯度来源：第 0 步 7 维中心差分 14 试探（无代理即无解析 gain 梯度），此后全 7 维 Broyden 割线；无 A/B 即无 B 红线 / 候选否决 / 轨迹信任域。
+- trace schema 与其余结果目录一致（pred_a = 当前目标值 = real_lb，pred_b/allowed 恒 0）。
+
+### 环境变更（同日）：Smart App Control 强制模式 → C++ 编译运行走 WSL
+- 本机 Windows SAC 转强制模式：拦 MinGW cc1plus 依赖的 libisl-23.dll（C/C++ 编译全死，CodeIntegrity 事件 3077/3033）+ 拦既有 run_ddps.exe（旧产物运行死）；任何 Windows 侧本地编译产物同理被拦。
+- 现役路线：`cpp/build_wsl.sh`（WSL Ubuntu g++ 13.3，源码纯标准 C++17）+ `cpp/run_all_cases.py --backend wsl`（路径转 posix 相对、`--cd` 锚定仓库根、产物/日志仍落 Windows 文件树受 git 跟踪）。gcc.exe 绕行（build.ps1）仅在策略放开后可用。
+- WSL2 内存上限 = 物理 50%（本机 15.8 GB）；2^22 单 worker 阶段性峰值 RSS ~5 GB → jobs=2 稳妥上限；Linux 单线程单 eval ~30 s（Windows 拥塞态 ~105 s 的 1/4）。
+
+### 验证（按双后端规则三步走）
+- Python 2^18 全 15 用例（`result/ddps_direct_py/`）：与 secant 同协议，几何平均 ×1997 vs ×2052，13/15 同到 2^18 检测底 9.92e-7。
+- C++ 2^18 等价比对（Base_IL10x10 + IL20x20，`result/ddps_cpp_direct_equiv/`）：trace 逐步最大相对差 9.05e-13 → PASS（secant 历史基线 4.6e-13 同量级）；比对工具固化为 `cpp/compare_traces.py`。
+- C++ 2^22 全量 15 用例（`result/ddps_cpp_direct/`，`--backend wsl --jobs 2`，墙钟 5073.1s）。
+
+### 结果（2^22 · 单种子 42 · 同次优起点 · 与 secant 同协议）
+- 12/15 用例打平（其中 11 例两方案同到 0 错误检测底 5.975e-8）；几何平均 direct ×28603 vs secant ×33292。
+- **IL20x20 direct 更好**：压到 0 错误检测底 5.975e-8（11 步）vs secant 1.20e-7 残差位——真实目标在最深段无代理分辨率盲区。
+- **HighNoise_IL10x10 / Comb_IL20x20_CD15_DGD5 direct 更差**（×4.3 / ×4.5）：前者固定学习率下两点振荡后停在浅位（该区 grad_norm≈39，无阻尼过冲）；后者推到参数盒角落（gdc2=0、gain 顶盒）后停滞。真实梯度大幅值 + 既定固定步长机制在困难区域不如代理方案的保守步进稳。
+- 效率：平均实际步数 7.9 vs 15.0；每用例真实评估 ≈23 vs ≈28。
+- 判读：有回传通道时直接梯度下降与代理方案总体同水平（12/15 平、各擅 1-2 例）；代理方案的代价在最深段可量化（IL20x20 2 倍），收益在困难区域的稳健性（2 例）。
+
+### 交付件
+- 6.5 节新增「对比实验 direct」页签（结果对比 / 方案说明 / C++ 等价比对；`make_deliverable.py --direct` 结果目录存在才渲染）+ headline 行 + §9 复现命令（WSL 构建 + direct 三步）+ §10 表述。
+- 文档同步：README（§4b WSL 构建 / §4c direct 流水线 / §5 交付件命令）、HANDOFF（状态 + session 记录 + 复现命令 + 并行内存约束改 WSL 口径）、docs/DDPS_REQUIREMENTS（三c direct + 六节比对工具与构建环境）、docs/DDPS_Method（5b 参照方案 direct）。
+
 ## 工作流规则（2026-10-12）：双后端分工固化
 
 - `AGENTS.md`「开发方式」新增硬规则：**Python 定原理，C++ 一比一复刻；两者比对（等价性验证、收敛对比）只在 2^18 小点数低 SNR 下做；全量规模仿真（高 SNR 大点数）只用通过比对的 C++ 入口跑；不允许用 Python 跑高 SNR 大点数**（`test_generalization.py` / `tools/run_parallel_envs.py` 等 Python 入口只用于小点数低 SNR 验证）。

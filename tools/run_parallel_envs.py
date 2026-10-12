@@ -13,8 +13,14 @@ pickle 问题），每个环境用 `--only-envs <env>` 让 test_generalization �
 
 用法（等价于「串行跑 15 环境」，只是并发）：
     python tools/run_parallel_envs.py --model-dir models/ddps \
-        --out-dir result/ddps_secant_analytic_py --n-steps 15 \
+        --out-dir result/ddps_secant_analytic_py --method secant --n-steps 15 \
         --num-symbols 262144 --sim-seeds 42 --jobs 14
+
+    # direct（有回传通道时的参照，不用 Model A/B）：
+    python tools/run_parallel_envs.py --model-dir models/ddps \
+        --out-dir result/ddps_direct_py --method direct \
+        --seed-config result/seed_config_bad_1e4.json --n-steps 15 \
+        --num-symbols 262144 --sim-seeds 42 --jobs 12
 
 注意（AGENTS.md「开发方式」）：本工具只用于 Python 小点数低 SNR 验证（2^18 及以下）。
 全量规模仿真（高 SNR 大点数，如 2^22）只用通过比对的 C++ 入口
@@ -61,6 +67,8 @@ def _run_one(env, args, parts_dir, model_dir):
     ]
     if args.a_only:
         cmd += ['--a-only']
+    if args.method:
+        cmd += ['--method', args.method]
     if args.per_case_rms_path:
         cmd += ['--per-case-rms-path', args.per_case_rms_path]
     if args.seed_config:
@@ -87,6 +95,8 @@ def main():
                     help='只跑指定环境（逗号分隔）；缺省跑全部 15 环境')
     ap.add_argument('--a-only', action='store_true',
                     help='A-only 对比实验：只用 Model A 梯度，不查 Model B，不走安全拦截')
+    ap.add_argument('--method', type=str, default=None, choices=['chain', 'secant', 'direct'],
+                    help='在线调优方式（缺省不传 = chain）')
     ap.add_argument('--per-case-rms-path', type=str, default=None)
     ap.add_argument('--seed-config', type=str, default=None)
     ap.add_argument('--jobs', type=int, default=None,
