@@ -76,7 +76,7 @@ PAM4（电平 [-3,-1,1,3]，RMS = √5）→ 5-tap Tx FFE → DAC(ZOH,ENOB 5.5 �
 - `test_generalization.py --method direct`；trace 的 `pred_a` 列 = 当前落点目标值（= real_lb），`pred_b/allowed` 恒 0（列结构与其余结果目录一致）
 - C++ 一比一复刻：`cpp/src/optimizer.hpp` `grad_direct_chain` + `stage2_descent_direct`，`cpp/main.cpp --method direct`
 - 结果目录：`result/ddps_direct_py/`（Python 2^18 全 15 用例）、`result/ddps_cpp_direct_equiv/`（2^18 等价比对，Base_IL10x10 + IL20x20）、`result/ddps_cpp_direct/`（C++ 2^22 全量）
-- 交付件 6.5 节页签：结果对比（同协议逐用例表 + 对比图）/ 方案说明（机制对照表）/ C++ 等价比对（实算最大相对差）；数据缺失时自动不渲染
+- 交付件呈现（数据驱动，结果目录缺失自动退化）：6.2 收敛图组页签（现役 A+B 代理 | direct 同款图组对照）；6.5 对比实验节（结果对比：同协议逐用例表 + 对比图 / 方案说明：机制对照表）；10.4 在线调优等价页签（现役割线 | direct，2^18 实算最大相对差表）
 
 ### 判读标准
 - 与现役方案同协议（同次优起点 seed_config_bad_1e4、同 15 用例、2^22 符号、单种子 42、同 C++ 实现、同 15 步上限）对比，几何平均改善与逐用例最优 BER 照实并列呈现，谁好用谁

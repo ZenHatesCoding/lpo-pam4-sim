@@ -30,7 +30,7 @@
 - 判读：有回传通道时直接梯度下降与代理方案总体同水平（12/15 平、各擅 1-2 例）；代理方案的代价在最深段可量化（IL20x20 2 倍），收益在困难区域的稳健性（2 例）。
 
 ### 交付件
-- 6.5 节新增「对比实验 direct」页签（结果对比 / 方案说明 / C++ 等价比对；`make_deliverable.py --direct` 结果目录存在才渲染）+ headline 行 + §9 复现命令（WSL 构建 + direct 三步）+ §10 表述。
+- 交付件：6.2 收敛图组页签化（现役 A+B 代理 | direct，`report_ddps.py --method direct` 出图）；6.5 对比实验节（结果对比 / 方案说明 两页签）；10.4 在线调优等价页签化（现役割线 | direct，2^18 实算表）；§10 开头补构建运行环境（WSL/SAC），10.6 统一入口改 WSL 命令；headline 行 + §9 复现命令（WSL 构建 + direct 流水线含出图）。均由 `make_deliverable.py --direct` 数据驱动，结果目录缺失自动退化为无 direct 内容。全文方案范围口径统一：§1 约束/scope/chip、§4 算法框架句、§6 KPI 引导句与 6.0/6.1/6.3/6.4 范围界定（6.1 撤「残差底」绝对化表述、§7 结论补 direct 对照条、6.5 补 Comb 终点一步回退事实）、§8 边界表首行「无回传通道（方案前提）」、10.5 评估量三方对比（割线 28 / direct ≈23 / 每步中心差分 226）。`report_ddps.py` 增 `--method direct`（只出三张图；secant 行为不变已重跑验证 git 无 diff）。
 - 文档同步：README（§4b WSL 构建 / §4c direct 流水线 / §5 交付件命令）、HANDOFF（状态 + session 记录 + 复现命令 + 并行内存约束改 WSL 口径）、docs/DDPS_REQUIREMENTS（三c direct + 六节比对工具与构建环境）、docs/DDPS_Method（5b 参照方案 direct）。
 
 ## 工作流规则（2026-10-12）：双后端分工固化

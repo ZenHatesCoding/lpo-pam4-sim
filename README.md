@@ -123,7 +123,7 @@ python cpp/compare_traces.py --py result/ddps_direct_py --cpp result/ddps_cpp_di
 python cpp/run_all_cases.py --backend wsl --method direct --out-dir result/ddps_cpp_direct \
     --num-symbols 4194304 --n-steps 15 --jobs 2
 ```
-> direct 回答的问题：若收端端到端 BER 可回传，直接对真实目标做梯度下降能达到什么水平（下降机制与现役割线一致：同搜索盒/步长调度/组门控/边际停止；差别只在目标与梯度来源，无代理即无 B 红线/否决/轨迹信任域）。用于对照「无回传通道、只能靠发端探针代理」的现役方案。结果对比刷进交付件 6.5 节页签。
+> direct 回答的问题：若收端端到端 BER 可回传，直接对真实目标做梯度下降能达到什么水平（下降机制与现役割线一致：同搜索盒/步长调度/组门控/边际停止；差别只在目标与梯度来源，无代理即无 B 红线/否决/轨迹信任域）。用于对照「无回传通道、只能靠发端探针代理」的现役方案。交付件呈现：6.2 收敛图组页签（现役 | direct 同款图组对照）、6.5 对比实验节、10.4 在线调优等价页签。
 
 ### 5. 报告与交付件
 ```bash
@@ -131,7 +131,11 @@ python cpp/run_all_cases.py --backend wsl --method direct --out-dir result/ddps_
 python report_ddps.py --test-dir result/ddps_cpp_secant --model-dir models/ddps \
     --seed-config result/seed_config_bad_1e4.json --summary-out result/SUMMARY.md
 
-# 交付件（自包含 HTML）
+# direct 结果图组（收敛 / gain·rms / 最难用例，供交付件 6.2 页签）
+python report_ddps.py --test-dir result/ddps_cpp_direct --method direct \
+    --seed-config result/seed_config_bad_1e4.json
+
+# 交付件（自包含 HTML；direct 内容数据驱动：6.2 图组页签 / 6.5 对比节 / 10.4 等价页签）
 python make_deliverable.py --baseline result/ddps_cpp_secant --model-dir models/ddps \
     --direct result/ddps_cpp_direct --out deliverables/DDPS_Deliverable.html
 ```

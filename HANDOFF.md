@@ -51,7 +51,7 @@ v8 只改「在线调优方式」，物理层 / 代理模型 / 数据集 / 训�
 4. ✅ SAC 强制模式确诊与绕行：CodeIntegrity 事件 3077/3033 定位 libisl-23.dll 拦截；WSL(Ubuntu) g++ 13.3 构建路线（`cpp/build_wsl.sh`）+ `cpp/run_all_cases.py --backend wsl`（路径转 posix 相对、`--cd` 锚定仓库根、产物/日志仍落 Windows 文件树受 git 跟踪）。
 5. ✅ 2^18 等价比对（Base_IL10x10 + IL20x20 → `result/ddps_cpp_direct_equiv/`）：trace 逐步最大相对差 9.05e-13（历史 secant 基线 4.6e-13 同量级）→ PASS。比对工具固化为 `cpp/compare_traces.py`（默认比两侧交集，`--envs` 可指定）。
 6. ✅ C++ 2^22 全量 direct 15 用例 → `result/ddps_cpp_direct/`（`--backend wsl --jobs 2`，WSL 内存上限约束）。
-7. ✅ 交付件新增 6.5 节「对比实验 direct」页签（结果对比/方案说明/C++ 等价比对；`--direct` 结果目录存在才渲染，缺失不影响其余内容）+ §9 复现命令（WSL 构建 + direct 三步）+ §10 表述 + headline 行。
+7. ✅ 交付件 direct 呈现结构：6.2 收敛图组页签化（现役 A+B 代理 | direct 同款图组，`report_ddps.py --method direct` 出图）+ 6.5 对比实验节（结果对比/方案说明 两页签）+ 10.4 在线调优等价页签化（现役割线 | direct 实算表）+ §10 构建运行环境段（WSL/SAC）+ 10.6 统一入口 WSL 命令 + §9 复现命令（含 direct 出图步骤）+ headline 行。全部 `--direct` 数据驱动，目录缺失自动退化；全文方案范围口径统一（§1/§4/§6.0-6.4/§7 结论第 6 条/§8 边界表「无回传通道」行/10.5 三方评估量），6.1 撤「残差底」绝对化表述。`report_ddps.py --method direct` 出图（secant 行为不变已验证）。
 8. ✅ README（§4b/4c/§5）/ HANDOFF（本文件）/ docs/DDPS_REQUIREMENTS（三c）/ docs/CHANGELOG 刷新。
 9. ✅ `git add` 全部 + 提交 + 推送 + `present deliverables/DDPS_Deliverable.html`（最后动作）。
 

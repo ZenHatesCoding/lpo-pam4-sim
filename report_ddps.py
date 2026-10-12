@@ -8,6 +8,12 @@
   ddps_gain_rms.png      逐用例 gain 倍率与 drive_rms 轨迹
   ddps_report.md         中文报告
   （--summary）SUMMARY.md   跨实验汇总
+
+--method direct（端到端 BER 直接梯度下降，无代理）只出三张图（不出 tracking
+诊断图、不写报告/SUMMARY.md、不读 model-dir）：
+  ddps_conv_grid.png     3×5 实测 BER 收敛（无代理预测曲线）
+  ddps_gain_rms.png      逐用例 gain 倍率与 drive_rms 轨迹
+  ddps_case_hard.png     最难用例四联图
 """
 import argparse
 import json
@@ -96,7 +102,8 @@ def _is_aonly(test_dir):
     return ('pb_seed' in summ.columns) and (float(summ['pb_seed'].abs().sum()) < 1e-12)
 
 
-def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True, pr=None):
+def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True, pr=None,
+                      direct=False):
     steps = tr['step'].values
     # 种子点（step -1）作为曲线起点：trace 从梯度第 1 步开始记录，
     # 种子点（次优工作点，~1e-4）的 BER 高于后续各步，
@@ -105,6 +112,27 @@ def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True, pr
     seed_lb = float(row['seed_lb'])
     steps_ext = np.concatenate([[-1], steps])
     real_ber_ext = np.concatenate([[seed], tr['real_ber'].values])
+    if direct:
+        # direct：无代理预测曲线（pred_a 列=当前落点目标值、pred_b 恒 0，无预测含义），
+        # 只画实测 BER、试探态灰点与起点 x₀ 虚线。
+        ax.semilogy(steps_ext, real_ber_ext, marker='o', ms=3.6, lw=1.5,
+                    color=C_REAL, label='实测 BER_MLSE')
+        # 试探态 BER：第 0 步 7 维中心差分的 14 个 ±ε 微扰态（probes 只记录第 0 步）
+        if pr is not None and not pr.empty:
+            for step in steps:
+                ps = pr[pr['step'] == step]['real_ber'].values
+                if len(ps):
+                    ax.scatter([step] * len(ps), ps, s=7, color='#9aa0a6', alpha=0.45,
+                               zorder=2.6, edgecolors='none')
+        ax.axhline(seed, color=C_SEED, ls='--', lw=0.9, alpha=0.8,
+                   label='种子 BER（起点 x₀）')
+        ax.set_yscale('log')
+        ax.grid(True, which='both', ls='--', alpha=0.35)
+        if title:
+            ax.set_title(title, fontsize=9.5)
+        if small:
+            ax.tick_params(labelsize=7)
+        return
     pred_a_ext = np.concatenate([[seed_lb], tr['pred_a'].values])
     pred_b_ext = np.concatenate([[seed_lb], tr['pred_b'].values])
     ax.semilogy(steps_ext, 10.0 ** pred_a_ext, marker='^', ms=3.2, ls='--',
@@ -138,36 +166,46 @@ def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True, pr
         ax.tick_params(labelsize=7)
 
 
-def _add_shared_legend(fig, loc='upper center', ncol=5, fontsize=9, y_offset=0.985, aonly=False):
+def _add_shared_legend(fig, loc='upper center', ncol=5, fontsize=9, y_offset=0.985,
+                       aonly=False, direct=False):
     """在 figure 顶部（suptitle 下方）放统一图例，避免子图内 legend 挤压数据。"""
     from matplotlib.lines import Line2D
     probe_h = Line2D([0], [0], marker='o', ms=5, color='#9aa0a6', ls='none', alpha=0.6,
                      markeredgecolor='none', label='试探步 BER（每步 14 个 ±ε 微扰态）')
-    handles = [
-        Line2D([0], [0], color=C_PREDA, marker='^', ms=5, ls='--', lw=1.2,
-               label='Model A 预测（方向代理）'),
-        Line2D([0], [0], color=C_REAL, marker='o', ms=5, lw=1.5,
-               label='实测 BER_MLSE'),
-        probe_h,
-        Line2D([0], [0], color=C_SEED, ls='--', lw=1.2, label='种子 BER（起点）'),
-    ]
-    if not aonly:
+    if direct:
+        handles = [
+            Line2D([0], [0], color=C_REAL, marker='o', ms=5, lw=1.5,
+                   label='实测 BER_MLSE'),
+            Line2D([0], [0], marker='o', ms=5, color='#9aa0a6', ls='none', alpha=0.6,
+                   markeredgecolor='none', label='试探态 BER（第 0 步 14 个 ±ε 微扰态）'),
+            Line2D([0], [0], color=C_SEED, ls='--', lw=1.2, label='种子 BER（起点 x₀）'),
+        ]
+    else:
         handles = [
             Line2D([0], [0], color=C_PREDA, marker='^', ms=5, ls='--', lw=1.2,
                    label='Model A 预测（方向代理）'),
-            Line2D([0], [0], color=C_PREDB, marker='s', ms=5, ls=':', lw=1.2,
-                   label='Model B 预测（风险控制）'),
             Line2D([0], [0], color=C_REAL, marker='o', ms=5, lw=1.5,
                    label='实测 BER_MLSE'),
             probe_h,
             Line2D([0], [0], color=C_SEED, ls='--', lw=1.2, label='种子 BER（起点）'),
-            Line2D([0], [0], color=C_LIMIT, ls='-.', lw=1.2, label='安全红线（种子×1.25）'),
         ]
+        if not aonly:
+            handles = [
+                Line2D([0], [0], color=C_PREDA, marker='^', ms=5, ls='--', lw=1.2,
+                       label='Model A 预测（方向代理）'),
+                Line2D([0], [0], color=C_PREDB, marker='s', ms=5, ls=':', lw=1.2,
+                       label='Model B 预测（风险控制）'),
+                Line2D([0], [0], color=C_REAL, marker='o', ms=5, lw=1.5,
+                       label='实测 BER_MLSE'),
+                probe_h,
+                Line2D([0], [0], color=C_SEED, ls='--', lw=1.2, label='种子 BER（起点）'),
+                Line2D([0], [0], color=C_LIMIT, ls='-.', lw=1.2, label='安全红线（种子×1.25）'),
+            ]
     fig.legend(handles=handles, loc=loc, ncol=ncol, fontsize=fontsize,
                framealpha=0.9, edgecolor='#ccc', bbox_to_anchor=(0.5, y_offset))
 
 
-def figure_convergence_grid(test_dir, report_dir, envs):
+def figure_convergence_grid(test_dir, report_dir, envs, direct=False):
     os.makedirs(report_dir, exist_ok=True)
     summ = _summary(test_dir)
     rows = {r['env']: r for _, r in summ.iterrows()}
@@ -186,22 +224,29 @@ def figure_convergence_grid(test_dir, report_dir, envs):
         imp = r['seed_ber'] / r['best_ber']
         _plot_convergence(ax, tr, r,
                           title=f'{env}\n改善 ×{imp:.2f}', small=True,
-                          pr=_probes(test_dir, env))
+                          pr=_probes(test_dir, env), direct=direct)
     for j in range(n, len(axes)):
         axes[j].axis('off')
-    aonly = _is_aonly(test_dir)
-    label = 'A-only（只用 Model A 梯度）' if aonly else 'A+B（完整流程）'
-    fig.suptitle(f'DDPS 在线调优收敛轨迹 — {label}'
-                 f'（15 环境，只用基线训练泛化，7 维 FFE+CTLE+gain）', fontsize=12)
-    _add_shared_legend(fig, ncol=4 if aonly else 6, fontsize=9, y_offset=0.965, aonly=aonly)
+    if direct:
+        fig.suptitle('DDPS 在线调优收敛轨迹 — direct（端到端 BER 直接梯度下降）'
+                     '（15 环境，7 维 FFE+CTLE+gain）', fontsize=12)
+        _add_shared_legend(fig, ncol=3, fontsize=9, y_offset=0.965, direct=True)
+        out_name = 'ddps_conv_grid.png'
+    else:
+        aonly = _is_aonly(test_dir)
+        label = 'A-only（只用 Model A 梯度）' if aonly else 'A+B（完整流程）'
+        fig.suptitle(f'DDPS 在线调优收敛轨迹 — {label}'
+                     f'（15 环境，只用基线训练泛化，7 维 FFE+CTLE+gain）', fontsize=12)
+        _add_shared_legend(fig, ncol=4 if aonly else 6, fontsize=9, y_offset=0.965, aonly=aonly)
+        out_name = 'ddps_convergence.png'
     fig.tight_layout(rect=(0, 0, 1, 0.93))
-    out = os.path.join(report_dir, 'ddps_convergence.png')
+    out = os.path.join(report_dir, out_name)
     fig.savefig(out, dpi=125)
     plt.close(fig)
     return out
 
 
-def figure_gain_rms(test_dir, report_dir, envs):
+def figure_gain_rms(test_dir, report_dir, envs, direct=False):
     """逐用例 gain 倍率与 drive_rms 轨迹。
 
     gain 纳入梯度（第 7 维），从任意种子点出发走 7 维梯度。
@@ -241,8 +286,12 @@ def figure_gain_rms(test_dir, report_dir, envs):
         ax.grid(True, ls='--', alpha=0.35)
     for j in range(n, len(axes)):
         axes[j].axis('off')
-    label = 'A-only' if _is_aonly(test_dir) else 'A+B'
-    fig.suptitle(f'DDPS gain / drive_rms 轨迹 — {label}（gain 纳入梯度，第 7 维）', fontsize=12)
+    if direct:
+        fig.suptitle('DDPS gain / drive_rms 轨迹 — direct（端到端 BER 直接梯度下降）'
+                     '（gain 纳入梯度，第 7 维）', fontsize=12)
+    else:
+        label = 'A-only' if _is_aonly(test_dir) else 'A+B'
+        fig.suptitle(f'DDPS gain / drive_rms 轨迹 — {label}（gain 纳入梯度，第 7 维）', fontsize=12)
     from matplotlib.lines import Line2D
     _h = [Line2D([0], [0], color=C_GAIN, marker='o', ms=5, lw=1.5, label='gain 倍率（左轴）'),
           Line2D([0], [0], color=C_REAL, marker='s', ms=4, ls='--', lw=1.0, label='drive_rms (V)（右轴）')]
@@ -319,8 +368,8 @@ def figure_tracking(test_dir, report_dir, envs):
     return out
 
 
-def figure_hardcase(test_dir, report_dir, envs):
-    """最难用例四联图（v2 风格）：收敛三曲线 + FFE 抽头 + CTLE 频响 + 探针 FIR。"""
+def figure_hardcase(test_dir, report_dir, envs, direct=False):
+    """最难用例四联图：收敛曲线 + FFE 抽头 + CTLE 频响 + 探针 FIR。"""
     os.makedirs(report_dir, exist_ok=True)
     summ = _summary(test_dir)
     hard_env = max(envs, key=lambda e: summ[summ['env'] == e].iloc[0]['seed_ber']
@@ -353,9 +402,10 @@ def figure_hardcase(test_dir, report_dir, envs):
     ctle_best = _ctle_response_db(f, best_gdc, best_gdc2)
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    # (1) 收敛三曲线
+    # (1) 收敛曲线（secant：Model A/B 预测 + 实测；direct：仅实测）
     _plot_convergence(axes[0, 0], tr, summ[summ['env'] == hard_env].iloc[0],
-                      title=f'{hard_env} 收敛轨迹', pr=_probes(test_dir, hard_env))
+                      title=f'{hard_env} 收敛轨迹', pr=_probes(test_dir, hard_env),
+                      direct=direct)
     axes[0, 0].legend(fontsize=7, loc='lower left', framealpha=0.9)
     # (2) FFE 抽头 seed vs best
     ax = axes[0, 1]
@@ -379,7 +429,7 @@ def figure_hardcase(test_dir, report_dir, envs):
     ax.set_xlabel('GHz', fontsize=9); ax.set_ylabel('dB', fontsize=9)
     ax.set_title('Tx CTLE |H(f)|（模拟频谱整形）', fontsize=10)
     ax.legend(fontsize=8); ax.grid(alpha=0.3)
-    # (4) 探针 FIR 7-tap（Model A 特征）
+    # (4) 探针 FIR 7-tap
     ax = axes[1, 1]
     xs7 = np.arange(7)
     w7 = 0.35
@@ -387,12 +437,18 @@ def figure_hardcase(test_dir, report_dir, envs):
     ax.bar(xs7 + w7 / 2, fir_best, w7, color='#0f8a4a', alpha=0.7, label='最优')
     ax.set_xticks(xs7); ax.set_xticklabels([f'h{i}' for i in xs7], fontsize=9)
     ax.set_ylabel('幅度 (V)', fontsize=9); ax.legend(fontsize=8)
-    ax.set_title('Tx 物理探针 7-tap FIR（Model A 输入特征）', fontsize=10)
+    ax.set_title('Tx 物理探针 7-tap FIR（发端波形特征）' if direct
+                 else 'Tx 物理探针 7-tap FIR（Model A 输入特征）', fontsize=10)
     ax.grid(True, ls='--', alpha=0.3, axis='y')
-    label = 'A-only' if _is_aonly(test_dir) else 'A+B'
+    if direct:
+        label = 'direct（端到端 BER 直接梯度下降）'
+        out_name = 'ddps_case_hard.png'
+    else:
+        label = 'A-only' if _is_aonly(test_dir) else 'A+B'
+        out_name = f'ddps_case_{hard_env}_a.png'
     fig.suptitle(f'最难用例四联图 — {label}：{hard_env}（种子 BER → 最优 BER）', fontsize=12, fontweight='bold')
     fig.tight_layout(rect=(0, 0, 1, 0.96))
-    out = os.path.join(report_dir, f'ddps_case_{hard_env}_a.png')
+    out = os.path.join(report_dir, out_name)
     fig.savefig(out, dpi=125)
     plt.close(fig)
     return out
@@ -508,6 +564,10 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--test-dir', default='result/ddps_main')
     ap.add_argument('--model-dir', default='models/ddps')
+    ap.add_argument('--method', choices=['secant', 'direct'], default='secant',
+                    help='secant=现役（A+B 代理割线，全量输出）；'
+                         'direct=端到端 BER 直接梯度（只出三张图：收敛/gain·rms/最难用例，'
+                         '不出代理诊断图、不写报告与 SUMMARY）')
     ap.add_argument('--summary', default=None)
     ap.add_argument('--summary-out', default=None)
     ap.add_argument('--seed-config', default=None,
@@ -520,6 +580,13 @@ if __name__ == '__main__':
               f'gDC2={D.SEED_GDC2:.2f} gain={D.SEED_GAIN:.4f}')
     envs = [e['name'] for e in ENV_CASES]
     rd = os.path.join(a.test_dir, 'report')
-    write_report(a.test_dir, rd, a.model_dir, envs,
-                 summary_text=a.summary, summary_out=a.summary_out)
-    print(f'report -> {rd}/ddps_report.md')
+    if a.method == 'direct':
+        # direct：无代理（无预测曲线/诊断图），只出三张图；不读 model-dir、不写报告与汇总
+        figure_convergence_grid(a.test_dir, rd, envs, direct=True)
+        figure_gain_rms(a.test_dir, rd, envs, direct=True)
+        figure_hardcase(a.test_dir, rd, envs, direct=True)
+        print(f'report (direct) -> {rd}/ddps_conv_grid.png, ddps_gain_rms.png, ddps_case_hard.png')
+    else:
+        write_report(a.test_dir, rd, a.model_dir, envs,
+                     summary_text=a.summary, summary_out=a.summary_out)
+        print(f'report -> {rd}/ddps_report.md')

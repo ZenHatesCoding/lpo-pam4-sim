@@ -178,7 +178,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     <div class="eyebrow">LPO 112G PAM4 仿真平台 · 收发端联合寻优</div>
     <h1>DDPS：收发端均衡代理寻优 — 交付说明</h1>
     <div class="scope">
-      本交付件说明方案的适用范围、物理链路与优化对象、两个代理模型的构成与全部参数、在线调优算法流程与复杂度、实测效果与适用边界。
+      本交付件说明方案的适用范围、物理链路与优化对象、两个代理模型的构成与全部参数、在线调优算法流程与复杂度、实测效果与适用边界，以及有回传通道时的 direct 直接梯度对照实验。
       参数取自 <code>config.xlsx</code>、模型 <code>meta.json</code>、结果 <code>case_summary / trace</code> 与源码常量；图表为内嵌 SVG 与 PNG，单文件可离线打开。
     </div>
     <div class="chips">
@@ -186,7 +186,7 @@ TEMPLATE = r'''<!DOCTYPE html>
       <span class="chip">用例 <b>15</b> 个（含非对称 Tx/Rx 插损与器件噪声）</span>
       <span class="chip">评估协议 <b>4194304</b> 符号 × 单种子 <b>42</b></span>
       <span class="chip">模型训练 <b>&lt;0.1 s</b> · 推理 <b>≈30 µs</b></span>
-      <span class="chip">在线决策回路真实 BER <b>0</b> 次</span>
+      <span class="chip">现役方案在线决策回路真实 BER <b>0</b> 次（无需回传通道）</span>
     </div>
   </div>
 </header>
@@ -200,7 +200,7 @@ TEMPLATE = r'''<!DOCTYPE html>
   <ul style="margin-bottom:0">
     <li>LPO 光模块内部不做重 DSP，发送端均衡由 Host ASIC 承担。可用的均衡自由度：<strong>5-tap T-spaced 发送端 FFE</strong>（4 个旁瓣为自由变量，主抽头由归一化派生）与 <strong>发送端模拟 CTLE 的高频 peaking 增益 gDC 与低频 shelf 增益 gDC2</strong>。接收端另有一级固定参数的模拟 CTLE（gDC = 6 dB，gDC2 = 3 dB）作为静态均衡基座。</li>
     <li>信道条件：奈奎斯特电插损 Tx/Rx <strong>各自</strong> 10～20 dB，色散 0～28 ps/nm，差分群时延 0～5 ps，偏振角 0～45°，另含器件噪声应力（RIN / 消光比 / TIA 噪声）。</li>
-    <li>约束：在线调优阶段不得使用真实收端误码做决策（只能使用发送端可获得的物理量），且不允许出现任何一次“优化后比起点更差”。</li>
+    <li>约束：在线调优阶段不得使用真实收端误码做决策（只能使用发送端可获得的物理量），且不允许出现任何一次“优化后比起点更差”。若回传通道存在、端到端 BER 可得，可直接对真实目标做梯度下降——该情形的 direct 对照实验见 6.5。</li>
   </ul>
 </div>
 
@@ -743,6 +743,8 @@ Model B：d = 7（4 旁瓣 + gDC + gDC2 + drive_rms），α = 0.5，预测 log10
 
 <h2 id="s4"><span class="num">4</span>寻优算法</h2>
 
+<p>本节描述<strong>现役方案</strong>（Model A+B 代理割线，无需回传通道）的寻优算法。平台另含 <strong>direct 参照方案</strong>：有回传通道、端到端 BER 可得时，不用代理、直接对真实目标做梯度下降（目标与梯度来源不同，搜索空间/搜索盒/步长调度/停止判据与本节一致，机制对照见 6.5 方案说明页签）。两者共享同一物理链路（第 2 节）与同一次优起点（6.0）。</p>
+
 <h3>4.1 两阶段结构</h3>
 <figure>
   <div class="fig-title">图 4 · DDPS 两阶段流程（Stage 1 离线一次性 / Stage 2 在线逐环境）</div>
@@ -1160,6 +1162,8 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
 
 <h2 id="s6"><span class="num">6</span>实测结果</h2>
 
+<p>以下核心指标为<strong>现役方案</strong>（A+B 代理，无需回传通道）全 15 用例 2<sup>22</sup> 结果；direct 参照方案同协议结果与对照见 6.2 页签、6.5。</p>
+
 <div class="kpis">
   <!--KPI_CARDS-->
 </div>
@@ -1173,12 +1177,13 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
     <li>driver_gain = 0.1106（相对标称 0.3399 的倍率 ×0.325，u_gain = −0.4875）：驱动摆幅未按用例标定，是次优的主要来源。</li>
   </ul>
   <p>在线调优做 <strong>7 维割线梯度下降</strong>：4 个 FFE 旁瓣 + gDC + gDC2 形状调整，以及 gain 作为第 7 个搜索维（信任域 ±0.30 dex）。第 0 步 shape 维中心差分初始化 + gain 维解析梯度，此后每步<strong>零 ±ε 试探态</strong>、只用历史落点做割线更新；从该次优点出发，各用例的真实 BER 数步内降到各自环境的最优工作点附近。</p>
+  <p style="margin-bottom:0">平台另含 <strong>direct 参照方案</strong>（有回传通道时对端到端真实 BER 直接做梯度下降，不用代理）：从同一次优起点出发、同 15 用例、同评估协议，收敛轨迹对照见 6.2 页签，逐用例结果与机制对照见 6.5。</p>
 </div>
 
 <h3>6.1 泛化：只用 10 dB 基线训练 → 跨 15 个环境</h3>
-<p>训练集只含 Base_IL10x10 邻域 2001 行。模型冻结后，对 15 个用例环境逐个执行 Stage-2 在线调优，不重训、不重新标定。</p>
+<p>训练集只含 Base_IL10x10 邻域 2001 行。模型冻结后，现役方案（A+B 代理）对 15 个用例环境逐个执行 Stage-2 在线调优，不重训、不重新标定（direct 参照方案同协议结果见 6.2 页签与 6.5 对照表）。</p>
 <p class="win"><strong>结论</strong>：<!--POS_SUMMARY-->，几何平均 <!--MEAN_IMP-->（最高 <!--MAX_IMP-->），
-<!--TOTAL_STEPS--> 步逐一记账：<strong>含 ±ε 试探瞬时 <!--PROBE_WORSE_STEPS--> 步超种子、落点 <!--TOTAL_WORSE--> 步劣于起点</strong>（最坏瞬时 ×<!--PROBE_WORST_RATIO-->，见 6.3）。代理只在 Base_IL10x10 邻域训练，冻结后在其余 14 个环境（CD/DGD/中高插损/高噪声/极端插损）信任域内方向仍正确，把每个用例压到其环境的最优工作点附近：11 用例到 0 错误检测限（5.97e-8），4 个强损伤/高噪声用例到各自残差底（IL20x20 1.20e-7、Comb_IL20x20_CD15_DGD5 2.39e-7、HighNoise_IL16x16 2.39e-7、HighNoise_IL10x10 3.58e-7）。</p>
+<!--TOTAL_STEPS--> 步逐一记账：<strong>含 ±ε 试探瞬时 <!--PROBE_WORSE_STEPS--> 步超种子、落点 <!--TOTAL_WORSE--> 步劣于起点</strong>（最坏瞬时 ×<!--PROBE_WORST_RATIO-->，见 6.3）。代理只在 Base_IL10x10 邻域训练，冻结后在其余 14 个环境（CD/DGD/中高插损/高噪声/极端插损）信任域内方向仍正确，把每个用例压到其环境的最优工作点附近：11 用例到 0 错误检测限（5.97e-8），4 个强损伤/高噪声用例停在 IL20x20 1.20e-7、Comb_IL20x20_CD15_DGD5 2.39e-7、HighNoise_IL16x16 2.39e-7、HighNoise_IL10x10 3.58e-7（其中 IL20x20 的 direct 对照显示该环境仍有下降空间——direct 把它压到了检测底 5.97e-8，见 6.5）。</p>
 <div class="tw">
 <table class="wide" id="tbl-core">
   <caption>起点 = x₀（次优工作点，基线环境实测 ~1.3e-4）的真实 BER_MLSE；最优 = 全轨迹中真实 BER_MLSE 的最小值（步序为该最小值出现于第几步） <span class="sh">· 可左右滑动</span></caption>
@@ -1188,27 +1193,34 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
 </div>
 
 <h3>6.2 收敛轨迹与物理量变化</h3>
-<p>收敛图曲线起点（step −1）是 x₀（次优工作点，基线实测 ~1.3e-4），之后的下行来自 7 维割线梯度（gain 维解析、shape 维割线，其后不再有试探态）。</p>
-<figure>
-  <div class="fig-scroll"><img src="{{IMG_CONV}}" alt="15 用例收敛轨迹"></div>
-  <figcaption>图 6 · 收敛轨迹（Model A 预测 / Model B 预测 / 实测 BER_MLSE，对数纵轴；虚线为起点）。</figcaption>
-</figure>
-<figure>
-  <div class="fig-scroll"><img src="{{IMG_GAIN}}" alt="gain 与 drive_rms 轨迹"></div>
-  <figcaption>图 7 · gain 维轨迹：gain 纳入梯度（第 7 维），drive_rms 随之小幅变化（虚线为起点 gain 倍率 ×0.325）。</figcaption>
-</figure>
-<figure>
-  <div class="fig-scroll"><img src="{{IMG_TRACK}}" alt="预测变化量 vs 实测变化量"></div>
-  <figcaption>图 8 · 左 Δ预测 vs Δ实测散点（逐用例逐步）；右逐用例相关系数。</figcaption>
-</figure>
-<figure>
-  <div class="fig-scroll"><img src="{{IMG_CASE_HARD}}" alt="最难用例四联图"></div>
-  <figcaption>图 9 · 最难用例四联图：收敛轨迹、Tx FFE 抽头（起点 vs 最优）、Tx CTLE |H(f)| 频响、Tx 探针 7-tap FIR。</figcaption>
-</figure>
+<p>收敛图曲线起点（step −1）是 x₀（次优工作点，基线实测 ~1.3e-4）。</p>
+<div class="tabs">
+  <!--FIG_TAB_BAR-->
+  <div class="tab-panel active" id="tab-fig-secant">
+    <p>下行来自 7 维割线梯度（gain 维解析、shape 维割线，其后不再有试探态）；收敛图含 Model A 预测与 Model B 预测两条代理曲线，预测-实测散点（图 8）是代理方向可靠性诊断。</p>
+    <figure>
+      <div class="fig-scroll"><img src="{{IMG_CONV}}" alt="15 用例收敛轨迹"></div>
+      <figcaption>图 6 · 收敛轨迹（Model A 预测 / Model B 预测 / 实测 BER_MLSE，对数纵轴；虚线为起点）。</figcaption>
+    </figure>
+    <figure>
+      <div class="fig-scroll"><img src="{{IMG_GAIN}}" alt="gain 与 drive_rms 轨迹"></div>
+      <figcaption>图 7 · gain 维轨迹：gain 纳入梯度（第 7 维），drive_rms 随之小幅变化（虚线为起点 gain 倍率 ×0.325）。</figcaption>
+    </figure>
+    <figure>
+      <div class="fig-scroll"><img src="{{IMG_TRACK}}" alt="预测变化量 vs 实测变化量"></div>
+      <figcaption>图 8 · 左 Δ预测 vs Δ实测散点（逐用例逐步）；右逐用例相关系数。</figcaption>
+    </figure>
+    <figure>
+      <div class="fig-scroll"><img src="{{IMG_CASE_HARD}}" alt="最难用例四联图"></div>
+      <figcaption>图 9 · 最难用例四联图：收敛轨迹、Tx FFE 抽头（起点 vs 最优）、Tx CTLE |H(f)| 频响、Tx 探针 7-tap FIR。</figcaption>
+    </figure>
+  </div>
+  <!--FIG_DIRECT_PANEL-->
+</div>
 
 <h3>6.3 安全性核验（落点 + 试探瞬时两口径）</h3>
 <div class="card">
-  <p>在线调优过程中系统会短暂停留两类<strong>真实硬件工作点</strong>，安全性分开核验：<strong>落点</strong>（每步落地后的 x<sub>k+1</sub>）与 <strong>±ε 试探态</strong>（仅第 0 步 shape 维中心差分估计初始梯度时，系统短暂处于 x±ε 的 12 个微扰点；此后零试探态）。两者都会真实影响那一刻的端到端 BER，不能只看落点。</p>
+  <p>在线调优过程中系统会短暂停留两类<strong>真实硬件工作点</strong>，安全性分开核验：<strong>落点</strong>（每步落地后的 x<sub>k+1</sub>）与 <strong>±ε 试探态</strong>（仅第 0 步 shape 维中心差分估计初始梯度时，系统短暂处于 x±ε 的 12 个微扰点；此后零试探态）。两者都会真实影响那一刻的端到端 BER，不能只看落点。本节为现役方案口径（代理 B 红线 + 候选否决保障落点不劣化）；direct 无代理安全机制，落点不做否决——其 15 用例落点均最终优于种子，但 Comb_IL20x20_CD15_DGD5 终点出现一步回退（仍优于种子，见 6.5）。</p>
 
   <p><strong>口径 1 · 落点（accepted 轨迹）</strong>：<!--TOTAL_STEPS--> 落点中 <!--TOTAL_WORSE--> 落点劣于种子，「优化后不比起点差」的硬约束成立，落点单调不劣化。</p>
   <div class="tw">
@@ -1231,7 +1243,7 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
 </div>
 
 <h3>6.4 试探步 BER 包络（梯度初始化的 ±ε 微扰态）</h3>
-<p>第 0 步 shape 维 6 维中心差分共生成 12 个 ±ε 微扰态（4 个 FFE 旁瓣 + gDC + gDC2，各 ±；gain 维解析、0 微扰）。真实在线系统里为获取探针而做的这些参数微扰，会让链路实际处于这些工作点，因此每个试探态自身的端到端 MLSE BER 也被逐一记录（在 6.2 收敛图中显示为灰点）。这些记录不参与下降方向（方向仍由代理梯度决定），但作为安全性的一部分：试探态会瞬时超过种子（见 6.3 口径 2），下表给出每个用例试探态的真实 BER 包络。除第 0 步外，之后每一步都不产生微扰态。</p>
+<p>现役方案第 0 步 shape 维 6 维中心差分共生成 12 个 ±ε 微扰态（4 个 FFE 旁瓣 + gDC + gDC2，各 ±；gain 维解析、0 微扰）。真实在线系统里为获取探针而做的这些参数微扰，会让链路实际处于这些工作点，因此每个试探态自身的端到端 MLSE BER 也被逐一记录（在 6.2 收敛图中显示为灰点）。这些记录不参与下降方向（方向仍由代理梯度决定），但作为安全性的一部分：试探态会瞬时超过种子（见 6.3 口径 2），下表给出每个用例试探态的真实 BER 包络。除第 0 步外，之后每一步都不产生微扰态。direct 方案同理：第 0 步 7 维全测共 14 个微扰态（无解析 gain 梯度，gain 维也实测），同样逐一记录真实 BER（<span class="mono">result/ddps_cpp_direct/probes_*.csv</span>，6.2 direct 页签收敛图中的灰点）。</p>
 <div class="tw">
 <table class="wide" id="tbl-probe">
   <caption>探针工作点真实 BER_MLSE 包络：仅第 0 步 12 个 shape 维 ±ε 微扰态（gain 维解析、0 微扰） <span class="sh">· 可左右滑动</span></caption>
@@ -1253,6 +1265,7 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
     <li>gain 是第 7 个搜索维：经 drive_rms 进入 A/B 输入，在 ±0.30 dex 信任域内参与梯度，梯度把它从次优起点（×0.325）推到各环境 BER 最优倍率。</li>
     <li>改善主要来自 gain 维（第 7 维），形状（FFE/gDC/gDC2）为次要贡献：15/15 用例把 BER 从次优起点压到检测限附近（强信号）或明显下降（CD/DGD/中高插损/极端插损），包括 40 dB 总插损用例（IL20x20 到 1.20e-7、Comb_IL20x20_CD15_DGD5 到 2.39e-7）。Model B 没有否决过任何一步（只起保护作用）。</li>
     <li><strong>gain 维用解析梯度、不用割线</strong>：driver_gain 是 Tx 链末尾的标量乘子，Model A 的 8 维探针特征全部正比于 gain，故 gain 维梯度有解析闭式 <span class="mono">∂A/∂u_gain = ln(10)·Σ<sub>j</sub>(∂A/∂feat<sub>j</sub>)·feat<sub>j</sub></span>，每步用当前落点探针重算（0 试探）。shape 维（4 FFE + gDC + gDC2）用割线维持：第 0 步 12 次探针初始化后做算术更新，因此<strong>除第 0 步外不再产生 ±ε 过渡态</strong>。</li>
+    <li><strong>有回传通道时的 direct 直接梯度下降对照</strong>（6.5，同协议 2<sup>22</sup> C++）：与现役方案 12/15 用例打平（11 例同到 0 错误检测底）；IL20x20 direct 更深（5.97e-8 vs 1.20e-7——代理预测在 BER 最深段有分辨率盲区）；HighNoise_IL10x10 / Comb_IL20x20_CD15_DGD5 两例 direct 更浅（×4.3 / ×4.5——固定步长无阻尼在陡峭区域振荡、贴参数盒角落停滞）；平均实际步数 7.9 vs 15、每用例真实评估 ≈23 vs ≈28 次。<strong>端到端 BER 拿不到的默认约束下，代理路径以同量级评估成本达到直接梯度下降的同等水平，并在困难区域更稳。</strong></li>
   </ol>
 </div>
 
@@ -1260,6 +1273,11 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
 <div class="tw">
 <table>
   <tr><th>边界</th><th>表现</th><th>对策</th></tr>
+  <tr>
+    <td>无回传通道（方案前提）</td>
+    <td>在线调优拿不到收端端到端 BER，无法直接对真实目标做梯度下降</td>
+    <td>用发端可测探针训练 Model A/B 代理指方向、控风险；有回传通道时的 direct 直接梯度对照见 6.5（12/15 用例同水平，IL20x20 更深、2 个困难用例更浅）</td>
+  </tr>
   <tr>
     <td>强信号用例 BER 低于测量分辨率</td>
     <td>最优工作点真实 BER &lt; 3.6e-7（0 错误 @ 2^22 × 单种子 42，95% CL），强信号用例落在检测限之下，只能给上界而非点估计</td>
@@ -1295,10 +1313,10 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
 
 <h2 id="s9"><span class="num">9</span>复现与产物</h2>
 
-<p>部署本方案的 6 步命令与产物清单如下（展开查看完整命令）：</p>
+<p>部署本方案的完整流水线命令与产物清单如下（现役方案 7 步 + direct 对照 1 步 + 交付件 1 步；展开查看完整命令）：</p>
 
 <details class="fold">
-<summary>完整流水线：数据集 → 训练 → 标定 → 在线调优 → 报告 → 交付件</summary>
+<summary>完整流水线：数据集 → 训练 → 标定 → 验证 → 在线调优（现役 + direct 对照）→ 报告 → 交付件</summary>
 <div class="fold-body">
 
 <div class="card">
@@ -1342,6 +1360,8 @@ python cpp/run_all_cases.py --backend wsl --method direct --out-dir result/ddps_
 python cpp/compare_traces.py --py result/ddps_direct_py --cpp result/ddps_cpp_direct_equiv
 python cpp/run_all_cases.py --backend wsl --method direct --out-dir result/ddps_cpp_direct \
     --num-symbols 4194304 --n-steps 15 --jobs 2
+python report_ddps.py --test-dir result/ddps_cpp_direct --method direct \
+    --seed-config result/seed_config_bad_1e4.json
 
 # 9) 交付件
 python make_deliverable.py --baseline result/ddps_cpp_secant --model-dir models/ddps \
@@ -1361,7 +1381,7 @@ python make_deliverable.py --baseline result/ddps_cpp_secant --model-dir models/
   <tr><td>低SNR验证</td><td class="mono">result/ddps_secant_analytic_py/、result/ddps_chain_sanity/</td><td>2^18 少点数 secant(解析 gain) vs chain 收敛对比（15 用例全一致、评估量 8×）</td></tr>
   <tr><td>direct Python 参照</td><td class="mono">result/ddps_direct_py/</td><td>direct 方案 2^18 小点数低 SNR 全 15 用例验证（Python 参照侧）</td></tr>
   <tr><td>direct 等价比对</td><td class="mono">result/ddps_cpp_direct_equiv/</td><td>direct 方案 C++ 2^18 等价比对（Base_IL10x10 + IL20x20，trace 逐步最大相对差 &lt; 1e-12）</td></tr>
-  <tr><td>direct 全量结果</td><td class="mono">result/ddps_cpp_direct/</td><td>direct 方案 C++ 2^22 全 15 用例（case_summary + trace/probes + report/direct_vs_secant.png）</td></tr>
+  <tr><td>direct 全量结果</td><td class="mono">result/ddps_cpp_direct/</td><td>direct 方案 C++ 2^22 全 15 用例（case_summary + trace/probes + report/：收敛/gain·rms/最难用例图组与对现役对比图）</td></tr>
 </table>
 </div>
 
@@ -1370,7 +1390,8 @@ python make_deliverable.py --baseline result/ddps_cpp_secant --model-dir models/
 
 <h2 id="s10"><span class="num">10</span>C++ 平台与等价性</h2>
 
-<p>平台提供两套同源实现：Python（原理参照）与 C++17（一比一复刻）。两实现读同一 <span class="mono">config.xlsx</span> 配置口径、装载同一冻结模型转换产物（<span class="mono">models/ddps/model_{a,b}.json</span>，由 <span class="mono">cpp/export_models.py</span> 从 pkl 转出，不重训），在线调优结果数值等价。两实现的比对只在 2<sup>18</sup> 小点数低 SNR 口径下进行（本节 10.2~10.4 的等价性数字均出自该口径）；全量规模仿真（高 SNR 大点数）只用通过比对的 C++ 入口执行，Python 不承担高 SNR 大点数仿真。6.5 节的 direct 对比实验走同一条流水线（2^18 比对数字见 6.5 页签）；比对工具已固化为 <span class="mono">cpp/compare_traces.py</span>（本节各表同口径）。</p>
+<p>平台提供两套同源实现：Python（原理参照）与 C++17（一比一复刻）。两实现读同一 <span class="mono">config.xlsx</span> 配置口径、装载同一冻结模型转换产物（<span class="mono">models/ddps/model_{a,b}.json</span>，由 <span class="mono">cpp/export_models.py</span> 从 pkl 转出，不重训），在线调优结果数值等价。两实现的比对只在 2<sup>18</sup> 小点数低 SNR 口径下进行（本节 10.2~10.4 的等价性数字均出自该口径）；全量规模仿真（高 SNR 大点数）只用通过比对的 C++ 入口执行，Python 不承担高 SNR 大点数仿真。6.5 节的 direct 对比实验走同一条流水线；比对工具已固化为 <span class="mono">cpp/compare_traces.py</span>（本节各表同口径）。</p>
+<p><strong>构建运行环境</strong>：C++ 产物在 WSL(Ubuntu) g++ 13.3 下构建运行（<span class="mono">cpp/build_wsl.sh</span>）。本机 Windows Smart App Control 处于强制模式，拦截本地编译的无签名可执行文件（含 MinGW 工具链组件与历史产物），Linux 进程不受该策略管辖；工程 C++ 源码为纯标准 C++17、无平台相关 API，跨平台构建不影响数值行为，等价性以本节 2<sup>18</sup> 口径比对为准。</p>
 
 <h3>10.1 模块映射（一比一复刻）</h3>
 <div class="tw">
@@ -1412,29 +1433,40 @@ python make_deliverable.py --baseline result/ddps_cpp_secant --model-dir models/
 <h3>10.3 探针与代理推理</h3>
 <p>发端探针（7 抽头 Tx FIR + drive_rms）与 Model A/B 前向：<span class="mono">drive_rms</span> 相对差 ≤1e-13、<span class="mono">pred_a</span> 相对差 ≤1e-12（两平台 <span class="mono">pred_a = -5.995717769951e+00</span> 同值到第 12 位）。</p>
 
-<h3>10.4 割线在线调优等价</h3>
-<p>低SNR少点数（Base_IL10x10 + IL20x20，2<sup>18</sup> 符号，单种子 42，割线 + 解析 gain）逐轨迹对比 C++ vs Python：<span class="mono">gdc / gdc2 / gain / pred_a / pred_b / real_ber</span> 最大相对差 <strong>4.6e-13</strong>（与物理层 bit 级等价同量级，见 10.2）。两平台割线方向、gain 解析梯度、B 否决、落点序列逐位一致。</p>
-<p>高SNR大点数 15 用例泛化测试只跑 C++（见 §6）；Python 割线结果作为低SNR收敛/等价性参照。</p>
+<h3>10.4 在线调优等价</h3>
+<div class="tabs">
+  <!--EQ_TAB_BAR-->
+  <div class="tab-panel active" id="tab-eq-secant">
+    <p>低SNR少点数（Base_IL10x10 + IL20x20，2<sup>18</sup> 符号，单种子 42，割线 + 解析 gain）逐轨迹对比 C++ vs Python：<span class="mono">gdc / gdc2 / gain / pred_a / pred_b / real_ber</span> 最大相对差 <strong>4.6e-13</strong>（与物理层 bit 级等价同量级，见 10.2）。两平台割线方向、gain 解析梯度、B 否决、落点序列逐位一致。</p>
+    <p>高SNR大点数 15 用例泛化测试只跑 C++（见 §6）；Python 割线结果作为低SNR收敛/等价性参照。</p>
+  </div>
+  <!--DIRECT_EQ_PANEL-->
+</div>
 
-<h3>10.5 评估量对比（割线 vs 每步中心差分）</h3>
-<p>割线在线调优把「每步中心差分的 14 个 ±ε 试探态 + 1 落点」的真实评估量降到「第 0 步 12 个 shape 试探态 + 每步 1 落点（gain 维解析、0 试探，此后零试探态）」。同一 15 步单用例（2<sup>18</sup> 符号、单种子 42、次优起点）实测真实评估次数：</p>
-<div class="kpis">
+<h3>10.5 评估量对比（割线 / direct / 每步中心差分）</h3>
+<p>割线在线调优把「每步中心差分的 14 个 ±ε 试探态 + 1 落点」的真实评估量降到「第 0 步 12 个 shape 试探态 + 每步 1 落点（gain 维解析、0 试探，此后零试探态）」；direct（有回传通道时）为「第 0 步 7 维全测 14 试探态 + 每步 1 落点」（无解析 gain 梯度），到检测底即停、平均实际步数 7.9，全 15 用例平均每用例真实评估 ≈23 次（2<sup>22</sup> 实测均值）。割线与每步中心差分的同口径单用例对照（2<sup>18</sup> 符号、单种子 42、次优起点、15 步）实测真实评估次数：</p>
+<div class="kpis" style="grid-template-columns:repeat(4,1fr)">
   <div class="kpi"><div class="v">28 次</div><div class="l">割线（解析 gain）：1 seed + 12 初始化（shape）+ 15 落点</div></div>
+  <div class="kpi"><div class="v">≈23 次</div><div class="l">direct（2^22 全 15 用例均值）：1 seed + 14 初始化（7 维）+ 7.9 落点均值</div></div>
   <div class="kpi"><div class="v">226 次</div><div class="l">每步中心差分：1 seed + 15×15（14 试探 + 1 落点）</div></div>
-  <div class="kpi"><div class="v">8×</div><div class="l">真实评估量减少</div></div>
+  <div class="kpi"><div class="v">8×</div><div class="l">割线相对每步中心差分的评估量减少</div></div>
 </div>
 <p>单次真实 BER 评估（2<sup>22</sup> 符号）C++ 仍比 Python 快 1.80×（同一物理链，见 10.2）。15 用例 C++ 割线全量重跑（15 步）合计墙钟：<!--CXX_TOTAL_WALL-->（15 路并行，见 <span class="mono">result/ddps_cpp_secant/</span>）。</p>
 
 <h3>10.6 统一入口</h3>
 <pre><code># C++ 后端：全量在线调优（Base_IL10x10，2^22 符号，无噪声，单种子 42，次优起点，割线）
-.\cpp\build\run_ddps.exe cpp\config.txt --num-symbols 4194304 --tx-noise-snr 0 \
-    --seed 42 --n-steps 15 --seed-config result\seed_config_bad_1e4.json --method secant
+# （WSL 内运行：Linux 进程不受本机 Smart App Control 强制模式管辖，见本节开头「构建运行环境」）
+wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity ./cpp/build/run_ddps cpp/config.txt \
+    --num-symbols 4194304 --tx-noise-snr 0 \
+    --seed 42 --n-steps 15 --seed-config result/seed_config_bad_1e4.json --method secant
 
 # 快速验证：低 SNR 人为噪声 + 少点数（发端 DSP 出口 SNR=23 dB、2^14 符号）
-.\cpp\build\run_ddps.exe cpp\config.txt --num-symbols 16384 --tx-noise-snr 23 --seed 42
+wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity ./cpp/build/run_ddps cpp/config.txt \
+    --num-symbols 16384 --tx-noise-snr 23 --seed 42
 
-# 15 用例并行全量重跑（C++ 侧，割线）
-python cpp\run_all_cases.py --method secant --out-dir result/ddps_cpp_secant --jobs 15</code></pre>
+# 15 用例并行全量重跑（C++ 侧，割线；WSL 内存上限下 jobs=2）
+python cpp\run_all_cases.py --backend wsl --method secant --out-dir result/ddps_cpp_secant \
+    --num-symbols 4194304 --n-steps 15 --jobs 2</code></pre>
 
 <footer>
   <p><strong>测量口径</strong>：Python 3.11.11 / NumPy 2.4.6 / SciPy 1.17.1；BLAS 线程数固定为 1（<span class="mono">OMP_NUM_THREADS=1</span>）；
@@ -1757,7 +1789,7 @@ def _direct_cmp_figure(summary, dsum, order, out_png):
 
 
 def _build_direct_section(a, summary, order):
-    """构建 6.5 整节 HTML（结果对比 / 方案说明 / C++ 等价比对 三个页签）。
+    """构建 6.5 整节 HTML（结果对比 / 方案说明 两个页签；等价性证据在第 10 节）。
 
     数据缺失（direct 全量结果未生成）时返回空串，交付件其余部分不受影响。
     """
@@ -1818,12 +1850,6 @@ def _build_direct_section(a, summary, order):
         os.path.join(a.direct, 'report', 'direct_vs_secant.png'))
     img_tag = _img_tag(img_png)
 
-    # 等价比对表（2^18 口径，实算）
-    equiv_rows, equiv_worst = _direct_equiv_rows(a.direct_py, a.direct_equiv)
-    equiv_html = '\n'.join(equiv_rows) if equiv_rows else \
-        '<tr><td colspan="4" class="mut">（等价比对结果目录缺失）</td></tr>'
-    equiv_worst_str = f'{equiv_worst:.2e}' if equiv_rows else '（无数据）'
-
     n_evals_note = (f"每用例真实评估量：direct ≈ {evals_d}（1 种子 + 14 个第 0 步试探 + "
                     f"{int(np.mean(steps_d))} 落点均值）vs 现役 ≈ {evals_s}"
                     f"（1 种子 + 12 个试探记账 + {int(np.mean(steps_s))} 落点均值）")
@@ -1833,13 +1859,12 @@ def _build_direct_section(a, summary, order):
     real_ber_ref = _ber(_hn['best_ber']) if _hn is not None else '该区域可及的最优位'
 
     section = f'''
-<p>现役方案的假设是<strong>没有回传通道</strong>：在线调优拿不到收端端到端 BER，只能用发端可测的波形探针训练代理（Model A/B）来指方向、控风险。如果有回传通道、端到端 BER 可得呢？<strong>direct 方案</strong>回答这个问题：目标直接换成真实 log10(BER)，梯度直接对真实目标做，不用任何代理。两方案在同一协议下对比（同一次优起点、同 15 用例、2<sup>22</sup> 符号、单种子 42、同一套 C++ 复刻实现与下降机制），页签切换查看结果 / 方案 / 等价比对。</p>
+<p>现役方案的假设是<strong>没有回传通道</strong>：在线调优拿不到收端端到端 BER，只能用发端可测的波形探针训练代理（Model A/B）来指方向、控风险。如果有回传通道、端到端 BER 可得呢？<strong>direct 方案</strong>回答这个问题：目标直接换成真实 log10(BER)，梯度直接对真实目标做，不用任何代理。两方案在同一协议下对比（同一次优起点、同 15 用例、2<sup>22</sup> 符号、单种子 42、同一套 C++ 复刻实现与下降机制，收敛轨迹图对照见 6.2 页签），页签切换查看结果对比与方案说明；direct 的 C++ 等价性证据在第 10 节。</p>
 
 <div class="tabs">
   <div class="tab-bar">
     <button class="tab-btn active" data-tab="tab-direct-result">结果对比</button>
     <button class="tab-btn" data-tab="tab-direct-method">方案说明</button>
-    <button class="tab-btn" data-tab="tab-direct-equiv">C++ 等价比对</button>
   </div>
 
   <div class="tab-panel active" id="tab-direct-result">
@@ -1854,13 +1879,13 @@ def _build_direct_section(a, summary, order):
     <ul style="margin-top:6px">
       <li><strong>IL20x20（最难纯 ISI 用例）：direct 更好</strong>——真实目标把 BER 一路压到 0 错误检测底 {_ber(5.975e-8)}（11 步），现役方案停在 1.20e-7 残差位（2 倍差距）。代理预测在 BER 最深段的分辨率不足，真实目标没有这个盲区。</li>
       <li><strong>HighNoise_IL10x10：direct 更差</strong>——轨迹在两个相邻工作点间两点振荡（gdc/gdc2 交替、每步改善趋零后停止在 {real_ber_ref}）。该区域真实梯度幅值极大（grad_norm≈39），固定学习率 + 无阻尼的既定下降机制在陡峭区域来回过冲；现役方案的保守步进反而落得更深。</li>
-      <li><strong>Comb_IL20x20_CD15_DGD5：direct 更差</strong>——轨迹把 gdc2 推到下界 0、gain 推到搜索盒顶后停滞（步数用尽），终点比现役方案浅 4.5 倍；真实梯度大幅值下固定步长更容易贴边走死角。</li>
+      <li><strong>Comb_IL20x20_CD15_DGD5：direct 更差</strong>——轨迹把 gdc2 推到下界 0、gain 推到搜索盒顶后停滞（步数用尽），终点比现役方案浅 4.5 倍；真实梯度大幅值下固定步长更容易贴边走死角。终点步还出现一步回退（1e-6 → 1.3e-6 量级、仍远优于种子）——direct 落点不做否决，无 B 红线拦截此类步（现役方案的结构性保障见 6.3）。</li>
     </ul>
     <p style="margin-bottom:0">这一对照的定位：<strong>direct 不是替代方案，而是「有回传通道时直接梯度下降能达到什么水平」的参照</strong>——
     端到端 BER 拿不到时（本方案默认约束），代理路径是唯一选择；对照结果显示该约束下现役方案达到的水平与直接梯度下降的关系如上表所列，照实呈现。</p>
     <figure>
       <div class="fig-scroll"><img src="{img_tag}" alt="direct 与现役方案最优 BER 对比"></div>
-      <figcaption>图 10 · 15 用例最优 BER_MLSE 对比（对数横轴；蓝点 = 现役方案，红菱 = direct；灰线连接同一用例）。</figcaption>
+      <figcaption>图 13 · 15 用例最优 BER_MLSE 对比（对数横轴；蓝点 = 现役方案，红菱 = direct；灰线连接同一用例）。</figcaption>
     </figure>
     <div class="tw">
     <table class="wide" id="tbl-direct-cmp">
@@ -1890,9 +1915,23 @@ def _build_direct_section(a, summary, order):
       <p style="margin-bottom:0"><strong>公平性</strong>：同一次优起点（seed_config_bad_1e4）、同 15 用例、同评估协议（2<sup>22</sup> 符号、单种子 42）、同 C++ 实现、同 15 步上限；评估量 {n_evals_note}，两方案在线成本同量级。</p>
     </div>
   </div>
+</div>
+'''
+    return section
 
-  <div class="tab-panel" id="tab-direct-equiv">
-    <p>direct 与现役方案走同一条双实现流水线（见第 10 节口径）：<strong>Python 定原理 → C++ 一比一复刻 → 只在 2<sup>18</sup> 小点数低 SNR 下比对 → 通过后全量规模仿真只用 C++</strong>。direct 的 Python 参照结果（15 用例全量，<span class="mono">result/ddps_direct_py/</span>）与 C++ 等价比对结果（Base_IL10x10 + IL20x20 两代表用例，<span class="mono">result/ddps_cpp_direct_equiv/</span>）按下表逐（用例 × 步 × 数值列）实算最大相对差：</p>
+
+def _build_direct_eq_panel(a):
+    """构建 §10.4「direct 等价」页签内容（2^18 口径 Python vs C++ 实算表）。
+
+    数据目录缺失时返回空串，10.4 页签组退化为单页签。
+    """
+    equiv_rows, equiv_worst = _direct_equiv_rows(a.direct_py, a.direct_equiv)
+    if not equiv_rows:
+        return ''
+    equiv_html = '\n'.join(equiv_rows)
+    equiv_worst_str = f'{equiv_worst:.2e}'
+    return f'''
+    <p>direct 与现役方案走同一条双实现流水线（本节口径）：<strong>Python 定原理 → C++ 一比一复刻 → 只在 2<sup>18</sup> 小点数低 SNR 下比对 → 通过后全量规模仿真只用 C++</strong>。direct 的 Python 参照结果（15 用例全量，<span class="mono">result/ddps_direct_py/</span>）与 C++ 等价比对结果（Base_IL10x10 + IL20x20 两代表用例，<span class="mono">result/ddps_cpp_direct_equiv/</span>）按下表逐（用例 × 步 × 数值列）实算最大相对差：</p>
     <div class="tw">
     <table class="wide" style="margin-bottom:8px">
       <caption>direct：Python vs C++ trace 逐步数值比对（2^18 小点数低 SNR、单种子 42、无人工噪声；比对列 gdc/gdc2/gain/u_gain/drive_rms/pred_a/real_lb/real_ber/grad_norm）</caption>
@@ -1900,12 +1939,50 @@ def _build_direct_section(a, summary, order):
       {equiv_html}
     </table>
     </div>
-    <p>比对命令：<span class="mono">python cpp/compare_traces.py --py result/ddps_direct_py --cpp result/ddps_cpp_direct_equiv</span>（比对工具与判据固化在库内，全量 15 用例比对可用 <span class="mono">--envs</span> 指定）。总口径最坏相对差 <strong>{equiv_worst_str}</strong>，与现役方案的历史等价比对（~4.6e-13）同量级——差异全部来自浮点求和顺序与数学库末位，不影响任何一步的落点决策（BER 为错误计数导出量，逐步一致即逐步同数）。</p>
-    <p style="margin-bottom:0"><strong>运行环境</strong>：C++ 产物在 WSL(Ubuntu) g++ 13.3 下构建运行（<span class="mono">cpp/build_wsl.sh</span>）。本机 Windows Smart App Control 处于强制模式，拦截本地编译的无签名可执行文件（含 MinGW 工具链组件与既有 run_ddps.exe），Linux 进程不受该策略管辖；工程 C++ 源码为纯标准 C++17、无平台相关 API，跨平台构建不影响数值行为，等价性以上表 2<sup>18</sup> 比对为准。复现命令见第 9 节。</p>
-  </div>
-</div>
-'''
-    return section
+    <p style="margin-bottom:0">比对命令：<span class="mono">python cpp/compare_traces.py --py result/ddps_direct_py --cpp result/ddps_cpp_direct_equiv</span>（比对工具与判据固化在库内，全量 15 用例比对可用 <span class="mono">--envs</span> 指定）。总口径最坏相对差 <strong>{equiv_worst_str}</strong>，与现役方案的等价比对（4.6e-13，本节左页签）同量级——差异全部来自浮点求和顺序与数学库末位，不影响任何一步的落点决策（BER 为错误计数导出量，逐步一致即逐步同数）。</p>'''
+
+
+def _build_direct_fig_tabs(a, direct_section):
+    """构建 6.2 的页签栏与 direct 图组页签（图组由 report_ddps.py --method direct 生成）。
+
+    返回 (tab_bar, panel)；direct 全量结果或图组缺失时均返回空串（6.2 退化为无页签单图组）。
+    """
+    if not direct_section:
+        return '', ''
+    dreport = os.path.join(a.direct, 'report')
+    names = {'conv': 'ddps_conv_grid.png', 'gain': 'ddps_gain_rms.png', 'hard': 'ddps_case_hard.png'}
+    tags = {}
+    for k, n in names.items():
+        p = os.path.join(dreport, n)
+        tags[k] = _img_tag(p) if os.path.exists(p) else ''
+    if not any(tags.values()):
+        return '', ''
+    tab_bar = ('  <p>两套在线调优方案在<strong>同一协议</strong>（同一次优起点 x₀、同 15 用例、'
+               '2<sup>22</sup> 符号 C++、单种子 42）下的收敛与物理量轨迹，页签切换对照：</p>\n'
+               '  <div class="tab-bar">\n'
+               '    <button class="tab-btn active" data-tab="tab-fig-secant">DDPS 现役（A+B 代理，无回传通道）</button>\n'
+               '    <button class="tab-btn" data-tab="tab-fig-direct">direct（端到端 BER 直接梯度，有回传通道）</button>\n'
+               '  </div>')
+    figs = []
+    if tags['conv']:
+        figs.append(f'''    <figure>
+      <div class="fig-scroll"><img src="{tags['conv']}" alt="direct 15 用例收敛轨迹"></div>
+      <figcaption>图 10 · direct 收敛轨迹（实测 BER_MLSE，对数纵轴；虚线为起点；无代理预测曲线——目标即实测）。</figcaption>
+    </figure>''')
+    if tags['gain']:
+        figs.append(f'''    <figure>
+      <div class="fig-scroll"><img src="{tags['gain']}" alt="direct gain 与 drive_rms 轨迹"></div>
+      <figcaption>图 11 · direct gain 维轨迹：gain 倍率与 drive_rms（虚线为起点 gain 倍率 ×0.325）。</figcaption>
+    </figure>''')
+    if tags['hard']:
+        figs.append(f'''    <figure>
+      <div class="fig-scroll"><img src="{tags['hard']}" alt="direct 最难用例四联图"></div>
+      <figcaption>图 12 · direct 最难用例四联图：收敛轨迹、Tx FFE 抽头（起点 vs 最优）、Tx CTLE |H(f)| 频响、Tx 探针 7-tap FIR（发端波形特征）。</figcaption>
+    </figure>''')
+    panel = ('  <div class="tab-panel" id="tab-fig-direct">\n'
+             '    <p>目标 = 端到端真实 log10(BER)（回传值），收敛图无代理预测曲线；现役页签的预测-实测散点（图 8）是代理可靠性诊断，direct 无代理、不适用。方案机制与逐用例对照见 6.5，C++ 等价性见 10.4。</p>\n'
+             + '\n'.join(figs) + '\n  </div>')
+    return tab_bar, panel
 
 
 def main():
@@ -1993,8 +2070,16 @@ def main():
         f'<div class="kpi"><div class="v">{meta["model_b"].get("local_spacing_rho", 0):.2f}</div><div class="l">信任域颗粒度 rho</div></div>',
     ])
 
-    # direct 对比实验（6.5 节）：数据存在才渲染
+    # direct 对比实验：数据存在才渲染（6.5 对比节 + 6.2 图组页签 + 10.4 等价页签）
     direct_section = _build_direct_section(a, summary, order)
+    fig_tab_bar, fig_direct_panel = _build_direct_fig_tabs(a, direct_section)
+    direct_eq_panel = _build_direct_eq_panel(a) if direct_section else ''
+    eq_tab_bar = ''
+    if direct_eq_panel:
+        eq_tab_bar = ('  <div class="tab-bar">\n'
+                      '    <button class="tab-btn active" data-tab="tab-eq-secant">现役方案（割线 + 解析 gain）</button>\n'
+                      '    <button class="tab-btn" data-tab="tab-eq-direct">direct（端到端 BER 直接梯度）</button>\n'
+                      '  </div>')
     if direct_section:
         dsum, _ = _load_summary(a.direct)
         dorder = [e for e in order if e in dsum]
@@ -2035,6 +2120,10 @@ def main():
         '{{IMG_TRACK}}': _img_tag(img_track) if os.path.exists(img_track) else '',
         '{{IMG_CASE_HARD}}': _img_tag(hard_png) if os.path.exists(hard_png) else '',
         '<!--DIRECT_SECTION-->': direct_section,
+        '<!--FIG_TAB_BAR-->': fig_tab_bar,
+        '<!--FIG_DIRECT_PANEL-->': fig_direct_panel,
+        '<!--EQ_TAB_BAR-->': eq_tab_bar,
+        '<!--DIRECT_EQ_PANEL-->': direct_eq_panel,
     }
     for k, v in repl.items():
         html = html.replace(k, v)
