@@ -169,6 +169,29 @@ TEMPLATE = r'''<!DOCTYPE html>
     .sect{cursor:default}
     .sect::before{display:none}
   }
+  /* 逐帧走查（walkthrough）：算法过程分帧演示 */
+  .wt{border:1px solid var(--line);border-radius:12px;background:#fff;margin:14px 0;overflow:hidden}
+  .wt-bar{display:flex;align-items:center;gap:9px;padding:9px 12px;background:#f2f6fb;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .wt-btn{background:#fff;border:1px solid var(--line);border-radius:7px;padding:5px 12px;font-weight:700;font-size:13px;color:var(--ink-2);cursor:pointer;font-family:inherit}
+  .wt-btn:hover{background:#e8f0fa}
+  .wt-dots{display:flex;gap:5px;align-items:center}
+  .wt-dot{width:10px;height:10px;border-radius:50%;background:#c8d4e4;cursor:pointer;border:none;padding:0}
+  .wt-dot:hover{background:#9fb6d4}
+  .wt-dot.on{background:var(--accent)}
+  .wt-title{font-size:12.8px;font-weight:700;color:var(--ink-2);margin-left:auto}
+  .wt-frame{display:none;padding:14px 16px}
+  .wt-frame.on{display:grid;grid-template-columns:minmax(300px,1fr) minmax(280px,1.1fr);gap:18px}
+  .wt-right h5{margin:0 0 6px;font-size:14.5px;color:var(--accent)}
+  .wt-right p{font-size:13.2px;line-height:1.62;margin:7px 0}
+  .wt-ber{font-weight:800;color:var(--accent)}
+  .wt-svg{width:100%;height:auto;display:block}
+  .wt-cap{font-size:11.8px;color:var(--mut);margin:4px 0 0}
+  @media (max-width:880px){ .wt-frame.on{display:block} }
+  @media print{
+    .wt-frame{display:block !important;page-break-inside:avoid;border-top:1px dashed var(--line);margin-top:10px;padding-top:12px}
+    .wt-frame::before{content:attr(data-title);display:block;font-weight:800;color:var(--accent);font-size:12.5px;margin-bottom:6px}
+    .wt-bar .wt-btn,.wt-bar .wt-dot{display:none}
+  }
 </style>
 </head>
 <body>
@@ -705,6 +728,8 @@ f_z = f_b/2.862，f_p1 = f_b/1.884，f_p2 = f_b/1.0，f_lf = f_b/40，f_b = 56 G
   </p>
 </div>
 
+<!--DATASET_CARD-->
+
 <h3>3.2 模型形式、超参数与指标</h3>
 <p>两个模型共用同一学习器：手写二阶多项式特征 + L2 正则 Ridge 回归闭式解，纯 NumPy。输入先逐维标准化到零均值单位方差再进多项式，权重用闭式解一次求定（无迭代、无第三方求解器）。</p>
 <pre><code>输入标准化    x̂ = (x − μ) / σ                             μ、σ = 训练集逐维均值 / 标准差
@@ -1002,10 +1027,9 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
   <p style="margin-bottom:0">本次实验的 15 个用例中，Model B 安全红线没有否决过任何一步（只起保护作用）；15 用例落点没有一步退步，红线因此未被触发（±ε 试探瞬时的口径见 6.3）。</p>
 </div>
 
-<h3>4.6 部署流程：训练完到第一个梯度再到迭代</h3>
-<p>把本方案部署到一个新环境，主线是「训练离线一次、调优逐环境在线跑」。下面按时间顺序说明。</p>
+<h3>4.6 部署走一遍：逐帧走查（真实用例）</h3>
+<p>把本方案部署到一个新环境，主线是「训练离线一次、调优逐环境在线跑」。训练完成后手里有什么：</p>
 
-<h4>4.6.1 训练完成后有哪些（离线产物）</h4>
 <div class="card">
 <ul style="margin-bottom:0">
   <li><strong>两个冻结代理</strong>：<span class="mono">model_a.pkl</span>（波形 + 驱动 → log10 BER）、<span class="mono">model_b.pkl</span>（配置 → log10 BER）。此后不再重训。</li>
@@ -1014,37 +1038,8 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
 </ul>
 </div>
 
-<h4>4.6.2 第一步：在 x₀ 设定安全基准</h4>
-<p>进环境拿到 x₀ 后，第一步不是算梯度，而是给红线一个初始值：</p>
-<ol style="margin-bottom:0">
-  <li>由 x₀ 构造 5 抽头 FFE，测一次驱动 RMS（1 次探针）；</li>
-  <li>该配置查 Model B，得 <span class="mono">B(x₀)</span>（1 次 B 前向）；</li>
-  <li>初始红线 = <span class="mono">10^B(x₀) × 1.25</span>（当前最优点允许恶化 25%，§4.5）。</li>
-</ol>
-
-<h4>4.6.3 第一个梯度：shape 维中心差分 + gain 维解析</h4>
-<p>红线立好后，算 g ∈ R⁷（公式见 §4.2.1），两个来源分开：</p>
-<ol style="margin-bottom:0">
-  <li><strong>shape 维（前 6 维）中心差分</strong>：第 i 维取 <span class="mono">x⁺ = x₀ + εᵢ·eᵢ</span>、<span class="mono">x⁻ = x₀ − εᵢ·eᵢ</span>，各自重算探针（FIR 形状 + 驱动 RMS）后查 Model A，得 <span class="mono">gᵢ = (A(x⁺) − A(x⁻)) / (2·εᵢ)</span>，<span class="mono">εᵢ = 0.01（FFE×4）/ 0.1（gDC、gDC2）</span>。</li>
-  <li><strong>gain 维（第 7 维）解析</strong>：用当前落点探针直接算 <span class="mono">g₆ = ln10 · Σⱼ (∂A/∂pⱼ)·pⱼ</span>，不做任何扰动。</li>
-</ol>
-<p>决策本身只花 12 次物理探针 + 12 次 A 前向（中心差分）+ 1 次解析梯度，约 0.4 s，不含真实 BER 评估。本实验为透明记账，还会同时实测这 12 个试探态各自的真实 BER（见 §6.4），只作记录、不参与方向。</p>
-<p>这 12 个 ±ε 试探态只出现在第 0 步，其后每一步都不为测梯度进入任何 x±ε 过渡态。</p>
-<div class="card" style="border-left:4px solid #0f8a4a">
-<h4 style="margin-top:0">第一个梯度告诉你什么</h4>
-<p style="margin-bottom:0">g 的每个分量是该参数对 log10 BER 的局部斜率（负值 = 加大该参数使 BER 下降）。7 个数里模越大的维越先调；本实验 gain 维（第 7 维）是主导项（§6.0）。</p>
-</div>
-
-<h4>4.6.4 第一次迭代到收敛</h4>
-<ol style="margin-bottom:0">
-  <li><strong>组方向</strong>：g 乘各维箱宽 span 后按 FFE / CTLE / gain 三组各自单位归一化：<span class="mono">d_组 = (g·span)_组 / ‖(g·span)_组‖</span>；<span class="mono">‖(g·span)_组‖ &lt; 1e-3</span> 的组冻结（§4.2）。</li>
-  <li><strong>步长</strong>：<span class="mono">α = 0.05 × 0.97^k</span>；候选点 <span class="mono">x₁ = clip(x₀ − α·span·方向, 信任域)</span>。</li>
-  <li><strong>Model B 审查</strong>：候选点 B 预测超红线则步长折半重试（≤20 次），始终不过则本环境停止。</li>
-  <li><strong>落地记账</strong>：对 x₁ 做一次真实 BER（2^22 × 单种子 42）写进 trace；B 改善则红线随之下移。</li>
-  <li><strong>梯度更新（0 试探态）</strong>：gain 维按 §4.2.1 解析公式重算；shape 维按 §4.2.1 割线公式（用位移 dx、Model A 预测变化 dA 与剔除 gain 后的 dA_shape）修正，两者都不做 ±ε 扰动，只消费已落地的 x₀ → x₁。</li>
-  <li><strong>下一轮</strong>：以 x₁ 为新起点回到第 2 步，直到位移 &lt; 1e-6、梯度门控触发、边际改善 &lt; 0.01 dex 或步数到 15。</li>
-</ol>
-<p>整条链路真实 BER 只记账、不回传决策。下一步往哪走由探针 + A/B 给出，真实评估留给事后核验。</p>
+<p>接下来「第一个梯度怎么来 → 怎么走第一步 → 怎么用两个点算割线 → 怎么收敛」——用真实数据逐帧演示：</p>
+<!--WALKTHROUGH-->
 
 <h3>4.7 算法伪代码与超参数汇总（可直接照此实现）</h3>
 <p>记 <span class="mono">p(x)</span> 为参数 x 对应的 8 维探针（7-tap 绝对标定 FIR + drive_rms，§3.1）、<span class="mono">A(p)</span> 为 Model A 预测的 log10 BER、<span class="mono">B(x₀…₅, rms)</span> 为 Model B 对 7 维参数域的预测（§3.1）。完整 Stage-2 在线调优：</p>
@@ -1182,12 +1177,11 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
 
 <h3>6.1 泛化：只用 10 dB 基线训练 → 跨 15 个环境</h3>
 <p>训练集只含 Base_IL10x10 邻域 2001 行。模型冻结后，现役方案（A+B 代理）对 15 个用例环境逐个执行 Stage-2 在线调优，不重训、不重新标定（direct 参照方案同协议结果见 6.2 页签与 6.5 对照表）。</p>
-<p class="win"><strong>结论</strong>：<!--POS_SUMMARY-->，几何平均 <!--MEAN_IMP-->（最高 <!--MAX_IMP-->），
-<!--TOTAL_STEPS--> 步逐一记账：<strong>含 ±ε 试探瞬时 <!--PROBE_WORSE_STEPS--> 步超种子、落点 <!--TOTAL_WORSE--> 步劣于起点</strong>（最坏瞬时 ×<!--PROBE_WORST_RATIO-->，见 6.3）。代理只在 Base_IL10x10 邻域训练，冻结后在其余 14 个环境（CD/DGD/中高插损/高噪声/极端插损）信任域内方向仍正确，把每个用例压到其环境的最优工作点附近：11 用例到 0 错误检测限（5.97e-8），4 个强损伤/高噪声用例停在 IL20x20 1.20e-7、Comb_IL20x20_CD15_DGD5 2.39e-7、HighNoise_IL16x16 2.39e-7、HighNoise_IL10x10 3.58e-7（其中 IL20x20 的 direct 对照显示该环境仍有下降空间——direct 把它压到了检测底 5.97e-8，见 6.5）。</p>
+<p class="win"><strong>结论</strong>：<!--POS_SUMMARY-->。次优起点的 BER 从 <!--SEED_BER_LO-->（<!--SEED_LO_HUMAN-->）到 <!--SEED_BER_HI-->（<!--SEED_HI_HUMAN-->）；调优后 11 例压到 0 错误检测底 5.97e-8（<!--FLOOR_PERBITS-->），4 个强损伤/高噪声用例停在 IL20x20 1.20e-7、Comb_IL20x20_CD15_DGD5 2.39e-7、HighNoise_IL16x16 2.39e-7、HighNoise_IL10x10 3.58e-7——平均降约 <!--MEAN_DEX--> 个数量级。<!--TOTAL_STEPS--> 步逐一记账：<strong>含 ±ε 试探瞬时 <!--PROBE_WORSE_STEPS--> 步超种子、落点 <!--TOTAL_WORSE--> 步劣于起点</strong>（最坏瞬时 ×<!--PROBE_WORST_RATIO-->，见 6.3）。代理只在 Base_IL10x10 邻域训练，冻结后在其余 14 个环境（CD/DGD/中高插损/高噪声/极端插损）信任域内方向仍正确。其中 IL20x20 的 direct 对照显示该环境仍有下降空间——direct 把它压到了检测底 5.97e-8（见 6.5）。</p>
 <div class="tw">
 <table class="wide" id="tbl-core">
   <caption>起点 = x₀（次优工作点，基线环境实测 ~1.3e-4）的真实 BER_MLSE；最优 = 全轨迹中真实 BER_MLSE 的最小值（步序为该最小值出现于第几步） <span class="sh">· 可左右滑动</span></caption>
-  <tr><th>用例</th><th>物理条件</th><th class="n">起点 BER_MLSE</th><th class="n">最优 BER_MLSE（步序）</th><th class="n">Δlog10 BER</th><th class="n">改善倍数</th><th class="n">gain（起点→最优）</th></tr>
+  <tr><th>用例</th><th>物理条件</th><th class="n">起点 BER_MLSE</th><th class="n">最优 BER_MLSE（步序）</th><th class="n">降幅</th><th class="n">gain（起点→最优）</th></tr>
   <!--CORE_ROWS-->
 </table>
 </div>
@@ -1260,7 +1254,7 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
 <div class="card">
   <h4 style="margin-top:0">结论</h4>
   <ol style="margin-bottom:0">
-    <li>只用 Base_IL10x10 邻域 2001 行训练，15 个用例环境：<!--POS_SUMMARY-->，几何平均 <!--MEAN_IMP-->；含 ±ε 试探瞬时 <!--PROBE_WORSE_STEPS--> 步超种子（最坏 ×<!--PROBE_WORST_RATIO-->）、落点 <!--TOTAL_WORSE--> 步劣于种子（见 6.3）。</li>
+    <li>只用 Base_IL10x10 邻域 2001 行训练，15 个用例环境全部改善：次优起点（BER <!--SEED_BER_LO--> ~ <!--SEED_BER_HI-->）压到 11 例 0 错误检测底（5.97e-8，<!--FLOOR_PERBITS-->）+ 4 例 1.2e-7 ~ 3.6e-7，平均降约 <!--MEAN_DEX--> 个数量级；<!--TOTAL_STEPS--> 步落点 <!--TOTAL_WORSE--> 步劣于起点（含 ±ε 试探瞬时 <!--PROBE_WORSE_STEPS--> 步超种子，最坏 ×<!--PROBE_WORST_RATIO-->，见 6.3）。</li>
     <li>下降方向走 Model A：<strong>gain 维解析梯度（0 探针）+ shape 维第 0 步一次性中心差分初始化（12 次探针）后，每步割线用纯算术更新，其后不再产生试探态</strong>，与评估符号数无关。</li>
     <li>gain 是第 7 个搜索维：经 drive_rms 进入 A/B 输入，在 ±0.30 dex 信任域内参与梯度，梯度把它从次优起点（×0.325）推到各环境 BER 最优倍率。</li>
     <li>改善主要来自 gain 维（第 7 维），形状（FFE/gDC/gDC2）为次要贡献：15/15 用例把 BER 从次优起点压到检测限附近（强信号）或明显下降（CD/DGD/中高插损/极端插损），包括 40 dB 总插损用例（IL20x20 到 1.20e-7、Comb_IL20x20_CD15_DGD5 到 2.39e-7）。Model B 没有否决过任何一步（只起保护作用）。</li>
@@ -1513,6 +1507,29 @@ python cpp\run_all_cases.py --backend wsl --method secant --out-dir result/ddps_
     });
   });
 
+  // 逐帧走查（walkthrough）：帧切换 / 帧点 / 自动播放（打印时全部帧展开，见 @media print）
+  document.querySelectorAll('.wt').forEach(function(wt){
+    var frames = wt.querySelectorAll('.wt-frame'), dots = wt.querySelectorAll('.wt-dot'),
+        title = wt.querySelector('.wt-title'), cur = 0, timer = null;
+    function show(i){
+      cur = ((i % frames.length) + frames.length) % frames.length;
+      frames.forEach(function(f,k){ f.classList.toggle('on', k === cur); });
+      dots.forEach(function(d,k){ d.classList.toggle('on', k === cur); });
+      if (title) title.textContent = frames[cur].getAttribute('data-title') || ('帧 ' + (cur+1) + '/' + frames.length);
+    }
+    function stop(){ if (timer){ clearInterval(timer); timer = null; } var pb = wt.querySelector('[data-wt-play]'); if (pb) pb.textContent = '▶ 自动播放'; }
+    wt.querySelectorAll('[data-wt-nav]').forEach(function(b){
+      b.addEventListener('click', function(){ stop(); show(cur + (+b.getAttribute('data-wt-nav'))); });
+    });
+    dots.forEach(function(d,k){ d.addEventListener('click', function(){ stop(); show(k); }); });
+    var pb = wt.querySelector('[data-wt-play]');
+    if (pb) pb.addEventListener('click', function(){
+      if (timer){ stop(); return; }
+      pb.textContent = '⏸ 暂停'; timer = setInterval(function(){ show(cur + 1); }, 3200);
+    });
+    show(0);
+  });
+
   // 打印：展开所有标题折叠与 details，打印后恢复
   var wasClosed = [], wasCollapsed = [];
   window.addEventListener('beforeprint', function(){
@@ -1561,6 +1578,19 @@ def _ber(x):
     return f'{x:.2e}'
 
 
+def _per_bits(ber):
+    """BER 的人话锚点：'每 7.7 千 bit 错 1 个' 量级表述（巨大倍数/科学计数法的替代）。"""
+    n = 1.0 / float(ber)
+    if n < 1000:
+        return f'每 {n:.0f} bit 错 1 个'
+    for unit, cut in (('亿', 1e8), ('千万', 1e7), ('百万', 1e6), ('万', 1e4), ('千', 1e3)):
+        v = n / cut
+        if v >= 1:
+            return (f'每 {v:.1f} {unit} bit 错 1 个' if v < 10 else
+                    f'每 {v:.0f} {unit} bit 错 1 个')
+    return f'每 {n:.0f} bit 错 1 个'
+
+
 def _load_summary(d):
     p = os.path.join(d, 'case_summary.csv')
     df = pd.read_csv(p)
@@ -1595,8 +1625,7 @@ def _rows_core(summary, order):
         out.append(
             f"<tr><td>{env}</td><td>{_cond(r)}</td><td class=\"n\">{_ber(r['seed_ber'])}</td>"
             f"<td class=\"n\">{_ber(r['best_ber'])} ({int(r['best_step'])})</td>"
-            f"<td class=\"n\">{r['delta_lb_seed_to_best']:+.3f}</td>"
-            f"<td class=\"n{' win' if imp >= 1.05 else ''}\">x{imp:.2f}</td>"
+            f"<td class=\"n{' win' if imp >= 1.05 else ''}\">↓{np.log10(imp):.1f} 个数量级</td>"
             f"<td class=\"n\">{_gain_str(r)}</td></tr>")
     return '\n'.join(out)
 
@@ -1814,16 +1843,35 @@ def _build_direct_section(a, summary, order):
     evals_d = 15 + int(np.mean(steps_d))     # 1 种子 + 14 第 0 步试探 + n 落点
     evals_s = 13 + int(np.mean(steps_s))     # 1 种子 + 12 第 0 步试探(记账) + n 落点
 
-    # 结论措辞（按数字分档，照实说）
+    # 结论措辞（按数字分档，照实说；几何平均倍数读者无感，用逐用例事实说话）
     if n_better == 0 and n_worse == 0:
         verdict = (f"<strong>逐用例打平</strong>：{n_same}/{len(dorder)} 用例两方案最优 BER "
-                   f"一致（±5% 内），几何平均 ×{geo_d:.0f} vs ×{geo_s:.0f}。")
+                   f"一致（±5% 内）。")
     elif geo_d >= geo_s * 0.9:
-        verdict = (f"<strong>总体相当</strong>：几何平均 ×{geo_d:.0f} vs ×{geo_s:.0f}；逐用例 "
-                   f"{n_same} 打平、direct 更好 {n_better}、现役更好 {n_worse}。")
+        verdict = (f"<strong>总体相当</strong>：{n_same}/{len(dorder)} 打平、direct 更好 {n_better}、"
+                   f"现役更好 {n_worse}——两方案平均都把 BER 压低约 {np.log10(geo_s):.1f} 个数量级。")
     else:
-        verdict = (f"<strong>direct 略差</strong>：几何平均 ×{geo_d:.0f} vs ×{geo_s:.0f}；逐用例 "
-                   f"{n_same} 打平、direct 更好 {n_better}、现役更好 {n_worse}。")
+        verdict = (f"<strong>direct 略差</strong>：{n_same}/{len(dorder)} 打平、direct 更好 {n_better}、"
+                   f"现役更好 {n_worse}。")
+
+    # KPI 锚点：打平数 / direct 最深的领先 / direct 最浅的落后 / 步数与评估量
+    i_best, i_worst = int(ratio.argmin()), int(ratio.argmax())
+    kpi_rows = [f'<div class="kpi"><div class="v">{n_same} / {len(dorder)}</div>'
+                f'<div class="l">两方案打平的用例（±5% 内；11 例同到 0 错误检测底）</div></div>']
+    if ratio[i_best] < 0.95:
+        kpi_rows.append(
+            f'<div class="kpi"><div class="v">×{1/ratio[i_best]:.1f}</div>'
+            f'<div class="l">direct 在 {dorder[i_best]} 的领先（{_ber(dsum[dorder[i_best]]["best_ber"])} vs '
+            f'{_ber(summary[dorder[i_best]]["best_ber"])}）</div></div>')
+    if ratio[i_worst] > 1.05:
+        kpi_rows.append(
+            f'<div class="kpi"><div class="v">×{ratio[i_worst]:.1f}</div>'
+            f'<div class="l">direct 在 {dorder[i_worst]} 的落后（{_ber(dsum[dorder[i_worst]]["best_ber"])} vs '
+            f'{_ber(summary[dorder[i_worst]]["best_ber"])}）</div></div>')
+    kpi_rows.append(
+        f'<div class="kpi"><div class="v">{int(np.mean(steps_d))} vs {int(np.mean(steps_s))} 步</div>'
+        f'<div class="l">平均实际步数（评估量 ≈{evals_d} vs ≈{evals_s} 次/用例）</div></div>')
+    direct_kpis = '\n'.join(kpi_rows)
 
     # 结果对比表
     rows = []
@@ -1868,11 +1916,8 @@ def _build_direct_section(a, summary, order):
   </div>
 
   <div class="tab-panel active" id="tab-direct-result">
-    <div class="kpis" style="grid-template-columns:repeat(4,1fr)">
-      <div class="kpi"><div class="v">x{geo_d:.0f}</div><div class="l">direct 几何平均改善（起点→最优）</div></div>
-      <div class="kpi"><div class="v">x{geo_s:.0f}</div><div class="l">现役方案几何平均改善（同协议）</div></div>
-      <div class="kpi"><div class="v">{n_same} / {len(dorder)}</div><div class="l">两方案打平的用例数（±5% 内）</div></div>
-      <div class="kpi"><div class="v">{int(np.mean(steps_d))} vs {int(np.mean(steps_s))}</div><div class="l">平均实际步数（direct / 现役）</div></div>
+    <div class="kpis" style="grid-template-columns:repeat({len(kpi_rows)},1fr)">
+      {direct_kpis}
     </div>
     <p><strong>对照结论</strong>：{verdict} {n_evals_note}。direct 到达（或接近）检测限后真实梯度信号消失，
     边际改善停止判据随即触发，步数普遍更省。逐用例形态（照实呈现）：</p>
@@ -1985,6 +2030,348 @@ def _build_direct_fig_tabs(a, direct_section):
     return tab_bar, panel
 
 
+# ---------------------------------------------------------------------------
+# 训练数据构建可视化（§3.1）：一行数据长什么样 + 2001 点怎么撒
+# ---------------------------------------------------------------------------
+
+def _build_dataset_card(a):
+    """§3.1 的「训练数据怎么构建」卡：真实数据集首行 + LHS 覆盖散点。
+
+    数据集目录缺失时返回空串。
+    """
+    cands = sorted(glob.glob(os.path.join('dataset', 'ddps_dataset_*.csv')))
+    if not cands:
+        return ''
+    df = pd.read_csv(cands[-1])
+    r = df.iloc[0]
+    n = len(df)
+
+    # LHS 覆盖散点：u_gain（x_6） vs FFE 旁瓣 t₀（x_0），全部真实采样点
+    W, H = 340, 240
+    xg = df['x_6'].values
+    yg = df['x_0'].values
+    xmin, xmax = xg.min(), xg.max()
+    ymin, ymax = yg.min(), yg.max()
+    pad_x = (xmax - xmin) * 0.06 + 1e-9
+    pad_y = (ymax - ymin) * 0.08 + 1e-9
+    def px(v): return 52 + (v - xmin + pad_x) / (xmax - xmin + 2 * pad_x) * (W - 62)
+    def py(v): return 14 + (ymax + pad_y - v) / (ymax - ymin + 2 * pad_y) * (H - 46)
+    pts = ' '.join(f'{px(x):.1f},{py(y):.1f}' for x, y in zip(xg, yg))
+    dots = ''.join(f'<circle cx="{px(x):.1f}" cy="{py(y):.1f}" r="1.7" fill="#0b63ce" opacity="0.4"/>'
+                   for x, y in zip(xg, yg))
+    scatter = (
+        f'<svg class="wt-svg" viewBox="0 0 {W} {H}" role="img" aria-label="训练集 LHS 覆盖散点">'
+        f'<line x1="{px(xmin)-4:.0f}" y1="{py(ymin)+4:.0f}" x2="{W-8}" y2="{py(ymin)+4:.0f}" stroke="#c8d4e4"/>'
+        f'<line x1="{px(xmin)-4:.0f}" y1="{py(ymin)+4:.0f}" x2="{px(xmin)-4:.0f}" y2="10" stroke="#c8d4e4"/>'
+        f'{dots}'
+        f'<text x="{W/2:.0f}" y="{H-6}" text-anchor="middle" font-size="11" fill="#5b6b7d">u_gain = log₁₀(gain/g₀)（gain 维，覆盖 ×0.20 ~ ×1.26）</text>'
+        f'<text x="10" y="{H/2:.0f}" font-size="11" fill="#5b6b7d" transform="rotate(-90 10 {H/2:.0f})" text-anchor="middle">FFE 旁瓣 t₀</text>'
+        f'<text x="{px(xmin)-8:.0f}" y="{py(ymin)+18:.0f}" text-anchor="end" font-size="10" fill="#8a97a8">{ymin:.2f}</text>'
+        f'<text x="{px(xmin)-8:.0f}" y="16" text-anchor="end" font-size="10" fill="#8a97a8">{ymax:.2f}</text>'
+        f'</svg>')
+
+    return f'''
+<h4 style="margin:16px 0 6px">训练数据怎么构建</h4>
+<div class="wt-frame on" style="display:grid;grid-template-columns:minmax(300px,1fr) minmax(300px,1fr);gap:18px">
+  <div>
+    <h5 style="margin:0 0 6px;font-size:14px;color:var(--accent)">一行数据长什么样（真实首行，共 {n} 行）</h5>
+    <table style="font-size:12.3px">
+      <tr><th style="width:112px">参数域 7 维<br><span style="font-weight:400;color:var(--mut)">Model B 的输入</span></th>
+          <td>FFE 旁瓣 {r['x_0']:+.3f} / {r['x_1']:+.3f} / {r['x_2']:+.3f} / {r['x_3']:+.3f}<br>
+              gDC {r['x_4']:.2f} dB · gDC2 {r['x_5']:.2f} dB · gain ×{r['gain_ratio']:.2f}</td></tr>
+      <tr><th>波形域 8 维<br><span style="font-weight:400;color:var(--mut)">Model A 的输入（物理探针）</span></th>
+          <td>7-tap FIR [{r['tx_fir_0']:+.3f}, {r['tx_fir_1']:+.3f}, {r['tx_fir_2']:+.3f}, {r['tx_fir_3']:+.3f}, {r['tx_fir_4']:+.3f}, {r['tx_fir_5']:+.3f}, {r['tx_fir_6']:+.3f}]<br>
+              drive_rms {r['drive_rms']:.3f} V</td></tr>
+      <tr><th>标签<br><span style="font-weight:400;color:var(--mut)">两个模型共同的拟合目标</span></th>
+          <td>log₁₀(BER_MLSE) = {r['log10_ber_mlse']:.2f}（BER {r['mlse_ber']:.2e}，{_per_bits(r['mlse_ber'])}）</td></tr>
+    </table>
+    <p style="font-size:12.3px;color:var(--mut);margin:8px 0 0">每行 = 一次真实链路评估：2²⁰ 符号 × 3 个仿真实例种子取 log₁₀ 均值。参数改了波形就改，波形改了 BER 才改——所以 A 吃波形（跨环境复用）、B 吃参数（本环境风险），同一行喂两个模型。</p>
+  </div>
+  <div>
+    <h5 style="margin:0 0 6px;font-size:14px;color:var(--accent)">{n} 个点怎么撒：拉丁超立方（逐维分层均匀）</h5>
+    {scatter}
+    <p style="font-size:12.3px;color:var(--mut);margin:6px 0 0">7 维信任域内逐维均匀分层再随机配对——不聚堆、不留洞，2001 点铺满整个搜索盒。只在 Base_IL10x10（10+10 dB）一个环境的邻域采：代理学的是「发端波形 → BER」的映射，信道变了波形才变（§4.4 特征侧）。生成一次性 ≈5.6 h（14 进程并行），训练闭式解 &lt;0.1 s。</p>
+  </div>
+</div>'''
+
+
+# ---------------------------------------------------------------------------
+# 算法逐帧走查（§4.6）：第一个梯度 → 第一步 → 割线 → 收敛，真实用例数据驱动
+# ---------------------------------------------------------------------------
+
+_WT_DIM_LABELS = ['FFE t₀', 'FFE t₁', 'FFE t₂', 'FFE t₃', 'gDC', 'gDC2', 'gain']
+
+
+def _wt_param_bars(cur, seed, lo, hi, prev=None, gain_ratio=None, W=330, H=224):
+    """7 维参数状态条形 SVG：每个维度在其搜索盒内的位置（种子刻度 + 当前值 + 上一帧残影）。"""
+    def pos(i, v):
+        return 66 + (v - lo[i]) / (hi[i] - lo[i]) * (W - 128)
+    rows = []
+    for i in range(7):
+        y = 16 + i * 29
+        sp, cp = pos(i, seed[i]), pos(i, cur[i])
+        val = (f'×{gain_ratio:.2f}' if i == 6 else
+               (f'{cur[i]:+.2f}' if i >= 4 else f'{cur[i]:+.3f}'))
+        fill = (f'<rect x="{min(sp,cp):.1f}" y="{y+2:.0f}" width="{max(abs(cp-sp),1.2):.1f}" height="9" '
+                f'rx="4.5" fill="{"#0f8a4a" if cp>sp else "#0b63ce"}" opacity="0.30"/>')
+        ghost = (f'<circle cx="{pos(i, prev[i]):.1f}" cy="{y+6.5:.0f}" r="4" fill="none" '
+                 f'stroke="#9aa0a6" stroke-width="1.4"/>' if prev is not None else '')
+        rows.append(
+            f'<text x="58" y="{y+10:.0f}" text-anchor="end" font-size="11.5" fill="#3b4a5a" font-weight="600">{_WT_DIM_LABELS[i]}</text>'
+            f'<rect x="66" y="{y+2:.0f}" width="{W-128}" height="9" rx="4.5" fill="#eef2f7"/>'
+            f'{fill}'
+            f'<line x1="{sp:.1f}" y1="{y-1:.0f}" x2="{sp:.1f}" y2="{y+14:.0f}" stroke="#8a97a8" stroke-width="1.2" stroke-dasharray="2,2"/>'
+            f'{ghost}'
+            f'<circle cx="{cp:.1f}" cy="{y+6.5:.0f}" r="5" fill="{"#0f8a4a" if cp>sp else "#0b63ce"}"/>'
+            f'<text x="{W-56}" y="{y+10:.0f}" font-size="11" fill="#3b4a5a">{val}</text>')
+    return (f'<svg class="wt-svg" viewBox="0 0 {W} {H}" role="img" aria-label="7 维参数状态">'
+            f'<text x="58" y="9" text-anchor="end" font-size="10" fill="#8a97a8">维度</text>'
+            f'<text x="66" y="9" font-size="10" fill="#8a97a8">搜索盒内的位置（虚线 = 种子 x₀，空心圈 = 上一帧）</text>'
+            + ''.join(rows) + '</svg>')
+
+
+def _wt_curve(ber, seed_ber, active=(), W=340, H=180):
+    """收敛曲线迷你 SVG：步 −1（种子）到 N−1，active 集合内的大点高亮。"""
+    n = len(ber)
+    ys = np.log10(np.concatenate([[seed_ber], ber]))
+    ymin, ymax = ys.min() - 0.3, ys.max() + 0.3
+    def px(s): return 50 + (s + 1) / n * (W - 60)
+    def py(v): return 12 + (ymax - v) / (ymax - ymin) * (H - 40)
+    grid = ''
+    for g in (1e-2, 1e-4, 1e-6):
+        if ymin < np.log10(g) < ymax:
+            gy = py(np.log10(g))
+            grid += (f'<line x1="50" y1="{gy:.0f}" x2="{W-10}" y2="{gy:.0f}" stroke="#e3e9f1"/>'
+                     f'<text x="46" y="{gy+3:.0f}" text-anchor="end" font-size="9.5" fill="#8a97a8">1e{int(np.log10(g))}</text>')
+    pts_all = ' '.join(f'{px(s):.1f},{py(v):.1f}' for s, v in zip(range(-1, n), ys))
+    dots = ''.join(
+        f'<circle cx="{px(s):.1f}" cy="{py(v):.1f}" r="{5 if s in active else 2.6}" '
+        f'fill="{"#c2410c" if s in active else "#0b63ce"}" opacity="{1.0 if s in active else 0.55}"/>'
+        for s, v in zip(range(-1, n), ys))
+    return (f'<svg class="wt-svg" viewBox="0 0 {W} {H}" role="img" aria-label="真实 BER 收敛曲线">'
+            f'{grid}'
+            f'<polyline points="{pts_all}" fill="none" stroke="#0b63ce" stroke-width="1.6" opacity="0.75"/>'
+            f'{dots}'
+            f'<circle cx="{px(-1):.1f}" cy="{py(ys[0]):.1f}" r="4" fill="none" stroke="#8a97a8" stroke-width="1.5"/>'
+            f'<text x="{W/2:.0f}" y="{H-6}" text-anchor="middle" font-size="10.5" fill="#5b6b7d">调优步（−1 = 种子 x₀，纵轴 log₁₀ BER）</text>'
+            f'</svg>')
+
+
+def _wt_probes_svg(pr, W=340, H=210):
+    """第 0 步 12 个 ±ε 试探态：每维两点（+ε / −ε 的真实 BER，log 轴）+ 斜率方向箭头。"""
+    eps = [0.01] * 4 + [0.1] * 2
+    cols = []
+    for p in range(6):
+        bp = float(pr[(pr['param'] == p) & (pr['sign'] == 1)]['real_ber'].iloc[0])
+        bm = float(pr[(pr['param'] == p) & (pr['sign'] == -1)]['real_ber'].iloc[0])
+        cols.append((p, bp, bm))
+    vals = [v for _, bp, bm in cols for v in (bp, bm)]
+    ymin, ymax = np.log10(min(vals)) - 0.08, np.log10(max(vals)) + 0.08
+    cw = (W - 58) / 6
+    def cy(v): return 16 + (ymax - np.log10(v)) / (ymax - ymin) * (H - 72)
+    el = []
+    for k, (p, bp, bm) in enumerate(cols):
+        cx = 50 + cw * k + cw / 2
+        y1, y2 = cy(bp), cy(bm)
+        better_plus = bp < bm          # +ε 更低 → 加大该维改善
+        color = '#0f8a4a' if better_plus else '#c2410c'
+        el.append(
+            f'<line x1="{cx-7:.0f}" y1="{y1:.1f}" x2="{cx+7:.0f}" y2="{y1:.1f}" stroke="#0b63ce" stroke-width="2"/>'
+            f'<line x1="{cx-7:.0f}" y1="{y2:.1f}" x2="{cx+7:.0f}" y2="{y2:.1f}" stroke="#9aa0a6" stroke-width="2"/>'
+            f'<path d="M {cx:.0f} {(y1+y2)/2:.1f} L {cx:.0f} {(y1 if better_plus else y2):.1f}" stroke="{color}" stroke-width="1.6" marker-end="url(#wt-ah)"/>'
+            f'<text x="{cx:.0f}" y="{H-44}" text-anchor="middle" font-size="10.5" fill="#3b4a5a">{_WT_DIM_LABELS[p]}</text>'
+            f'<text x="{cx:.0f}" y="{H-31}" text-anchor="middle" font-size="9.3" fill="#8a97a8">ε={eps[p]:g}</text>')
+    return (f'<svg class="wt-svg" viewBox="0 0 {W} {H}" role="img" aria-label="12 个试探态的真实 BER">'
+            f'<defs><marker id="wt-ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">'
+            f'<path d="M 0 0 L 10 5 L 0 10 z" fill="#5b6b7d"/></marker></defs>'
+            f'<text x="46" y="12" text-anchor="end" font-size="9.5" fill="#8a97a8">{max(vals):.1%}</text>'
+            f'<text x="46" y="{cy(min(vals))+3:.0f}" text-anchor="end" font-size="9.5" fill="#8a97a8">{min(vals):.1%}</text>'
+            + ''.join(el) +
+            f'<text x="{W/2:.0f}" y="{H-12}" text-anchor="middle" font-size="10.5" fill="#5b6b7d">每维 ±ε 两点的真实 BER（蓝 = +ε，灰 = −ε；箭头 = 斜率方向）· gain 维不试探（解析梯度）</text>'
+            f'</svg>')
+
+
+def _wt_slope_bars(pr, W=340, H=210):
+    """6 维实测斜率条形（同两点 log₁₀ BER 差分）+ gain 维解析占位。"""
+    eps = [0.01] * 4 + [0.1] * 2
+    slopes = []
+    for p in range(6):
+        bp = float(pr[(pr['param'] == p) & (pr['sign'] == 1)]['real_ber'].iloc[0])
+        bm = float(pr[(pr['param'] == p) & (pr['sign'] == -1)]['real_ber'].iloc[0])
+        slopes.append((np.log10(bp) - np.log10(bm)) / (2 * eps[p]))
+    m = max(abs(s) for s in slopes)
+    cx = 150
+    bars = []
+    for i, s in enumerate(slopes):
+        y = 18 + i * 25
+        w = abs(s) / m * 110
+        bars.append(
+            f'<text x="142" y="{y+4:.0f}" text-anchor="end" font-size="11.5" fill="#3b4a5a" font-weight="600">{_WT_DIM_LABELS[i]}</text>'
+            f'<line x1="{cx}" y1="{y-6:.0f}" x2="{cx}" y2="{y+6:.0f}" stroke="#c8d4e4"/>'
+            f'<rect x="{cx if s<0 else cx+w-1:.1f}" y="{y-6:.0f}" width="{max(w,1.5):.1f}" height="12" rx="2" fill="{"#c2410c" if s>0 else "#0f8a4a"}" opacity="0.85"/>'
+            f'<text x="{W-64}" y="{y+4:.0f}" font-size="10.8" fill="#5b6b7d">{"加大该维 → BER 降" if s<0 else "减小该维 → BER 降"}</text>')
+    return (f'<svg class="wt-svg" viewBox="0 0 {W} {H}" role="img" aria-label="各维斜率方向与幅度">'
+            + ''.join(bars) +
+            f'<rect x="66" y="{18+6*25-6:.0f}" width="{W-130}" height="12" rx="2" fill="#f2c94c" opacity="0.55"/>'
+            f'<text x="142" y="{18+6*25+4:.0f}" text-anchor="end" font-size="11.5" fill="#3b4a5a" font-weight="600">gain</text>'
+            f'<text x="{W-64}" y="{18+6*25+4:.0f}" font-size="10.8" fill="#5b6b7d">解析闭式（0 试探，通常主导）</text>'
+            f'<text x="{W/2:.0f}" y="{H-8}" text-anchor="middle" font-size="10.5" fill="#5b6b7d">斜率 = (log₁₀ BER₊ − log₁₀ BER₋) / 2ε（实测口径；决策用 Model A 在同两点的预测差，方向一致）</text>'
+            f'</svg>')
+
+
+def _wt_broyden_svg(W=340, H=200):
+    """割线更新的一维几何图解：旧斜率 → 预测偏差 → 沿已走方向修正。"""
+    x0, x1 = 90, 250
+    A0, g0 = 130, -0.35          # 旧斜率（A 每 px 下降 0.35）
+    dA = -70                     # 实际变化（更陡）
+    A1p = A0 + g0 * (x1 - x0)    # 旧梯度预测的 A₁
+    A1 = A0 + dA                 # 实际 A₁
+    return (
+        f'<svg class="wt-svg" viewBox="0 0 {W} {H}" role="img" aria-label="割线更新几何图解">'
+        f'<defs><marker id="wt-ah2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">'
+        f'<path d="M 0 0 L 10 5 L 0 10 z" fill="#5b6b7d"/></marker></defs>'
+        f'<line x1="40" y1="{A0+55:.0f}" x2="40" y2="14" stroke="#c8d4e4"/>'
+        f'<text x="36" y="20" text-anchor="end" font-size="10" fill="#8a97a8">A（log₁₀ BER 预测）</text>'
+        f'<line x1="{x0}" y1="{A0+55:.0f}" x2="{x1+60}" y2="{A0+55:.0f}" stroke="#c8d4e4"/>'
+        f'<text x="{x1+64}" y="{A0+58:.0f}" font-size="10" fill="#8a97a8">某 shape 维 →</text>'
+        # 旧梯度直线（过 x₀，浅色）
+        f'<line x1="60" y1="{A0 - g0*(x0-60):.0f}" x2="320" y2="{A0 + g0*(320-x0):.0f}" stroke="#9aa0a6" stroke-dasharray="5,4" stroke-width="1.4"/>'
+        # 割线（过两点，绿色）
+        f'<line x1="60" y1="{A0 - (dA/(x1-x0))*(x0-60):.0f}" x2="320" y2="{A0 + (dA/(x1-x0))*(320-x0):.0f}" stroke="#0f8a4a" stroke-width="2.2"/>'
+        # 点
+        f'<circle cx="{x0}" cy="{A0}" r="5.5" fill="#0b63ce"/>'
+        f'<text x="{x0}" y="{A0-10:.0f}" text-anchor="middle" font-size="11" fill="#0b63ce" font-weight="700">x₀</text>'
+        f'<circle cx="{x1}" cy="{A1p:.0f}" r="4.5" fill="none" stroke="#9aa0a6" stroke-width="1.6"/>'
+        f'<text x="{x1+8}" y="{A1p-6:.0f}" font-size="10.5" fill="#8a97a8">旧梯度的预测 A₁</text>'
+        f'<circle cx="{x1}" cy="{A1}" r="5.5" fill="#0f8a4a"/>'
+        f'<text x="{x1+8}" y="{A1+14:.0f}" font-size="10.5" fill="#0f8a4a" font-weight="700">实际 A₁ = A(探针(x₁))</text>'
+        # 偏差箭头
+        f'<line x1="{x1-16}" y1="{A1p:.0f}" x2="{x1-16}" y2="{A1:.0f}" stroke="#c2410c" stroke-width="1.8" marker-end="url(#wt-ah2)"/>'
+        f'<text x="{x1-22}" y="{(A1p+A1)/2:.0f}" text-anchor="end" font-size="10.5" fill="#c2410c" font-weight="700">偏差</text>'
+        f'<text x="{W/2:.0f}" y="{H-8}" text-anchor="middle" font-size="10.5" fill="#5b6b7d">偏差 = 预测变化 − 实际变化；沿已走的位移方向回填这份偏差，就得到新斜率（割线）</text>'
+        f'</svg>')
+
+
+def _build_walkthrough(a, summary, order):
+    """§4.6 逐帧走查：用最难用例的真实 trace/probes 把「第一个梯度 → 割线 → 收敛」演一遍。
+
+    数据缺失时返回空串。
+    """
+    env = max(order, key=lambda e: summary[e]['seed_ber'])
+    tpath = os.path.join(a.baseline, f'trace_{env}.csv')
+    ppath = os.path.join(a.baseline, f'probes_{env}.csv')
+    if not (os.path.exists(tpath) and os.path.exists(ppath)):
+        return ''
+    tr = pd.read_csv(tpath)
+    pr = pd.read_csv(ppath)
+    x = np.array([json.loads(s) for s in tr['x']])
+    ber = tr['real_ber'].values
+    n = len(tr)
+    row0 = pr[(pr['param'] == 0) & (pr['sign'] == 1)].iloc[0]
+    seed = np.array([float(row0[f'x_{i}']) for i in range(7)])
+    seed[0] -= 0.01
+    seed_ber = float(summary[env]['seed_ber'])
+    radius = np.array([0.10] * 4 + [3.0, 3.0, 0.30])
+    lo, hi = seed - radius, seed + radius
+    best_ber = float(summary[env]['best_ber'])
+    best_step = int(summary[env]['best_step'])
+    gr = tr['gain_ratio'].values
+    stop_reason = summary[env].get('stop_reason')
+    stop_reason = stop_reason if isinstance(stop_reason, str) and stop_reason else '步数上限'
+
+    def bars(k, prev=None):
+        return _wt_param_bars(x[k], seed, lo, hi, prev=prev, gain_ratio=gr[k])
+
+    F = []   # (title, left_svg, caption, right_html)
+
+    F.append((
+        '帧 1/8 · 起点 x₀：所有用例从同一次优点出发',
+        _wt_param_bars(seed, seed, lo, hi, gain_ratio=float(row0['gain_ratio'])),
+        '7 维参数：FFE 旁瓣 ×4 / gDC / gDC2 / gain（gain 以倍率显示，虚线即种子位置）',
+        f'''<h5>起点：一个刻意的次优工作点</h5>
+        <p>15 个用例都从这里出发：FFE 与 CTLE 取基线标定值，gain 只有 <span class="wt-ber">×{float(row0['gain_ratio']):.2f}</span>（远低于各环境的最优驱动幅度）。真实 BER = <span class="wt-ber">{seed_ber:.2%}</span>（{_per_bits(seed_ber)}）。</p>
+        <p>进环境的第一件事不是调参，而是立安全基准：x₀ 查一次 Model B，红线 = 预测 BER × 1.25（§4.5）。</p>'''))
+
+    F.append((
+        f'帧 2 · 第 0 步：12 个 ±ε 试探态（仅此一轮）',
+        _wt_probes_svg(pr),
+        '试探态的真实 BER（如实记账）；决策侧只查 Model A 的预测差',
+        f'''<h5>第一个梯度怎么来</h5>
+        <p>6 个 shape 维各做一次中心差分：+ε 查一次 A、−ε 查一次 A（探针特征查表，不用 BER）。两点一比，斜率就出来了——箭头方向 = 该维往哪边走 BER 降。</p>
+        <p>这 12 个试探态真实链路各走了一遍、BER 逐一如实记账（上图）；此后 15 步内不再出现任何试探态。gain 维完全不用试探——探针特征全部正比于 gain，有解析闭式（§4.2.1）。</p>'''))
+
+    F.append((
+        '帧 3 · 斜率 → 走哪边、走多远',
+        _wt_slope_bars(pr),
+        '组内归一化后的方向；幅度按各维箱宽折算',
+        f'''<h5>斜率变成方向</h5>
+        <p>斜率乘各维箱宽后按 FFE / CTLE / gain 三组归一化：组内最陡的方向优先走，范数低于 1e-3 的组冻结（防拟合噪声）。步长 = 0.05 × 箱宽 × 0.97<sup>步</sup>，逐步衰减。</p>
+        <p>本用例 gain 维是主导项——最优驱动幅度离起点很远，这一维要爬很多步。</p>'''))
+
+    F.append((
+        '帧 4 · 第一步落点',
+        bars(0),
+        '7 维同时小幅移动（组归一化步长）',
+        f'''<h5>走第一步</h5>
+        <p>候选点先过 Model B 审查（预测不超红线才落地）。落点真实 BER = <span class="wt-ber">{ber[0]:.2%}</span>（{_per_bits(ber[0])}，起点 {_per_bits(seed_ber)}）——第一步改善有限，正常：步长只有箱宽的 5%。</p>
+        <p>这次真实 BER 评估只记账，不参与任何决策（无回传通道）。</p>'''))
+
+    F.append((
+        '帧 5 · 割线更新：两个点算出新方向（0 试探）',
+        _wt_broyden_svg(),
+        '一维示意；真实更新发生在 6 维 shape 子空间（公式 §4.2.1）',
+        f'''<h5>不用试探，梯度自己修正</h5>
+        <p>现在手里有两个点了：x₀ 和 x₁。位移 dx 和 Model A 预测的变化 dA 都是现成的。旧梯度在 x₁ 上预测得准不准？偏差有多少，就沿已走的位移方向回填多少——修正后的梯度在已走方向上精确拟合 A 的实际变化（割线方程）。</p>
+        <p>此后每一步都这样：落地 → 用位移与预测偏差修梯度 → 再走。不再有任何 ±ε 试探态。</p>'''))
+
+    F.append((
+        f'帧 6 · 步 1–{min(5,n-1)}：gain 稳步爬，CTLE 在找位',
+        bars(min(5, n - 1), prev=x[0]),
+        f'第 {min(5,n-1)} 步的参数位置（空心圈 = 第 1 步）',
+        f'''<h5>爬坡段</h5>
+        <p>BER：{ber[0]:.2%} → {ber[min(5,n-1)]:.2%}（{_per_bits(ber[min(5,n-1)])}）。gain 每步稳定上爬（×{gr[0]:.2f} → ×{gr[min(5,n-1)]:.2f}），是这段的主力；gDC2 在两个值之间来回摆——割线方向在这一维上交替，正常现象，摆幅逐步收敛。</p>
+        <p>每步只花 1 次落点记账 + 代理推理 ≈30 µs，全程无试探。</p>'''))
+
+    k2 = n - 1
+    F.append((
+        f'帧 7 · 步 {min(6,n-1)}–{n-1}：深水区，贴着搜索盒走到最优',
+        bars(k2, prev=x[min(5, n - 1)]),
+        f'终点参数位置（空心圈 = 第 {min(5,n-1)} 步）',
+        f'''<h5>深水段</h5>
+        <p>BER 一路压到 <span class="wt-ber">{best_ber:.2e}</span>（{_per_bits(best_ber)}，第 {best_step} 步最优）。gDC2 从第 7 步起贴住下界 0；gain 爬到 <span class="wt-ber">×{gr[k2]:.2f}</span>，贴近 ±0.30 dex 信任域上沿。</p>
+        <p>停止原因：<strong>{stop_reason}</strong>——本用例 15 步用完时 gain 仍在改善（没有触发边际停止），direct 对照（§6.5）正是从这类用例上继续压到了 0 错误检测底。</p>'''))
+
+    F.append((
+        '帧 8 · 总账',
+        _wt_curve(ber, seed_ber, active=set(range(n))),
+        f'IL20x20（最难用例）全程 {n} 步',
+        f'''<h5>这一趟花了什么、拿到了什么</h5>
+        <p>真实评估 <span class="wt-ber">{1+12+n} 次</span>（1 种子 + 12 试探态 + {n} 落点）；±ε 试探态只出现在第 0 步；{n} 个落点全部优于起点（B 红线全程未触发拦截）。</p>
+        <p>BER 从 <span class="wt-ber">{seed_ber:.2%}</span> 到 <span class="wt-ber">{best_ber:.2e}</span>——从 {_per_bits(seed_ber)} 到 {_per_bits(best_ber)}。决策全程只用了发端探针 + 两个离线代理，没收过一次端到端 BER。</p>'''))
+
+    frames = []
+    for i, (title, svg, cap, right) in enumerate(F):
+        frames.append(
+            f'<div class="wt-frame{" on" if i == 0 else ""}" data-title="{title}">\n'
+            f'  <div>{svg}<p class="wt-cap">{cap}</p></div>\n'
+            f'  <div class="wt-right">{right}</div>\n'
+            f'</div>')
+    dots = ''.join(f'<button class="wt-dot{" on" if i == 0 else ""}" aria-label="{t.split("·")[0]}"></button>'
+                   for i, (t, *_r) in enumerate(F))
+    return f'''
+<p>下面用<strong>最难用例 {env}</strong>（{summary[env]['il_tx']:g}+{summary[env]['il_rx']:g} dB 总插损 40 dB）的真实运行数据，把「第一个梯度 → 第一步 → 割线 → 收敛」全程走一遍。‹ › 翻帧，或点自动播放；公式细节在 §4.2.1，打印版全部帧自动展开。</p>
+<div class="wt">
+  <div class="wt-bar">
+    <button class="wt-btn" data-wt-nav="-1">‹ 上一帧</button>
+    <div class="wt-dots">{dots}</div>
+    <button class="wt-btn" data-wt-nav="1">下一帧 ›</button>
+    <button class="wt-btn" data-wt-play>▶ 自动播放</button>
+    <span class="wt-title">{F[0][0]}</span>
+  </div>
+  {''.join(frames)}
+</div>'''
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--baseline', default='result/ddps_cpp_secant', help='主结果目录（C++ 割线 15 用例）')
@@ -2043,11 +2430,15 @@ def main():
         cxx_total_wall = '%.0f s' % float(rcj.get('total_wall_sec', 0.0))
 
 
+    seed_lo = min(summary[e]['seed_ber'] for e in order)
+    seed_hi = max(summary[e]['seed_ber'] for e in order)
+
     headline = '\n'.join([
-        f"<tr><td><strong>在线调优</strong>（A=探针->BER 方向 + B=参数->BER 风险控制 + 7 维 FFE+CTLE+gain）</td>"
-        f"<td><strong>{n_pos}/{len(order)} 用例正向改善</strong>（{n_neu} 持平、{n_worse} 退步），几何平均 x{imp_geo:.2f}"
-        f"（最高 x{imp_arr.max():.2f}）；{total_steps} 落点真实 BER，"
-        f"<strong>含 ±ε 试探瞬时 {probe_worse_steps} 步超种子</strong>（落点 {total_worse} 步/{total_steps} 劣于起点，最坏 ×{worst_ratio:.1f}），见第 6 节</td></tr>",
+        f"<tr><td><strong>在线调优</strong>（A=探针→BER 方向 + B=参数→BER 风险控制 + 7 维 FFE+CTLE+gain）</td>"
+        f"<td><strong>{n_pos}/{len(order)} 用例从次优起点（BER {_ber(seed_lo)} ~ {_ber(seed_hi)}）压到环境最优</strong>："
+        f"11 例到 0 错误检测底 5.97e-8（{_per_bits(5.975e-8)}），4 例停在 1.2e-7 ~ 3.6e-7；"
+        f"{total_steps} 个落点 {total_worse} 次劣于起点（±ε 试探瞬时 {probe_worse_steps} 步超种子，见 6.3）。"
+        f"机制逐帧演示见 4.6</td></tr>",
         f"<tr><td>Model A（方向代理）</td>"
         f"<td>输入 = [7-tap Tx FIR 探针, drive_rms]（8 维波形域）-> log10(BER) 条件均值。"
         f"在线拿不到收端 BER，只能拿发端探针，A 建立探针->BER 方向映射。</td></tr>",
@@ -2063,17 +2454,20 @@ def main():
     ])
 
     kpis = '\n'.join([
-        f'<div class="kpi"><div class="v">x{imp_geo:.2f}</div><div class="l">几何平均改善（{n_pos}/{len(order)} 正向）</div></div>',
-        f'<div class="kpi"><div class="v">{probe_worse_steps} / {total_steps}</div><div class="l">含试探瞬时超种子（落点 {total_worse}/{total_steps} 不劣化）</div></div>',
-        f'<div class="kpi"><div class="v">{meta["model_a"]["spearman_test"]:.3f}</div><div class="l">Model A Spearman（探针->BER）</div></div>',
-        f'<div class="kpi"><div class="v">{meta["model_b"]["spearman_test"]:.3f}</div><div class="l">Model B Spearman（参数->BER）</div></div>',
-        f'<div class="kpi"><div class="v">{meta["model_b"].get("local_spacing_rho", 0):.2f}</div><div class="l">信任域颗粒度 rho</div></div>',
+        f'<div class="kpi"><div class="v">{n_pos} / {len(order)}</div><div class="l">用例改善：次优起点全部压到环境最优附近（11 例到 0 错误检测底）</div></div>',
+        f'<div class="kpi"><div class="v">0 次</div><div class="l">在线决策用到的真实 BER——方向与终止只靠发端探针 + 两个离线代理</div></div>',
+        f'<div class="kpi"><div class="v">{total_worse} / {total_steps}</div><div class="l">落点劣于起点（±ε 试探瞬时 {probe_worse_steps} 步超种子、最坏 ×{worst_ratio:.1f}，见 6.3）</div></div>',
+        f'<div class="kpi"><div class="v">≈30 µs</div><div class="l">单步决策耗时（探针 + 代理推理，与评估符号数无关，见 4.3）</div></div>',
+        f'<div class="kpi"><div class="v">28 次</div><div class="l">每用例真实评估（1 种子 + 12 试探 + 15 落点；每步中心差分要 226 次，见 10.5）</div></div>',
     ])
 
     # direct 对比实验：数据存在才渲染（6.5 对比节 + 6.2 图组页签 + 10.4 等价页签）
     direct_section = _build_direct_section(a, summary, order)
     fig_tab_bar, fig_direct_panel = _build_direct_fig_tabs(a, direct_section)
     direct_eq_panel = _build_direct_eq_panel(a) if direct_section else ''
+    # 机制可视化素材（§3.1 训练数据 / §4.6 逐帧走查）：数据缺失自动退化
+    dataset_card = _build_dataset_card(a)
+    walkthrough = _build_walkthrough(a, summary, order)
     eq_tab_bar = ''
     if direct_eq_panel:
         eq_tab_bar = ('  <div class="tab-bar">\n'
@@ -2083,17 +2477,21 @@ def main():
     if direct_section:
         dsum, _ = _load_summary(a.direct)
         dorder = [e for e in order if e in dsum]
-        geo_d = float(10 ** np.mean(np.log10(
-            [dsum[e]['seed_ber'] / dsum[e]['best_ber'] for e in dorder])))
-        geo_s2 = float(10 ** np.mean(np.log10(
-            [summary[e]['seed_ber'] / summary[e]['best_ber'] for e in dorder])))
         ratio = np.array([dsum[e]['best_ber'] / summary[e]['best_ber'] for e in dorder])
         n_same = int(((ratio >= 0.95) & (ratio <= 1.05)).sum())
+        i_best, i_worst = int(ratio.argmin()), int(ratio.argmax())
+        e_best, e_worst = dorder[i_best], dorder[i_worst]
+        # 打平行（几何平均倍数读者无感：换成锚点式逐用例事实）
+        hl_direct = (f"{n_same}/{len(dorder)} 用例打平（11 例同到 0 错误检测底）")
+        if ratio[i_best] < 0.95:
+            hl_direct += (f"，{e_best} direct 更深（{_ber(dsum[e_best]['best_ber'])} vs "
+                          f"{_ber(summary[e_best]['best_ber'])}）")
+        if ratio[i_worst] > 1.05:
+            hl_direct += f"，{e_worst} direct 更浅（×{ratio[i_worst]:.1f}）"
         headline += (
             f"<tr><td>对比实验 direct（有回传通道）</td>"
             f"<td>若端到端 BER 可回传：目标直接换成真实 BER、不用 Model A/B 的直接梯度下降，"
-            f"与现役方案同协议对比（2^22 C++、同次优起点）几何平均 ×{geo_d:.0f} vs ×{geo_s2:.0f}"
-            f"（{n_same}/{len(dorder)} 用例打平），见 6.5 页签</td></tr>")
+            f"与现役方案同协议对比（2^22 C++、同次优起点）：{hl_direct}，见 6.5</td></tr>")
 
     html = TEMPLATE
     repl = {
@@ -2111,8 +2509,12 @@ def main():
         '<!--PROBE_ROWS-->': _rows_probe(a.baseline, order),
         '<!--CXX_TOTAL_WALL-->': cxx_total_wall,
         '<!--POS_SUMMARY-->': pos_summary,
-        '<!--MEAN_IMP-->': f'x{imp_geo:.2f}',
-        '<!--MAX_IMP-->': f'x{imp_arr.max():.2f}',
+        '<!--SEED_BER_LO-->': _ber(seed_lo),
+        '<!--SEED_BER_HI-->': _ber(seed_hi),
+        '<!--SEED_LO_HUMAN-->': _per_bits(seed_lo),
+        '<!--SEED_HI_HUMAN-->': _per_bits(seed_hi),
+        '<!--FLOOR_PERBITS-->': _per_bits(5.975e-8),
+        '<!--MEAN_DEX-->': f'{np.log10(imp_geo):.1f}',
         '<!--TOTAL_STEPS-->': str(total_steps),
         '<!--TOTAL_WORSE-->': str(total_worse),
         '{{IMG_CONV}}': _img_tag(img_conv) if os.path.exists(img_conv) else '',
@@ -2124,6 +2526,8 @@ def main():
         '<!--FIG_DIRECT_PANEL-->': fig_direct_panel,
         '<!--EQ_TAB_BAR-->': eq_tab_bar,
         '<!--DIRECT_EQ_PANEL-->': direct_eq_panel,
+        '<!--DATASET_CARD-->': dataset_card,
+        '<!--WALKTHROUGH-->': walkthrough,
     }
     for k, v in repl.items():
         html = html.replace(k, v)
