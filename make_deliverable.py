@@ -42,10 +42,16 @@ TEMPLATE = r'''<!DOCTYPE html>
   header.top h1{margin:9px 0 10px;font-size:27px;line-height:1.35;font-weight:700}
   header.top .scope{font-size:14px;opacity:.9;max-width:980px}
   header.top .scope code{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.3);color:#fff}
-  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
-  .chip{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);border-radius:6px;
-        padding:5px 11px;font-size:12.5px}
-  .chip b{font-family:var(--mono);font-weight:700}
+  html{scroll-behavior:smooth}
+  h2{scroll-margin-top:14px}
+  .toc{display:flex;flex-wrap:wrap;gap:7px;margin-top:18px;max-width:980px}
+  .toc a{color:#fff;text-decoration:none;font-size:13px;font-weight:600;background:rgba(255,255,255,.13);
+         border:1px solid rgba(255,255,255,.24);padding:5px 12px;border-radius:999px;transition:background .15s}
+  .toc a:hover{background:rgba(255,255,255,.30)}
+  .toc a b{opacity:.62;margin-right:3px;font-weight:700}
+  .back-toc{display:block;text-align:right;text-decoration:none;font-size:12.3px;font-weight:600;
+            color:var(--ink-3);margin:22px 2px 0}
+  .back-toc:hover{color:var(--accent)}
   h2{font-size:20px;margin:34px 0 12px;padding-bottom:8px;border-bottom:2px solid var(--line);font-weight:700}
   h2 .num{display:inline-block;min-width:28px;height:28px;line-height:28px;text-align:center;
           background:var(--accent);color:#fff;border-radius:7px;font-size:14px;margin-right:9px;vertical-align:2px;font-weight:700}
@@ -103,8 +109,8 @@ TEMPLATE = r'''<!DOCTYPE html>
     header.top h1{font-size:20.5px;line-height:1.4}
     header.top .scope{font-size:13.2px}
     header.top .eyebrow{font-size:11px;letter-spacing:.1em}
-    .chips{gap:6px;margin-top:14px}
-    .chip{font-size:11.6px;padding:4px 9px}
+    .toc{gap:6px}
+    .toc a{font-size:12px;padding:4px 10px}
     h2{font-size:18px;margin:26px 0 10px}
     h2 .num{min-width:24px;height:24px;line-height:24px;font-size:12.5px;border-radius:6px}
     h3{font-size:15.5px;margin:18px 0 7px}
@@ -135,6 +141,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     header.top{background:#0e2a52 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .card,figure,table,.kpi{box-shadow:none}
     .d-narrow{display:none}
+    .back-toc{display:none}
     h2{page-break-after:avoid}
     figure,table{page-break-inside:avoid}
   }
@@ -204,13 +211,18 @@ TEMPLATE = r'''<!DOCTYPE html>
       本交付件说明方案的适用范围、物理链路与优化对象、两个代理模型的构成与全部参数、在线调优算法流程与复杂度、实测效果与适用边界，以及有回传通道时的 direct 直接梯度对照实验。
       参数取自 <code>config.xlsx</code>、模型 <code>meta.json</code>、结果 <code>case_summary / trace</code> 与源码常量；图表为内嵌 SVG 与 PNG，单文件可离线打开。
     </div>
-    <div class="chips">
-      <span class="chip">搜索 <b>7</b> 维（4 FFE 旁瓣 + gDC + gDC2 + u_gain）</span>
-      <span class="chip">用例 <b>15</b> 个（含非对称 Tx/Rx 插损与器件噪声）</span>
-      <span class="chip">评估协议 <b>4194304</b> 符号 × 单种子 <b>42</b></span>
-      <span class="chip">模型训练 <b>&lt;0.1 s</b> · 推理 <b>≈30 µs</b></span>
-      <span class="chip">现役方案在线决策回路真实 BER <b>0</b> 次（无需回传通道）</span>
-    </div>
+    <nav class="toc" id="toc" aria-label="目录">
+      <a href="#s1"><b>1</b> 方案概要</a>
+      <a href="#s2"><b>2</b> 物理链路与优化对象</a>
+      <a href="#s3"><b>3</b> 代理模型</a>
+      <a href="#s4"><b>4</b> 寻优算法</a>
+      <a href="#s5"><b>5</b> 数据集与评估协议</a>
+      <a href="#s6"><b>6</b> 实测结果</a>
+      <a href="#s7"><b>7</b> 结论</a>
+      <a href="#s8"><b>8</b> 适用边界与对策</a>
+      <a href="#s9"><b>9</b> 复现与产物</a>
+      <a href="#s10"><b>10</b> C++ 平台与等价性</a>
+    </nav>
   </div>
 </header>
 
@@ -1561,6 +1573,7 @@ import base64
 import glob
 import json
 import os
+import re
 import shutil
 
 import numpy as np
@@ -2531,6 +2544,15 @@ def main():
     }
     for k, v in repl.items():
         html = html.replace(k, v)
+
+    # 目录导航：每个大章节（h2）末尾插入「↩ 回目录」（首个 h2 前不加；最后一章在 footer 前补）
+    back = '<a class="back-toc" href="#toc">↩ 回目录</a>'
+    h2_tag = '<h2 id="s'
+    positions = [m.start() for m in re.finditer(re.escape(h2_tag), html)]
+    for pos in reversed(positions[1:]):
+        html = html[:pos] + back + '\n' + html[pos:]
+    if '<footer>' in html:
+        html = html.replace('<footer>', back + '\n<footer>', 1)
 
     with open(a.out, 'w', encoding='utf-8') as f:
         f.write(html)

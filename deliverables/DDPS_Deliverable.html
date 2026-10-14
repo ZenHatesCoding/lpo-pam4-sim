@@ -27,10 +27,16 @@
   header.top h1{margin:9px 0 10px;font-size:27px;line-height:1.35;font-weight:700}
   header.top .scope{font-size:14px;opacity:.9;max-width:980px}
   header.top .scope code{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.3);color:#fff}
-  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
-  .chip{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);border-radius:6px;
-        padding:5px 11px;font-size:12.5px}
-  .chip b{font-family:var(--mono);font-weight:700}
+  html{scroll-behavior:smooth}
+  h2{scroll-margin-top:14px}
+  .toc{display:flex;flex-wrap:wrap;gap:7px;margin-top:18px;max-width:980px}
+  .toc a{color:#fff;text-decoration:none;font-size:13px;font-weight:600;background:rgba(255,255,255,.13);
+         border:1px solid rgba(255,255,255,.24);padding:5px 12px;border-radius:999px;transition:background .15s}
+  .toc a:hover{background:rgba(255,255,255,.30)}
+  .toc a b{opacity:.62;margin-right:3px;font-weight:700}
+  .back-toc{display:block;text-align:right;text-decoration:none;font-size:12.3px;font-weight:600;
+            color:var(--ink-3);margin:22px 2px 0}
+  .back-toc:hover{color:var(--accent)}
   h2{font-size:20px;margin:34px 0 12px;padding-bottom:8px;border-bottom:2px solid var(--line);font-weight:700}
   h2 .num{display:inline-block;min-width:28px;height:28px;line-height:28px;text-align:center;
           background:var(--accent);color:#fff;border-radius:7px;font-size:14px;margin-right:9px;vertical-align:2px;font-weight:700}
@@ -88,8 +94,8 @@
     header.top h1{font-size:20.5px;line-height:1.4}
     header.top .scope{font-size:13.2px}
     header.top .eyebrow{font-size:11px;letter-spacing:.1em}
-    .chips{gap:6px;margin-top:14px}
-    .chip{font-size:11.6px;padding:4px 9px}
+    .toc{gap:6px}
+    .toc a{font-size:12px;padding:4px 10px}
     h2{font-size:18px;margin:26px 0 10px}
     h2 .num{min-width:24px;height:24px;line-height:24px;font-size:12.5px;border-radius:6px}
     h3{font-size:15.5px;margin:18px 0 7px}
@@ -120,6 +126,7 @@
     header.top{background:#0e2a52 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .card,figure,table,.kpi{box-shadow:none}
     .d-narrow{display:none}
+    .back-toc{display:none}
     h2{page-break-after:avoid}
     figure,table{page-break-inside:avoid}
   }
@@ -189,13 +196,18 @@
       本交付件说明方案的适用范围、物理链路与优化对象、两个代理模型的构成与全部参数、在线调优算法流程与复杂度、实测效果与适用边界，以及有回传通道时的 direct 直接梯度对照实验。
       参数取自 <code>config.xlsx</code>、模型 <code>meta.json</code>、结果 <code>case_summary / trace</code> 与源码常量；图表为内嵌 SVG 与 PNG，单文件可离线打开。
     </div>
-    <div class="chips">
-      <span class="chip">搜索 <b>7</b> 维（4 FFE 旁瓣 + gDC + gDC2 + u_gain）</span>
-      <span class="chip">用例 <b>15</b> 个（含非对称 Tx/Rx 插损与器件噪声）</span>
-      <span class="chip">评估协议 <b>4194304</b> 符号 × 单种子 <b>42</b></span>
-      <span class="chip">模型训练 <b>&lt;0.1 s</b> · 推理 <b>≈30 µs</b></span>
-      <span class="chip">现役方案在线决策回路真实 BER <b>0</b> 次（无需回传通道）</span>
-    </div>
+    <nav class="toc" id="toc" aria-label="目录">
+      <a href="#s1"><b>1</b> 方案概要</a>
+      <a href="#s2"><b>2</b> 物理链路与优化对象</a>
+      <a href="#s3"><b>3</b> 代理模型</a>
+      <a href="#s4"><b>4</b> 寻优算法</a>
+      <a href="#s5"><b>5</b> 数据集与评估协议</a>
+      <a href="#s6"><b>6</b> 实测结果</a>
+      <a href="#s7"><b>7</b> 结论</a>
+      <a href="#s8"><b>8</b> 适用边界与对策</a>
+      <a href="#s9"><b>9</b> 复现与产物</a>
+      <a href="#s10"><b>10</b> C++ 平台与等价性</a>
+    </nav>
   </div>
 </header>
 
@@ -234,6 +246,7 @@
 </table>
 </div>
 
+<a class="back-toc" href="#toc">↩ 回目录</a>
 <h2 id="s2"><span class="num">2</span>物理链路与优化对象</h2>
 
 <h3>2.1 链路构成</h3>
@@ -599,6 +612,7 @@ f_z = f_b/2.862，f_p1 = f_b/1.884，f_p2 = f_b/1.0，f_lf = f_b/40，f_b = 56 G
 <p style="margin:6px 0">搜索变量 x₆ = u_gain。driver_gain 是 Tx 链末尾的标量乘子，只整体缩放波形，所以 gain 维梯度有解析解（§4.2.1）。</p>
 </div>
 
+<a class="back-toc" href="#toc">↩ 回目录</a>
 <h2 id="s3"><span class="num">3</span>代理模型</h2>
 
 <h3>3.1 两个模型的输入输出与分工</h3>
@@ -793,6 +807,7 @@ Model B：d = 7（4 旁瓣 + gDC + gDC2 + drive_rms），α = 0.5，预测 log10
 </table>
 </div>
 
+<a class="back-toc" href="#toc">↩ 回目录</a>
 <h2 id="s4"><span class="num">4</span>寻优算法</h2>
 
 <p>本节描述<strong>现役方案</strong>（Model A+B 代理割线，无需回传通道）的寻优算法。平台另含 <strong>direct 参照方案</strong>：有回传通道、端到端 BER 可得时，不用代理、直接对真实目标做梯度下降（目标与梯度来源不同，搜索空间/搜索盒/步长调度/停止判据与本节一致，机制对照见 6.5 方案说明页签）。两者共享同一物理链路（第 2 节）与同一次优起点（6.0）。</p>
@@ -1184,6 +1199,7 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
 </table>
 </div>
 
+<a class="back-toc" href="#toc">↩ 回目录</a>
 <h2 id="s5"><span class="num">5</span>数据集与评估协议</h2>
 
 <div class="tw">
@@ -1233,6 +1249,7 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
 </div>
 </details>
 
+<a class="back-toc" href="#toc">↩ 回目录</a>
 <h2 id="s6"><span class="num">6</span>实测结果</h2>
 
 <p>以下核心指标为<strong>现役方案</strong>（A+B 代理，无需回传通道）全 15 用例 2<sup>22</sup> 结果；direct 参照方案同协议结果与对照见 6.2 页签、6.5。</p>
@@ -1463,6 +1480,7 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
 </div>
 
 
+<a class="back-toc" href="#toc">↩ 回目录</a>
 <h2 id="s7"><span class="num">7</span>结论</h2>
 
 <div class="card">
@@ -1477,6 +1495,7 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
   </ol>
 </div>
 
+<a class="back-toc" href="#toc">↩ 回目录</a>
 <h2 id="s8"><span class="num">8</span>适用边界与对策</h2>
 <div class="tw">
 <table>
@@ -1519,6 +1538,7 @@ g₀…₅     ← g₀…₅ + [ (dA_shape − g₀…₅ᵀ·s) / ‖s‖² ] 
 </table>
 </div>
 
+<a class="back-toc" href="#toc">↩ 回目录</a>
 <h2 id="s9"><span class="num">9</span>复现与产物</h2>
 
 <p>部署本方案的完整流水线命令与产物清单如下（现役方案 7 步 + direct 对照 1 步 + 交付件 1 步；展开查看完整命令）：</p>
@@ -1596,6 +1616,7 @@ python make_deliverable.py --baseline result/ddps_cpp_secant --model-dir models/
 </div>
 </details>
 
+<a class="back-toc" href="#toc">↩ 回目录</a>
 <h2 id="s10"><span class="num">10</span>C++ 平台与等价性</h2>
 
 <p>平台提供两套同源实现：Python（原理参照）与 C++17（一比一复刻）。两实现读同一 <span class="mono">config.xlsx</span> 配置口径、装载同一冻结模型转换产物（<span class="mono">models/ddps/model_{a,b}.json</span>，由 <span class="mono">cpp/export_models.py</span> 从 pkl 转出，不重训），在线调优结果数值等价。两实现的比对只在 2<sup>18</sup> 小点数低 SNR 口径下进行（本节 10.2~10.4 的等价性数字均出自该口径）；全量规模仿真（高 SNR 大点数）只用通过比对的 C++ 入口执行，Python 不承担高 SNR 大点数仿真。6.5 节的 direct 对比实验走同一条流水线；比对工具已固化为 <span class="mono">cpp/compare_traces.py</span>（本节各表同口径）。</p>
@@ -1689,6 +1710,7 @@ wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity ./cpp/build/run_ddps cp
 python cpp\run_all_cases.py --backend wsl --method secant --out-dir result/ddps_cpp_secant \
     --num-symbols 4194304 --n-steps 15 --jobs 2</code></pre>
 
+<a class="back-toc" href="#toc">↩ 回目录</a>
 <footer>
   <p><strong>测量口径</strong>：Python 3.11.11 / NumPy 2.4.6 / SciPy 1.17.1；BLAS 线程数固定为 1（<span class="mono">OMP_NUM_THREADS=1</span>）；
   BER 评估统一 4194304 符号/点 × 单仿真实例种子 42；数据集采样与模型划分固定 seed = 42。C++ 侧同一种子、同一符号数。</p>
