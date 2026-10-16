@@ -39,6 +39,7 @@ DEFAULT_MODE = '112G'
 | 文档 | 内容 |
 | --- | --- |
 | [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_Deliverable.html) | Python 参照 + C++ 一比一复刻平台（比对只在 2^18 小点数低 SNR、全量规模仿真只用 C++）、割线在线调优（gain 解析梯度 + shape 割线，除第 0 步外零过渡态）、等价性验证（BER 逐位一致）、单种子（42）2^22 在线调优结果、统一入口 |
+| [📝 **DDPS 交付说明（Word 版）**](deliverables/DDPS_Deliverable.docx) | 由 HTML 版派生（`make_deliverable_docx.py`），内容逐字一致；页签平铺为顺序小节、走查帧全展开、Word 原生目录域与导航窗格 |
 | [历史交付件与历史实验](archive/) | v2~v7.3 各版本交付件 HTML、训练环境对比实验、历史结果/模型/数据集（本地归档，不入远端） |
 | [01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md) | 收发机模型、多采样率机制、`config.xlsx` 参数物理含义 |
 | [02. 独立分析与诊断工具集](docs/02_Utility_Scripts.md) | optimizers/ + tools/ 目录 + 核心脚本 |
@@ -138,6 +139,9 @@ python report_ddps.py --test-dir result/ddps_cpp_direct --method direct \
 # 交付件（自包含 HTML；direct 内容数据驱动：6.2 图组页签 / 6.5 对比节 / 10.4 等价页签）
 python make_deliverable.py --baseline result/ddps_cpp_secant --model-dir models/ddps \
     --direct result/ddps_cpp_direct --out deliverables/DDPS_Deliverable.html
+
+# 交付件 Word 版（从 HTML 派生；内联 SVG 经无头 Edge 栅格化，缓存 _parts/svg_png/）
+python make_deliverable_docx.py
 ```
 
 ### 6. 历史实验（结果已归档）
