@@ -370,21 +370,31 @@ inline std::vector<Stage2Step> stage2_descent_proxy(Config& cfg, const WhiteBoxR
 }
 
 // ---- direct：端到端 BER 直接梯度下降（有回传通道时的参照，不用 Model A）----
-// 与代理方案同一套下降机制（步长尺度 / 组归一化步长 / 步长衰减 / 组门控）；
-// 差别：目标 = 真实 log10(BER)，第 0 步 8 维全部中心差分（16 次真实评估；无解析 gain
-// 梯度可用——那依赖 Model A 的探针比例性），此后 Broyden 全 8 维割线更新。
+// 与代理档同一套下降机制（步长尺度 / 组归一化步长 / 步长衰减 / 组门控）；
+// 差别：目标 = 真实 log10(BER)，8 维一律靠真实 BER 中心差分（无解析 gain 梯度可用——
+// 那依赖 Model A 的探针比例性）；8 维的刷新方式由 grad_mode 决定，语义与代理档逐字一致：
+//   full   每步 8 维全部中心差分（16 个真实评估/步）
+//   rotate 第 0 步 8 维全量，此后每步轮转刷新 rotate_k 个维（2·rotate_k 个/步）
+//   secant 只第 0 步测一轮（16 个），此后 Broyden 秩一修正（0 个/步）
+// direct 档保留边际停止（口径 = 真实改善 dex，step > 0 才判）。
 // trace 的 pred_a 列记录当前落点目标值（= real_logber）；pred_b/allowed 恒 0。
+
+inline std::vector<int> all_dims() {
+    std::vector<int> v(N_DIM);
+    for (int i = 0; i < N_DIM; i++) v[i] = i;
+    return v;
+}
 
 inline std::pair<std::vector<double>, std::vector<ProbeRecord>>
 grad_direct_chain(Config& cfg, const std::vector<double>& x,
                   const S4P* s4p_tx, const S4P* s4p_rx,
-                  const std::vector<int>& sim_seeds) {
+                  const std::vector<int>& sim_seeds, const std::vector<int>& dims) {
     std::vector<double> g(N_DIM, 0.0);
     std::vector<double> eps = eps_vec();
     double gain = gain_from_u(x[N_TAP + 2]);
     std::vector<ProbeRecord> probe_iter;
 
-    for (int i = 0; i < N_DIM; i++) {
+    for (int i : dims) {
         std::vector<double> xp = x, xm = x;
         xp[i] += eps[i]; xm[i] -= eps[i];
         std::vector<double> taps_p, taps_m;
@@ -423,21 +433,37 @@ grad_direct_chain(Config& cfg, const std::vector<double>& x,
 inline std::vector<Stage2Step> stage2_descent_direct(Config& cfg, const std::vector<double>& x0,
                                                      int n_steps, double lr, double f0,
                                                      const S4P* s4p_tx, const S4P* s4p_rx,
-                                                     const std::vector<int>& sim_seeds) {
+                                                     const std::vector<int>& sim_seeds,
+                                                     const std::string& grad_mode,
+                                                     int rotate_k) {
     std::vector<double> x = x0;
     std::vector<double> tr_lo, tr_hi; bounds(tr_lo, tr_hi);
     std::vector<double> span = step_span();
     double f_prev = f0;   // 起点目标值（由调用方传入，避免重复评估）
 
     // 第 0 步：8 维中心差分初始化（唯一一轮 16 个 ±ε 试探态，全真实评估）
-    auto [g, probe_iter0] = grad_direct_chain(cfg, x, s4p_tx, s4p_rx, sim_seeds);
+    auto [g, probe_iter0] = grad_direct_chain(cfg, x, s4p_tx, s4p_rx, sim_seeds, all_dims());
 
     std::vector<Stage2Step> trace;
     for (int step = 0; step < n_steps; step++) {
-        // 只有第 0 步携带初始化那轮的 16 个 ±ε 试探态（透明记账）；此后每步 0 微扰态。
-        std::vector<ProbeRecord> step_probes = (step == 0) ? probe_iter0 : std::vector<ProbeRecord>();
+        // 每种模式的在线代价都写在这里：step 0 之后的刷新方式由 grad_mode 决定
+        std::vector<ProbeRecord> step_probes;
         std::vector<int> refreshed;
-        if (step == 0) for (int i = 0; i < N_DIM; i++) refreshed.push_back(i);
+        if (step == 0) {
+            step_probes = probe_iter0;
+            refreshed = all_dims();
+        } else if (grad_mode == "full") {
+            auto r = grad_direct_chain(cfg, x, s4p_tx, s4p_rx, sim_seeds, all_dims());
+            g = r.first; step_probes = r.second; refreshed = all_dims();
+        } else if (grad_mode == "rotate") {
+            for (int j = 0; j < rotate_k; j++) refreshed.push_back((step * rotate_k + j) % N_DIM);
+            auto r = grad_direct_chain(cfg, x, s4p_tx, s4p_rx, sim_seeds, refreshed);
+            for (int j : refreshed) g[j] = r.first[j];
+            step_probes = r.second;
+        } else {  // secant：第 0 步之后不再为梯度制造任何微扰态
+            step_probes = std::vector<ProbeRecord>();
+            refreshed.clear();
+        }
 
         std::vector<double> direction(N_DIM, 0.0);
         bool any_active = group_direction(g, direction);
@@ -463,15 +489,17 @@ inline std::vector<Stage2Step> stage2_descent_direct(Config& cfg, const std::vec
         auto [f_new, real_mlse] = physical_eval(cfg, taps_new, gdc_new, gdc2_new, gain_new,
                                                 s4p_tx, s4p_rx, sim_seeds);
 
-        // Broyden 割线更新（全 8 维；用真实 Δlog10(BER)，零微扰态）
-        double dx_norm2 = 0.0, g_dot_dx = 0.0;
-        for (int i = 0; i < N_DIM; i++) {
-            double d = x_new[i] - x[i];
-            dx_norm2 += d * d; g_dot_dx += g[i] * d;
-        }
-        if (dx_norm2 > 1e-18) {
-            double c = ((f_new - f_prev) - g_dot_dx) / dx_norm2;
-            for (int i = 0; i < N_DIM; i++) g[i] += c * (x_new[i] - x[i]);
+        // secant：Broyden 割线更新（全 8 维；用真实 Δlog10(BER)，零微扰态）
+        if (grad_mode == "secant") {
+            double dx_norm2 = 0.0, g_dot_dx = 0.0;
+            for (int i = 0; i < N_DIM; i++) {
+                double d = x_new[i] - x[i];
+                dx_norm2 += d * d; g_dot_dx += g[i] * d;
+            }
+            if (dx_norm2 > 1e-18) {
+                double c = ((f_new - f_prev) - g_dot_dx) / dx_norm2;
+                for (int i = 0; i < N_DIM; i++) g[i] += c * (x_new[i] - x[i]);
+            }
         }
 
         Stage2Step rec;

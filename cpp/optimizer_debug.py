@@ -62,13 +62,14 @@ def main():
 
     x0 = np.concatenate([D.SEED_TAPS.copy(),
                          [D.SEED_GDC, D.SEED_GDC2, D.u_from_gain(D.SEED_GAIN)]])
-    tag = 'direct' if a.method == 'direct' else f'proxy/{a.grad_mode}'
+    tag = f'{a.method}/{a.grad_mode}' if a.method == 'direct' else f'proxy/{a.grad_mode}'
     print('=== Stage-2 %s | env=%s | num_symbols=%d | snr_db=%g | n_steps=%d | seeds=%s ==='
           % (tag, a.env, a.num_symbols, a.tx_noise_snr_db, a.n_steps, D.SIM_SEEDS))
     print('  x0=[' + ', '.join('%.12e' % v for v in x0) + ']')
 
     if a.method == 'direct':
-        trace = D._stage2_descent_direct(config, x0, a.n_steps, D.GD_LR)
+        trace = D._stage2_descent_direct(config, x0, a.n_steps, D.GD_LR,
+                                         grad_mode=a.grad_mode, rotate_k=a.rotate_k)
     else:
         trace = D._stage2_descent_proxy(config, model_a, x0, a.n_steps, D.GD_LR,
                                         grad_mode=a.grad_mode, rotate_k=a.rotate_k)

@@ -53,7 +53,8 @@ int main(int argc, char** argv) {
         auto [seed_lb, seed_ber] = physical_eval(cfg, taps_of(x0), x0[N_TAP], x0[N_TAP + 1],
                                                  gain_from_u(x0[N_TAP + 2]), &nw, &nw, sim_seeds);
         printf("  seed log10BER=%.12e BER=%.12e\n", seed_lb, seed_ber);
-        trace = stage2_descent_direct(cfg, x0, n_steps, GD_LR, seed_lb, &nw, &nw, sim_seeds);
+        trace = stage2_descent_direct(cfg, x0, n_steps, GD_LR, seed_lb, &nw, &nw, sim_seeds,
+                                      grad_mode, ROTATE_K);
     } else {
         trace = stage2_descent_proxy(cfg, model_a, x0, n_steps, GD_LR,
                                      grad_mode, ROTATE_K, &nw, &nw, sim_seeds);

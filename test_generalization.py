@@ -153,17 +153,22 @@ def run_case(cfg, model_a, env, n_steps=25, per_case_gain=None,
     return result, rows, probe_rows
 
 
-def run_case_direct(cfg, env, n_steps=25, per_case_gain=None):
-    """direct 参照：端到端真实 BER 直接梯度下降（无 Model A/B，假设有回传通道）。"""
+def run_case_direct(cfg, env, n_steps=25, per_case_gain=None,
+                    grad_mode='secant', rotate_k=D.ROTATE_K):
+    """direct 参照：端到端真实 BER 直接梯度下降（无 Model A/B，假设有回传通道）。
+
+    8 维的刷新方式与代理档同一套语义（full / rotate / secant），由 grad_mode 指定。
+    """
     gain0 = float(per_case_gain) if per_case_gain is not None else float(D.SEED_GAIN)
     x0 = np.concatenate([D.SEED_TAPS.copy(),
                          [D.SEED_GDC, D.SEED_GDC2, D.u_from_gain(gain0)]])
     seed_lb, seed_ber = D._physical_eval(cfg, D.SEED_TAPS.copy(), D.SEED_GDC, D.SEED_GDC2, gain0)
-    trace = D._stage2_descent_direct(cfg, x0, n_steps, D.GD_LR, f0=seed_lb)
+    trace = D._stage2_descent_direct(cfg, x0, n_steps, D.GD_LR, f0=seed_lb,
+                                     grad_mode=grad_mode, rotate_k=rotate_k)
     rows, probe_rows = _trace_rows(trace)
     result = _summarize(env, rows, probe_rows, seed_lb, seed_ber, gain0, n_steps,
                         extra={'pa_seed': float(seed_lb), 'pb_seed': 0.0,
-                               'grad_mode': 'direct', 'rotate_k': 0})
+                               'grad_mode': grad_mode, 'rotate_k': int(rotate_k)})
     return result, rows, probe_rows
 
 
@@ -225,7 +230,8 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
         _t0 = time.perf_counter()
         if method == 'direct':
             res, rows, probe_rows = run_case_direct(cfg, env, n_steps=n_steps,
-                                                    per_case_gain=case_gain)
+                                                    per_case_gain=case_gain,
+                                                    grad_mode=grad_mode, rotate_k=rotate_k)
         else:
             res, rows, probe_rows = run_case(cfg, model_a, env, n_steps=n_steps,
                                              per_case_gain=case_gain,
@@ -264,8 +270,8 @@ def run_generalization(model_dir, out_dir, n_steps=25, num_symbols=131072,
     with open(os.path.join(out_dir, 'run_config.json'), 'w', encoding='utf-8') as f:
         json.dump({'model_dir': model_dir, 'n_steps': n_steps, 'num_symbols': int(num_symbols),
                    'sim_seeds': list(sim_seeds),
-                   'method': method, 'grad_mode': (grad_mode if method != 'direct' else 'direct'),
-                   'rotate_k': (int(rotate_k) if method != 'direct' else 0),
+                   'method': method, 'grad_mode': grad_mode,
+                   'rotate_k': int(rotate_k),
                    'n_dim': int(D.N_DIM),
                    'seed_taps': D.SEED_TAPS.tolist(),
                    'seed_gdc': float(D.SEED_GDC), 'seed_gdc2': float(D.SEED_GDC2),

@@ -455,18 +455,19 @@ def _stage2_descent_proxy(config, model_a, x0, n_steps, lr, grad_mode='full', ro
     return trace
 
 
-def _grad_direct_chain(config, x):
-    """direct 梯度初始化：8 维中心差分，目标 = 端到端真实 log10(BER_MLSE)。
+def _grad_direct_chain(config, x, dims=None):
+    """direct 梯度：对真实目标做中心差分（默认全 8 维；dims 给定则只算这些维）。
 
     有回传通道时端到端 BER 可得，梯度直接对真实目标做中心差分：
-    每维 ±eps 都是一次真实在线评估（共 16 次）。16 个 ±ε 试探态的真实 BER
-    逐一记账（与链式/割线的 probe 记录同 schema），用于透明度核验。
-    eps 分档与链式一致：抽头 0.01 / CTLE 0.1（dB）/ u_gain 0.05（dex）。
+    每维 ±eps 都是一次真实在线评估（全 8 维共 16 次，dims 给定则为 2·len(dims) 次）。
+    每个 ±ε 试探态的真实 BER 逐一记账（与链式/割线的 probe 记录同 schema），
+    用于透明度核验。eps 分档与链式一致：抽头 0.01 / CTLE 0.1（dB）/ u_gain 0.05（dex）。
     """
     x = np.asarray(x, dtype=float)
     g = np.zeros(N_DIM)
     probe_iter = []
-    for i in range(N_DIM):
+    todo = list(range(N_DIM)) if dims is None else [int(i) for i in dims]
+    for i in todo:
         xp = x.copy(); xp[i] += EPS_VEC[i]
         xm = x.copy(); xm[i] -= EPS_VEC[i]
         taps_p = taps_of(xp); taps_m = taps_of(xm)
@@ -494,22 +495,29 @@ def _grad_direct_chain(config, x):
     return g, probe_iter
 
 
-def _stage2_descent_direct(config, x0, n_steps, lr, f0=None):
+def _stage2_descent_direct(config, x0, n_steps, lr, f0=None, grad_mode='secant',
+                           rotate_k=ROTATE_K):
     """direct：端到端 BER 直接梯度下降（有回传通道时的参照方案，不用 Model A）。
 
     回答的问题：如果收端 BER 可以回传（在线调优拿得到端到端 BER），直接对
     真实目标做梯度下降能达到什么水平——以此对照"拿不到 BER、只能靠发端探针
     代理"的代理方案。
 
-    与代理方案同一套下降机制（步长尺度 / 组归一化步长 / 步长衰减 / 组门控）；
+    与代理档**同一套下降机制**（步长尺度 / 组归一化步长 / 步长衰减 / 组门控）；
     差别只在目标与梯度来源：
       - 目标 = 端到端真实 log10(BER)（回传通道），不是代理预测；
-      - 第 0 步 8 维全部中心差分初始化（唯一一轮 16 个 ±ε 试探态；无解析 gain
-        梯度可用——那依赖 Model A 的探针比例性）；
-      - 此后每步 Broyden 全 8 维割线更新（用真实 Δlog10(BER)，零微扰态）；
+      - 没有解析 gain 梯度（那依赖 Model A 的探针比例性），8 维一律靠真实 BER 中心差分；
+      - 8 维的刷新方式由 grad_mode 决定，语义与代理档逐字一致：
+          full   每步 8 维全部中心差分（16 个真实评估/步）
+          rotate 第 0 步 8 维全量，此后每步轮转刷新 rotate_k 个维（2·rotate_k 个/步），
+                 其余维沿用上一轮测到的值（7 维口径下是 4 步刷满，8 维口径下也是 4 步）
+          secant 只第 0 步测一轮（16 个），此后 Broyden 秩一修正（0 个/步）
+      - direct 档保留边际停止（口径 = 真实改善 dex，step > 0 才判）。
     无 Model A/B 代理，因此也没有代理侧的候选否决。
     trace 的 pred_a 列记录当前落点目标值（= real_lb）；pred_b / allowed 恒 0。
     """
+    if grad_mode not in ('full', 'rotate', 'secant'):
+        raise ValueError(f'grad_mode 必须是 full/rotate/secant，收到 {grad_mode!r}')
     x = np.asarray(x0, dtype=float).copy()
     tr_bounds = _search_bounds()
     span = STEP_SPAN.copy()
@@ -527,8 +535,22 @@ def _stage2_descent_direct(config, x0, n_steps, lr, f0=None):
 
     trace = []
     for step in range(n_steps):
-        # 只有第 0 步携带初始化那轮的 16 个 ±ε 试探态（透明记账）；此后每步 0 微扰态。
-        step_probes = probe_iter0 if step == 0 else []
+        # 每种模式的在线代价都写在这里：step 0 之后的刷新方式由 grad_mode 决定
+        if step == 0:
+            step_probes = probe_iter0
+            refreshed = list(range(N_DIM))
+        elif grad_mode == 'full':
+            gs, step_probes = _grad_direct_chain(config, x)
+            g[:] = gs[:]
+            refreshed = list(range(N_DIM))
+        elif grad_mode == 'rotate':
+            refreshed = [int((step * rotate_k + j) % N_DIM) for j in range(rotate_k)]
+            gs, step_probes = _grad_direct_chain(config, x, dims=refreshed)
+            for j in refreshed:
+                g[j] = gs[j]
+        else:  # secant：第 0 步之后不再为梯度制造任何微扰态
+            step_probes = []
+            refreshed = []
 
         direction, active = _group_direction(g)
         if not active:
@@ -546,12 +568,13 @@ def _stage2_descent_direct(config, x0, n_steps, lr, f0=None):
         rms_actual = _measure_drive_rms(config, taps_new, gdc_new, gdc2_new, gain_new)
         f_new, real_mlse = _physical_eval(config, taps_new, gdc_new, gdc2_new, gain_new)
 
-        # Broyden 割线更新（全 8 维；用真实 Δlog10(BER)，零微扰态）
-        dx = x_new - x
-        df = f_new - f_prev
-        dx_norm2 = float(np.dot(dx, dx))
-        if dx_norm2 > 1e-18:
-            g = g + ((df - float(np.dot(g, dx))) / dx_norm2) * dx
+        # secant：Broyden 割线更新（全 8 维；用真实 Δlog10(BER)，零微扰态）
+        if grad_mode == 'secant':
+            dx = x_new - x
+            df = f_new - f_prev
+            dx_norm2 = float(np.dot(dx, dx))
+            if dx_norm2 > 1e-18:
+                g = g + ((df - float(np.dot(g, dx))) / dx_norm2) * dx
 
         stop_reason = ''
         # 边际改善门控（step 0 不判，避免首步误停；口径 = 真实改善 dex）
@@ -570,7 +593,7 @@ def _stage2_descent_direct(config, x0, n_steps, lr, f0=None):
             'pred_b_ber': 0.0, 'allowed_ber': 0.0,
             'real_logber': f_new, 'real_mlse': real_mlse,
             'probes': step_probes,
-            'grad': g.copy(), 'refreshed': (list(range(N_DIM)) if step == 0 else []),
+            'grad': g.copy(), 'refreshed': list(refreshed),
             'n_probe_states': len(step_probes),
             'grad_norm': float(np.linalg.norm(g)), 'stop_reason': stop_reason,
         })

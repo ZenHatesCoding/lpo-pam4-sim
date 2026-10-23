@@ -240,7 +240,7 @@ def main():
         'num_symbols': num_sym, 'sim_seeds': [SEED], 'seed_config': SEED_CONFIG,
         'tx_noise_snr_db': 0.0, 'envs': [e['name'] for e in cases],
         'jobs': jobs, 'total_wall_sec': total_wall, 'method': METHOD,
-        'grad_mode': (GRAD_MODE if METHOD == 'proxy' else 'direct'), 'rotate_k': ROTATE_K,
+        'grad_mode': GRAD_MODE, 'rotate_k': ROTATE_K,
     }
     with open(os.path.join(OUT_DIR, 'run_config.json'), 'w', encoding='utf-8') as f:
         json.dump(run_cfg, f, indent=2, ensure_ascii=False)

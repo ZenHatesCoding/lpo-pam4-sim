@@ -156,7 +156,8 @@ int main(int argc, char** argv) {
     auto t0 = std::chrono::high_resolution_clock::now();
     std::vector<Stage2Step> trace;
     if (method == "direct") {
-        trace = stage2_descent_direct(cfg, x0, n_steps, GD_LR, seed_lb, &nw, &nw, sim_seeds);
+        trace = stage2_descent_direct(cfg, x0, n_steps, GD_LR, seed_lb, &nw, &nw, sim_seeds,
+                                      grad_mode, rotate_k);
     } else {
         trace = stage2_descent_proxy(cfg, model_a, x0, n_steps, GD_LR, grad_mode, rotate_k,
                                      &nw, &nw, sim_seeds);
