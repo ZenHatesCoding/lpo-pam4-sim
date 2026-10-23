@@ -1338,25 +1338,31 @@ python cpp\export_models.py
 python cpp/run_all_cases.py --backend wsl --only-envs Base_IL10x10,IL20x20 \
     --num-symbols 262144 --n-steps 15 --jobs 2 --method proxy --grad-mode full \
     --out-dir result/ddps_equiv_cpp_full
-（同理 rotate / secant；direct 用 --method direct；起点同上，由 run_all_cases.py 内置）
+（同理 rotate / secant；真实 BER 回传三格用 --method direct 配 --grad-mode full|rotate|secant；起点同上，由 run_all_cases.py 内置）
 python cpp\compare_traces.py --py result/ddps_equiv_py_full --cpp result/ddps_equiv_cpp_full
 
 # 7) 全量规模仿真（2^22 高 SNR 大点数，只允许 C++；六格）
 python cpp/run_all_cases.py --backend wsl --num-symbols 4194304 --n-steps 15 --jobs 4 \
     --method proxy --grad-mode <!--MODE_KEY--> --out-dir result/ddps_cpp_<!--MODE_KEY-->
-（换档只改 --grad-mode；direct 用 --method direct。
+（换形状维取法只改 --grad-mode；换成真实 BER 回传来源用 --method direct，再配 --grad-mode。
  起点与协议由 run_all_cases.py 内置：SEED_CONFIG = result/seed_config_bad_1e4.json、15 环境清单、
  seed 42、tx_noise 0；cfg 文件里的 tx.custom_taps 是未提供 seed-config 时的兜底值，不是本次起点）
 
 # 8) 可视化报告（逐档出图，来源就是该档的结果目录）
 python report_ddps.py --test-dir result/ddps_cpp_<!--MODE_KEY--> --model-dir models/ddps \
     --seed-config result/seed_config_bad_1e4.json --summary-out result/SUMMARY.md
-（rotate / secant 同理；direct 加 --method direct）
+（rotate / secant 同理；真实 BER 回传格加 --method direct，并给对应的 --grad-mode）
 
-# 9) 交付件
+# 9) 交付件（六格矩阵：--direct 是回传 × secant，另两格用 --direct-full / --direct-rotate）
 python make_deliverable.py --baseline result/ddps_cpp_<!--MODE_KEY--> --mode <!--MODE_KEY--> \
     --model-dir models/ddps --direct result/ddps_cpp_direct \
-    --out deliverables/DDPS_Deliverable.html</code></pre>
+    --direct-full result/ddps_cpp_direct_full --direct-rotate result/ddps_cpp_direct_rotate \
+    --out deliverables/DDPS_Deliverable.html
+
+# 10) 一键验收：结果完整性 / 记账恒等式（真实评估 = 落地 + 微扰态）/ 每格微扰机制
+#     （刷新维序列、微扰态成对、次数与轨迹互推）/ 2^18 逐轨迹等价（判据 &lt; 1e-9）/
+#     交付件新鲜度与禁词。六格是否跑齐由 --expect-cells 断言：格数不足 exit 2，全过 exit 0
+python tools\verify_ddps.py --expect-cells 6</code></pre>
 </div>
 
 <div class="tw">
@@ -1366,10 +1372,11 @@ python make_deliverable.py --baseline result/ddps_cpp_<!--MODE_KEY--> --mode <!-
   <tr><td>数据集</td><td class="mono">dataset/ddps_dataset_&lt;ts&gt;.csv</td><td><!--DATASET_SHAPE-->（Stage-1 采样 7 维 x = 4 旁瓣 + gDC + gDC2 + u_gain；另含 5-tap FFE、驱动 RMS、7-tap FIR 探针、真实 BER）</td></tr>
   <tr><td>模型</td><td class="mono">models/ddps/</td><td>方向代理（8 维探针 / 参数域离线产物）+ meta.json</td></tr>
   <tr><td>现役格主结果</td><td class="mono">result/ddps_cpp_<!--MODE_KEY-->/</td><td>C++ <!--SCALE_LABEL_PLAIN--> 全 15 用例，现役格 <!--MODE_LABEL-->：case_summary.csv/json、trace_&lt;用例&gt;.csv、probes_&lt;用例&gt;.csv、run_config.json、report/</td></tr>
-  <tr><td>另两格全量结果</td><td class="mono">result/ddps_cpp_rotate/、result/ddps_cpp_secant/</td><td>同协议、同起点的 rotate / secant 档 <!--SCALE_LABEL_PLAIN--> 结果（六格矩阵横向对比的数据源）</td></tr>
-  <tr><td>direct 全量结果</td><td class="mono">result/ddps_cpp_direct/</td><td>有回传通道参照：<!--SCALE_LABEL_PLAIN--> 全 15 用例（case_summary + trace/probes + report/）</td></tr>
-  <tr><td>2^18 等价参照</td><td class="mono">result/ddps_equiv_py_&lt;档&gt;/、result/ddps_equiv_cpp_&lt;档&gt;/</td><td>四档各自的 Python / C++ 2^18 比对结果（Base_IL10x10 + IL20x20）</td></tr>
+  <tr><td>代理行另两格</td><td class="mono">result/ddps_cpp_rotate/、result/ddps_cpp_secant/</td><td>同协议、同起点的代理 × rotate / 代理 × secant <!--SCALE_LABEL_PLAIN--> 结果（六格矩阵横向对比的数据源）</td></tr>
+  <tr><td>回传行三格结果</td><td class="mono">result/ddps_cpp_direct_full/、result/ddps_cpp_direct_rotate/、result/ddps_cpp_direct/</td><td>真实 BER 回传来源的三种取法：<!--SCALE_LABEL_PLAIN--> 全 15 用例（case_summary + trace/probes + report/；direct 目录即回传 × secant）</td></tr>
+  <tr><td>2^18 等价参照</td><td class="mono">result/ddps_equiv_py_&lt;格&gt;/、result/ddps_equiv_cpp_&lt;格&gt;/</td><td>六格各自的 Python / C++ 2^18 逐轨迹比对结果（Base_IL10x10 + IL20x20）</td></tr>
   <tr><td>跨实验汇总</td><td class="mono">result/SUMMARY.md</td><td>15 用例结果汇总</td></tr>
+  <tr><td>验收入口</td><td class="mono">tools/verify_ddps.py</td><td>一条命令验收现役结果：完整性 / 记账恒等式 / 每格微扰机制 / 2^18 等价 / 交付件新鲜度与禁词；<span class="mono">--expect-cells 6</span> 可断言六格跑齐</td></tr>
   <tr><td>块长研究</td><td class="mono">result/ddps_block_length.csv</td><td>最优工作点不同块长的 BER 估计精度</td></tr>
 </table>
 </div>
