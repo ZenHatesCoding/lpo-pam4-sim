@@ -107,10 +107,13 @@ python cpp\run_all_cases.py --backend wsl --num-symbols 4194304 --n-steps 15 --j
     --method proxy --grad-mode full --out-dir result\ddps_cpp_full
 # 换取法：--grad-mode rotate|secant（--rotate-k 2）；换梯度来源：--method direct
 
-# 2^18 等价比对（C++ 侧，与 Python 参照同环境、同参数）
+# 2^18 等价比对（C++ 侧，与 Python 参照同环境、同参数；判据 max_rel < 1e-9）
+#   代理三格：--method proxy  --grad-mode full|rotate|secant → result/ddps_equiv_cpp_<取法>
+#   回传三格：--method direct --grad-mode full|rotate|secant → result/ddps_equiv_cpp_direct_<取法>
 python cpp\run_all_cases.py --backend wsl --only-envs Base_IL10x10,IL20x20 --num-symbols 262144 \
     --n-steps 15 --jobs 2 --method proxy --grad-mode full --out-dir result\ddps_equiv_cpp_full
 python cpp\compare_traces.py --py result/ddps_equiv_py_full --cpp result/ddps_equiv_cpp_full
+#   其余五格同款命令，只换 --method / --grad-mode / --out-dir 三处（Python 侧参照用 tools\run_parallel_envs.py 出）
 
 # 快速验证：低 SNR 人为噪声 + 少点数（发端 DSP 出口 SNR=23 dB、2^14 符号）
 wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity ./cpp/build/run_ddps cpp/config.txt \
@@ -121,34 +124,37 @@ wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity ./cpp/build/run_ddps cp
 ### 4c. 对比实验 direct（有回传通道时的参照：端到端真实 BER 直接梯度下降，不用代理）
 ```bash
 # 1) Python 2^18 参照
-python tools\run_parallel_envs.py --model-dir models/ddps --out-dir result\ddps_equiv_py_direct \
+python tools\run_parallel_envs.py --model-dir models/ddps --out-dir result\ddps_equiv_py_direct_secant \
     --method direct --only-envs Base_IL10x10,IL20x20 --num-symbols 262144 --n-steps 15 \
     --sim-seeds 42 --jobs 2 --seed-config result/seed_config_bad_1e4.json
 
-# 2) C++ 2^18 + 逐轨迹比对
-python cpp\run_all_cases.py --backend wsl --method direct --out-dir result\ddps_equiv_cpp_direct \
+# 2) C++ 2^18 + 逐轨迹比对（六个格各自一对目录：代理 <取法> / 回传 direct_<取法>）
+python cpp\run_all_cases.py --backend wsl --method direct --out-dir result\ddps_equiv_cpp_direct_secant \
     --only-envs Base_IL10x10,IL20x20 --num-symbols 262144 --n-steps 15 --jobs 2
-python cpp\compare_traces.py --py result/ddps_equiv_py_direct --cpp result/ddps_equiv_cpp_direct
+python cpp\compare_traces.py --py result/ddps_equiv_py_direct_secant --cpp result/ddps_equiv_cpp_direct_secant
 
 # 3) C++ 全量规模仿真（2^22、15 用例；与代理行三格同协议）
-python cpp\run_all_cases.py --backend wsl --method direct --out-dir result\ddps_cpp_direct \
+python cpp\run_all_cases.py --backend wsl --method direct --out-dir result\ddps_cpp_direct_secant \
     --num-symbols 4194304 --n-steps 15 --jobs 4
 ```
 > direct（真实 BER 回传行）回答的问题：若收端端到端 BER 可回传，直接对真实目标做梯度下降能达到什么水平。第 0 步恒为全 8 维中心差分（16 个 `±ε 微扰态`，真实 BER 实测），此后按 `--grad-mode` 选取法（`full` 每步 16 态 / `rotate` 每步 4 态 / `secant` 0 态）；无代理，因此没有 gain 解析梯度、没有代理预测。与代理行三格共用同一 8 维搜索空间 / 步长调度 / 组门控 / 15 步上限，差别只在目标与梯度来源。
 
 ### 5. 报告与交付件
 ```bash
-# 可视化报告（逐档出图：--test-dir result/ddps_cpp_<档>）
+# 可视化报告（逐格出图：--test-dir result/ddps_cpp_<格>）
+#   注意：逐格出图时不要加 --summary-out，否则会用单格覆盖整轮汇总
 python report_ddps.py --test-dir result/ddps_cpp_full --model-dir models/ddps \
-    --seed-config result/seed_config_bad_1e4.json --summary-out result/SUMMARY.md
-
-# direct 结果图组（收敛 / gain·rms / 最难用例）
-python report_ddps.py --test-dir result/ddps_cpp_direct --method direct \
     --seed-config result/seed_config_bad_1e4.json
 
-# 交付件（自包含 HTML；--mode 指定主结果目录对应的形状梯度档）
+# 回传行的格出图时加 --method direct
+python report_ddps.py --test-dir result/ddps_cpp_direct_secant --method direct \
+    --seed-config result/seed_config_bad_1e4.json
+
+# 交付件（自包含 HTML；六格全给才生成，规模不一致默认拒绝）
 python make_deliverable.py --baseline result/ddps_cpp_full --mode full \
-    --direct result/ddps_cpp_direct --out deliverables/DDPS_Deliverable.html
+    --rotate result/ddps_cpp_rotate --secant result/ddps_cpp_secant \
+    --direct result/ddps_cpp_direct_secant --direct-full result/ddps_cpp_direct_full \
+    --direct-rotate result/ddps_cpp_direct_rotate --out deliverables/DDPS_Deliverable.html
 
 # 交付件 Word 版（**按需**，默认不做；从 HTML 派生；内联 SVG 经无头 Edge 栅格化，缓存 _parts/svg_png/）
 python make_deliverable_docx.py

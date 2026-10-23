@@ -2,7 +2,8 @@
 
 > **本文是重构前的一次现状分析（记录性质，保留原始数字与结论）**：文中描述的 7 维搜索空间、
 > 抽头边界（`FFE_BOUND`）、±0.30 dex 信任域、割线专属实现，都是**当时**的口径；这些约束与割线
-> 已经在后续重构中移除（改为 8 维、抽头无边界、形状 7 维三档 full/rotate/secant）。现役口径见
+> 已经在后续重构中移除（改为 8 维、抽头无边界、形状 7 维三种取法 full / rotate / secant；真实 BER
+> 回传行也已补齐同样三种取法，两行合起来是 3 × 2 六格）。现役口径见
 > `docs/DDPS_Method.md` 与交付件；本文保留下来是为了说明「为什么要动方向估计」的来龙去脉。
 >
 > 本文只讲当时的现状与机制，不改任何代码/模型/结果。证据脚本在 `scratch/`：
@@ -11,11 +12,12 @@
 > 结论基于 `archive/20261022_ddps_ab_secant_2to22/result_ddps_cpp_secant`（重构前 secant）、
 > `archive/20261022_ddps_ab_secant_2to22/result_ddps_cpp_direct`（direct 对照）、
 > `archive/20260930_ddps_v7.3_2to22/result_ddps_main`（v7.3 每步链式）三套 2^22 全量 15 用例轨迹。
-> 注意：`result/ddps_cpp_{full,rotate,secant,direct}` 现在是**重构后**的现役全量结果目录，
+> 注意：`result/ddps_cpp_{full,rotate,secant}`（代理行）与 `result/ddps_cpp_direct_{full,rotate,secant}`
+> （回传行）现在是**重构后**的现役全量结果目录，
 > 与本文引用的重构前数据不是同一批，引用时务必用上面的 archive 路径。
 >
-> **落地情况**：本文 §7 的路线 A 与路线 B 已实现为在线形状梯度的两档（`--grad-mode full` / `rotate`），
-> 与 `secant`（保留为对照档）、`direct`（有回传参照）一起构成四档；四档均通过 2^18 逐轨迹等价比对
+> **落地情况**：本文 §7 的路线 A 与路线 B 已实现为在线形状梯度的三种取法（`--grad-mode full` / `rotate` /
+> `secant`），代理行（Model A 方向代理）与回传行（真实 BER 回传）各三格、共六格；六格均通过 2^18 逐轨迹等价比对
 > （`max_rel < 1e-9`）。现役口径与结果见 `docs/DDPS_Method.md`、交付件与 `result/ddps_cpp_*`。
 
 ## 0. 结论摘要
@@ -257,10 +259,11 @@ step      ffe0      ffe1      ffe2      ffe3       gdc      gdc2     ugain     |
 
 ## 7. 怎么办：四条路线（按性价比）
 
-> **已落地**：路线 A 与路线 B 都做了，并保留为可一键切换的两档——
-> 路线 A = `--grad-mode full`（每步 7 个形状维各 ±ε，14 个微扰态/步）；
+> **已落地**：路线 A 与路线 B 都做了，并保留为可一键切换的三种取法——
+> 路线 A = `--grad-mode full`（代理行每步 7 个形状维各 ±ε，14 个微扰态/步；回传行 8 维、16 个/步）；
 > 路线 B = `--grad-mode rotate`（第 0 步全量，此后每步轮转刷新 2 个维，4 个微扰态/步）。
 > 原来的 secant 实现不再作为主推，仅保留为同预算对照档（`--grad-mode secant`）。
+> 三种取法在代理行与真实 BER 回传行各有一格，合起来就是交付件里的 3 × 2 六格矩阵。
 > 路线 C（离线标定 ∂probe/∂param）与路线 D（DFO 信赖域）未采用。
 
 ### 路线 0（零风险，先做）：把"哪一步停"和"gain 维在哪起步"做对

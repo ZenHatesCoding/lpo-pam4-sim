@@ -36,21 +36,22 @@
 
 六格 2^22 campaign：代理行 `full → rotate → secant`，回传行 `full → rotate`（`secant` 复用既有目录）（`cpp/run_all_cases.py --backend wsl --jobs 4`）。跑完后按顺序收尾——**全部走入库的命令，不依赖任何本地临时脚本**：
 
-1. **确认六格齐 + 机制体检 + 等价 + 交付件新鲜度**：`python tools\verify_ddps.py --expect-cells 6`
-   （自动发现 `result/ddps_cpp_*` 里已汇总的格；查完整性 / 记账恒等式 `n_real_evals = n_landed + n_probe_states` / 每格微扰机制 / 2^18 逐轨迹等价 / 交付件与禁词）。
+1. ✅ **确认六格齐 + 机制体检 + 等价 + 交付件新鲜度**：`python tools\verify_ddps.py --expect-cells 6` → exit 0
+   （六格各 15 用例、记账恒等式 `n_real_evals = n_landed + n_probe_states`、每格微扰机制、2^18 逐轨迹等价、交付件新鲜度与禁词全过）。
    格数不足直接 exit 2——**未齐时不要生成交付件**。
-2. **逐格出报告图**：`python report_ddps.py --test-dir result/ddps_cpp_direct_full --model-dir models/ddps --method direct --seed-config result/seed_config_bad_1e4.json`
+2. ✅ **逐格出报告图**：`python report_ddps.py --test-dir result/ddps_cpp_direct_full --model-dir models/ddps --method direct --seed-config result/seed_config_bad_1e4.json`
    （回传行的格要加 `--method direct`，代理行的格不加；图写进该格 `report/`，不加 `--summary-out` 以免用单格覆盖整轮汇总。）
-3. **生成交付件（六格）**：`python make_deliverable.py --baseline result/ddps_cpp_full --mode full --rotate result/ddps_cpp_rotate --secant result/ddps_cpp_secant --direct result/ddps_cpp_direct_secant --direct-full result/ddps_cpp_direct_full --direct-rotate result/ddps_cpp_direct_rotate --out deliverables/DDPS_Deliverable.html`
+3. ✅ **生成交付件（六格）**：`python make_deliverable.py --baseline result/ddps_cpp_full --mode full --rotate result/ddps_cpp_rotate --secant result/ddps_cpp_secant --direct result/ddps_cpp_direct_secant --direct-full result/ddps_cpp_direct_full --direct-rotate result/ddps_cpp_direct_rotate --out deliverables/DDPS_Deliverable.html`
    （规模不一致的格默认拒绝生成，`--allow-mixed-scale` 仅供调试；现役格裁定句由结果实算，见交付件 6.1。）
-4. **再跑一次验收**：`python tools\verify_ddps.py --expect-cells 6` —— exit 0 才算这一轮收尾完成。
-6. **文档对齐**：`scratch/patch_docs_22.py --prefix result/ddps_cpp --n-cases 15`（§4 单次评估与全量墙钟、
-   §3.3 各格转角表）。
-7. **修入口默认值不一致**（等没有仿真在跑）：`cpp/main.cpp` 的 `--n-steps` 默认值 50 → 15（批量入口都显式传参），
-   重编 `cpp/build_wsl.sh` + 重跑 2^18 六格等价确认行为不变，记入 CHANGELOG。
-8. **归档被取代的旧等价目录**：`result/ddps_cpp_direct_equiv/`、`result/ddps_cpp_secant_analytic_equiv/` → `archive/`；
-   同步 `cpp/compare_traces.py` 的示例路径。
-9. **git add + commit**（新增 `result/ddps_equiv_*`、`result/ddps_cpp_*`、`docs/DDPS_Gradient_Direction_Analysis.md`）。
+4. ✅ **再跑一次验收**：`python tools\verify_ddps.py --expect-cells 6` —— exit 0。
+6. ✅ **文档对齐**：`docs/DDPS_Method.md` §4 单次评估与全量墙钟已改写为 2^22 实测（并清掉被正则改坏的重复括号）；
+   §3.3 转角表补齐为六格，算法固化成入库脚本 `python tools\turn_angle_table.py --prefix result/ddps_cpp`
+   （口径与交付件 `_grad_turn_stats` 一致：把全部「用例 × 步」的夹角汇总后再取均值 / 全局最大）。
+7. ⏳ **修入口默认值不一致**：`cpp/main.cpp` 的 `--n-steps` 缺参兜底 50 → 15（批量入口都显式传参），已重编 `cpp/build_wsl.sh`；
+   用新二进制把六格 2^18 等价重跑一遍，与既有 `result/ddps_equiv_cpp_*` 逐轨迹比对确认行为不变，结论记入 CHANGELOG。
+8. ✅ **归档被取代的旧等价目录**：`result/ddps_cpp_direct_equiv/`、`result/ddps_cpp_secant_analytic_equiv/` → `archive/20261023_superseded_secant_direct_equiv/`；
+   `cpp/compare_traces.py` 的示例路径已指向现役 `result/ddps_equiv_{py,cpp}_full`。
+9. **git add + commit**（新增 `result/ddps_equiv_*`、`result/ddps_cpp_*`、`tools/turn_angle_table.py`、`docs/DDPS_Gradient_Direction_Analysis.md`）。
 10. **`present deliverables/DDPS_Deliverable.html`（最后动作）**。
 
 本轮（2026-10-12 · 双后端分工规则固化）：

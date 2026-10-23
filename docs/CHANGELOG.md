@@ -2,6 +2,33 @@
 
 > 本文件记录每个版本的核心变化。只记"变了什么"，不记排错过程。
 
+## 3×2 梯度获取矩阵六格齐 + 交付件六格化（2026-10-23）：回传行补齐、六格 2^22、等价重验
+
+### 梯度获取矩阵
+- **把「真实 BER 回传」从单格补成与代理行对称的三格**：`--method direct` 原先只有割线一种取法，现补 `--grad-mode full|rotate`（Python `_stage2_descent_direct(..., grad_mode, rotate_k)`、C++ `stage2_descent_direct(..., grad_mode, rotate_k)`）。回传行第 0 步恒为全 8 维中心差分（16 个 `±ε 微扰态`，真实 BER 实测），此后按取法：`full` 每步 16 态 / `rotate` 每步轮转 `ROTATE_K=2` 维共 4 态 / `secant` 0 态。无代理即无解析来源，gain 维也随取法走（代理行的 gain 维始终解析、0 微扰）。三个回传格与代理行三格共用同一 8 维搜索空间 / 步长调度 / 组门控 / 15 步上限。
+- **CLI 一键切换**：`--method proxy|direct` × `--grad-mode full|rotate|secant`（`--rotate-k`），Python 与 C++ 参数同名。
+
+### 2^18 等价（判据 `max_rel < 1e-9`）
+- 六格逐一比对（`result/ddps_equiv_{py,cpp}_<格>/`，`cpp/compare_traces.py`）：代理 full 1.42e-12 / 代理 rotate 1.20e-12 / 代理 secant 8.53e-12 / 回传 full 8.655e-13 / 回传 rotate 7.964e-13 / 回传 secant 8.894e-13。
+- 回传 × secant 与重构前的 direct 实现**逐位一致**（新旧代码在 2^18 同口径重跑，`worst max_rel = 0.000e+00`），因此最早那批 direct 的 2^22 全量数据改名 `result/ddps_cpp_direct_secant` 继续作为现役格。
+
+### 2^22 六格全量
+- 代理行 `full → rotate → secant`、回传行 `secant`（复用）→ `full` → `rotate`，全部经 `cpp/run_all_cases.py --backend wsl --jobs 4`；两段队列零失败（`[queue] ALL DONE failures=none`）。每用例真实评估实测均值：代理 225 / 85 / 29，回传 176 / 62 / 25。
+- **逐用例机制体检 0 异常**（`tools/verify_ddps.py --expect-cells 6`）：完整性、记账恒等式 `n_real_evals = n_landed + n_probe_states`、微扰态成对、刷新维序列（代理 full 7 维 / 回传 full 8 维 / rotate `(2k+j) mod 7` / secant 仅第 0 步）全部通过。
+- **现役格维持 `full`**：裁定句由结果实算。回传行横向结论——三格逐用例取最好后 8/15 打平、更好 5、更差 2，平均把 BER 压低 ×25719（现役 ×14031），代价 176 次真实评估/用例（现役 225）。
+
+### 交付件（六格版）
+- 用六格数据全量重建：§6.5 扩成「回传行三格总览 + 逐用例三格并列」（原表只列 secant 一格）；结论口径统一为「回传行三格逐用例取最好」，摘要页同步；指代不清的 "direct" 一律写成具体格名。
+- §3.3「方向能不能拐」表补齐六格：代理行 10.0° / 8.7° / **0.0°**、回传行 17.1° / 14.5° / **0.0°**（相邻步 1.6° / 2.2° vs 11.2° / 8.2°）——两格 secant 的抽头方向与第 0 步严格共线是结构性的（秩一修正只沿位移方向叠加）；回传行拐得更厉害，正好解释 6.5 里回传 × full 落后的两例。
+- 全文旧口径清零：`档` / `四档` / `三档` / `现役档` = 0 处，统一改称「取法」；模板 token 残留 0。
+
+### 工具与口径
+- **新增入库脚本 `tools/turn_angle_table.py`**：六格组内方向转角表（`grad` 列口径），与交付件 `_grad_turn_stats` 同算法（把全部「用例 × 步」夹角汇总后取均值 / 全局最大，修正了"先按用例平均再平均"导致回传行数字对不上的问题）。
+- **修入口默认值**：`cpp/main.cpp` 的 `--n-steps` 缺参兜底 50 → 15（与协议 `N_STEPS=15` 一致）；批量入口一直显式传参，2^22 结果不受影响；已重编 WSL 二进制（`cpp/build_wsl.sh`）。
+- **重编后行为不变（六格复验）**：用新二进制把六格 2^18 等价各重跑一遍（2 用例 × 15 步、单种子 42），与既有 `result/ddps_equiv_cpp_*` 逐轨迹比对，六格 `worst max_rel` 全为 **0.000e+00**（耗时 353.5 / 134.6 / 49.5 / 319.9 / 113.7 / 44.0 s）——重编未改任何数值行为，2^22 结果仍出自通过等价的同一份程序。
+- **归档**：`result/ddps_cpp_direct_equiv/`、`result/ddps_cpp_secant_analytic_equiv/` → `archive/20261023_superseded_secant_direct_equiv/`（`BRANCHES.md` 已登记）；`cpp/compare_traces.py` 示例路径指向现役目录。
+- README §4b/§4c/§5 的命令与目录名刷新为六格口径（含「逐格出图不要加 `--summary-out`」的告警）；`docs/DDPS_Method.md` §4 单次评估与全量墙钟改为 2^22 实测，并清掉一处被正则改坏的重复括号。
+
 ## 8 维在线搜索 + 形状三档梯度（2026-10-22）：抽头全自由、Model B 下线、direct 修正
 
 ### 在线搜索空间

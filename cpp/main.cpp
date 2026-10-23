@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
         if (a == "--num-symbols") num_symbols = clamp_arg(a.c_str(), argc, argv, i, 0.0);
         else if (a == "--tx-noise-snr") tx_noise_arg = clamp_arg(a.c_str(), argc, argv, i, -1.0);
         else if (a == "--seed") seed = (long)clamp_arg(a.c_str(), argc, argv, i, -1.0);
-        else if (a == "--n-steps") n_steps = (int)clamp_arg(a.c_str(), argc, argv, i, 50.0);
+        else if (a == "--n-steps") n_steps = (int)clamp_arg(a.c_str(), argc, argv, i, 15.0);   // 缺参兜底 = 协议 N_STEPS
         else if (a == "--seed-gain-u") seed_gain_u = clamp_arg(a.c_str(), argc, argv, i, 0.0);
         else if (a == "--rotate-k") rotate_k = (int)clamp_arg(a.c_str(), argc, argv, i, (double)ROTATE_K);
         else if (a == "--model-dir") { if (i + 1 < argc) model_dir = argv[++i]; }

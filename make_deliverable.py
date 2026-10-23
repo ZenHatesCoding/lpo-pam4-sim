@@ -1947,28 +1947,28 @@ def _grad_turn_stats(d):
 
 
 def _turn_block(a, order):
-    """「方向会不会拐」实测表：形状维三种取法 + 真实 BER 回传格。数据不足时返回空串。"""
-    how = {'full': '每步都重估（14 个 ±ε 微扰态）',
-           'rotate': '每步重估 2 个维（4 个 ±ε 微扰态）',
-           'secant': '<strong>不会</strong>：秩一修正只沿位移方向 s 叠加，组内横向分量保持不变'}
+    """「方向会不会拐」实测表：3×2 矩阵六格（三种取法 × 两种梯度来源）。数据不足时返回空串。"""
+    cells = (
+        ('full', a.dirs.get('full'), '代理 × full', '每步都重估（14 个 ±ε 微扰态）'),
+        ('rotate', a.dirs.get('rotate'), '代理 × rotate', '每步重估 2 个维（4 个 ±ε 微扰态）'),
+        ('secant', a.dirs.get('secant'), '代理 × secant',
+         '<strong>不会</strong>：秩一修正只沿位移方向 s 叠加，组内横向分量保持不变'),
+        ('direct_full', a.dirs.get('direct_full'), '回传 × full', '每步都重测 8 维（16 个 ±ε 微扰态）'),
+        ('direct_rotate', a.dirs.get('direct_rotate'), '回传 × rotate', '每步重测 2 个维（4 个 ±ε 微扰态）'),
+        ('direct_secant', a.dirs.get('direct_secant', a.direct), '回传 × secant',
+         '<strong>不会</strong>：同为秩一修正（第 0 步后不再微扰）'),
+    )
     rows, st = [], {}
-    for mode in ('full', 'rotate', 'secant', 'direct'):
-        d = a.direct if mode == 'direct' else a.dirs.get(mode)
+    for key, d, label, h in cells:
         v = _grad_turn_stats(d)
         if v is None:
             continue
-        st[mode] = v
-        label = 'direct（有回传参照）' if mode == 'direct' else MODE_ZH.get(mode, mode)
-        h = how.get(mode, '<strong>不会</strong>：同为秩一修正（第 0 步后不再微扰）')
+        st[key] = v
         rows.append('  <tr><td><strong>%s</strong></td><td class="n">%.1f°</td>'
                     '<td class="n">%.1f°</td><td class="n">%.1f°</td><td>%s</td></tr>'
                     % (label, v[0], v[1], v[2], h))
-    if len([m for m in st if m != 'direct']) < 3:
+    if len(rows) < 6:                      # 六格未齐时不渲染，避免半张表被误读
         return ''
-    note = ''
-    if 'secant' in st and st['secant'][3] == st['secant'][3]:
-        note = ('secant 的变化被挤到 CTLE 二维上（相对第 0 步平均 %.1f°），抽头维一步都没换过方向。'
-                % st['secant'][3])
     body = chr(10).join(rows)
     return ('<div class="tw">' + chr(10) + '<table>' + chr(10)
             + '  <caption>方向能不能拐：抽头 5 维梯度相对第 0 步的偏离（本次运行全程实测，单位：度）</caption>'
@@ -1977,14 +1977,15 @@ def _turn_block(a, order):
               '<th class="n">相对第 0 步<br>（最大）</th><th class="n">相邻步之间<br>（均值）</th>'
               '<th>抽头方向是否会被重估</th></tr>' + chr(10) + body + chr(10)
             + '</table>' + chr(10) + '</div>' + chr(10)
-            + '<p>上表把「方向能不能拐」量化了：full / rotate 每步都拿到新的实测斜率，'
-            + ('抽头方向相对第 0 步平均偏离 %.1f° / %.1f°（最大 %.1f° / %.1f°），'
-               '相邻步之间 %.1f° / %.1f°。' % (st['full'][0], st['rotate'][0],
-                                              st['full'][1], st['rotate'][1],
-                                              st['full'][2], st['rotate'][2]))
-            + '而 secant 与 direct 的抽头方向与第 0 步<strong>始终共线（0.0°）</strong>：'
+            + '<p>上表把「方向能不能拐」量化了：每步重新施加微扰的四格方向都会拐——代理行抽头方向相对第 0 步'
+            + '平均偏离 %.1f° / %.1f°（full / rotate）、相邻步 %.1f° / %.1f°，回传行 %.1f° / %.1f°、相邻步 %.1f° / %.1f°；'
+              '回传行拐得更厉害，因为真实 BER 的差分梯度幅值更大也更抖。'
+            % (st['full'][0], st['rotate'][0], st['full'][2], st['rotate'][2],
+               st['direct_full'][0], st['direct_rotate'][0], st['direct_full'][2], st['direct_rotate'][2])
+            + '而两格 <strong>secant</strong> 的抽头方向与第 0 步<strong>始终共线（0.0°）</strong>：'
               '秩一修正项沿位移方向 s 加入，s 在组内又与初始梯度同向，'
-              '于是组内梯度的横向分量永远不变，方向被锁在初始射线上——' + note
+              '于是组内梯度的横向分量永远不变，方向被锁在初始射线上——secant 的改向能力全被挤到 CTLE 二维上'
+            + '（代理行 %.1f°、回传行 %.1f°）。' % (st['secant'][3], st['direct_secant'][3])
             + '这就是「每步全量微扰 / 轮流微扰」替代纯割线外推的直接理由。</p>')
 
 
@@ -2398,54 +2399,74 @@ def _build_direct_section(a, summary, order, fs=None):
     if not dorder:
         return ''
     fs = fs or {}
+    # 矩阵「真实 BER 回传」行的三格（full / rotate / secant）：整节共用一份，避免重复读盘
+    dcells = _direct_cells(a.dirs, order, summary, a.mode)
+    dmap = {c['mode']: c for c in dcells}
+    ev_by_mode = {c['mode']: c['ev'] for c in dcells}
+    steps_by_mode = {c['mode']: c['steps'] for c in dcells}
+    ev3 = ' / '.join('%d' % ev_by_mode[m] for m in _MODE_ORDER if m in ev_by_mode and ev_by_mode[m] == ev_by_mode[m])
+    # 「回传行取最好」视图：逐用例在三格里挑最优落点，供本节结论 / KPI / 逐用例解读使用，
+    # 与逐用例明细表的「最好回传 ÷ 现役」同一口径（否则结论只代表 secant 一格，与上表口径不一致）
+    dbest = {}
+    for _e in dorder:
+        _c = [(m, dmap[m]['summ'][_e]) for m in _MODE_ORDER if m in dmap and _e in dmap[m]['summ']]
+        if _c:
+            dbest[_e] = min(_c, key=lambda t: float(t[1]['best_ber']))
+    db = {e: rec for e, (_m, rec) in dbest.items()}
+    db_mode = {e: _m for e, (_m, rec) in dbest.items()}
     _sym_d = _dir_num_symbols(a.direct) or _dir_num_symbols(a.baseline)
-    n_both = sum(1 for e in dorder
-                 if _is_zero_error(dsum[e]['best_ber'], _sym_d)
+    dorder_db = [e for e in dorder if e in db]
+    n_both = sum(1 for e in dorder_db
+                 if _is_zero_error(db[e]['best_ber'], _sym_d)
                  and _is_zero_error(summary[e]['best_ber'], _sym_d))
 
-    imp_d = np.array([dsum[e]['seed_ber'] / dsum[e]['best_ber'] for e in dorder])
-    imp_s = np.array([summary[e]['seed_ber'] / summary[e]['best_ber'] for e in dorder])
+    imp_d = np.array([db[e]['seed_ber'] / db[e]['best_ber'] for e in dorder_db])
+    imp_s = np.array([summary[e]['seed_ber'] / summary[e]['best_ber'] for e in dorder_db])
     geo_d = float(10 ** np.mean(np.log10(imp_d)))
     geo_s = float(10 ** np.mean(np.log10(imp_s)))
-    ratio = np.array([dsum[e]['best_ber'] / summary[e]['best_ber'] for e in dorder])
+    ratio = np.array([db[e]['best_ber'] / summary[e]['best_ber'] for e in dorder_db])
     n_same = int(((ratio >= 0.95) & (ratio <= 1.05)).sum())
     n_better = int((ratio < 0.95).sum())
     n_worse = int((ratio > 1.05).sum())
-    steps_d = [int(dsum[e]['n_steps_actual']) for e in dorder]
-    steps_s = [int(summary[e]['n_steps_actual']) for e in dorder]
-    ev_d = _mean_n_evals(dsum, dorder)
-    ev_s = _mean_n_evals(summary, dorder)
-    evals_d = ev_d if ev_d is not None else 16 + int(np.mean(steps_d))
+    steps_d = [int(db[e]['n_steps_actual']) for e in dorder_db]
+    steps_s = [int(summary[e]['n_steps_actual']) for e in dorder_db]
+    ev_s = _mean_n_evals(summary, dorder_db)
     evals_s = ev_s if ev_s is not None else 15 + int(np.mean(steps_s))
 
     # 结论措辞（按数字分档，照实说；几何平均倍数读者无感，用逐用例事实说话）
+    # 口径：回传行三格里逐用例取最好的一格，与逐用例明细表的「最好回传 ÷ 现役」一致
     if n_better == 0 and n_worse == 0:
-        verdict = (f"<strong>逐用例打平</strong>：{n_same}/{len(dorder)} 用例两方案最优 BER "
+        verdict = (f"<strong>逐用例打平</strong>：{n_same}/{len(dorder_db)} 用例两方案最优 BER "
                    f"一致（±5% 内）。")
+    elif geo_d >= geo_s * 1.1:
+        verdict = (f"<strong>回传行更好</strong>：{n_same}/{len(dorder_db)} 打平、回传行更好 {n_better}、"
+                   f"现役更好 {n_worse}；平均把 BER 压低 ×{geo_d:.0f}（现役 ×{geo_s:.0f}）。")
     elif geo_d >= geo_s * 0.9:
-        verdict = (f"<strong>总体相当</strong>：{n_same}/{len(dorder)} 打平、direct 更好 {n_better}、"
+        verdict = (f"<strong>总体相当</strong>：{n_same}/{len(dorder_db)} 打平、回传行更好 {n_better}、"
                    f"现役更好 {n_worse}——两方案平均都把 BER 压低约 {np.log10(geo_s):.1f} 个数量级。")
     else:
-        verdict = (f"<strong>direct 略差</strong>：{n_same}/{len(dorder)} 打平、direct 更好 {n_better}、"
+        verdict = (f"<strong>回传行略差</strong>：{n_same}/{len(dorder_db)} 打平、回传行更好 {n_better}、"
                    f"现役更好 {n_worse}。")
 
-    # KPI 锚点：打平数 / direct 最深的领先 / direct 最浅的落后 / 步数与评估量
+    # KPI 锚点：打平数 / 回传行最深的领先 / 回传行最浅的落后 / 步数与评估量
     i_best, i_worst = int(ratio.argmin()), int(ratio.argmax())
-    kpi_rows = [f'<div class="kpi"><div class="v">{n_same} / {len(dorder)}</div>'
+    kpi_rows = [f'<div class="kpi"><div class="v">{n_same} / {len(dorder_db)}</div>'
                 f'<div class="l">两方案打平的用例（±5% 内；{n_both} 例两边同到 0 错误检测底）</div></div>']
     if ratio[i_best] < 0.95:
+        e = dorder_db[i_best]
         kpi_rows.append(
             f'<div class="kpi"><div class="v">×{1/ratio[i_best]:.1f}</div>'
-            f'<div class="l">direct 在 {dorder[i_best]} 的领先（{_ber(dsum[dorder[i_best]]["best_ber"])} vs '
-            f'{_ber(summary[dorder[i_best]]["best_ber"])}）</div></div>')
+            f'<div class="l">回传 × {db_mode[e]} 在 {e} 的领先（{_ber(db[e]["best_ber"])} vs '
+            f'{_ber(summary[e]["best_ber"])}）</div></div>')
     if ratio[i_worst] > 1.05:
+        e = dorder_db[i_worst]
         kpi_rows.append(
             f'<div class="kpi"><div class="v">×{ratio[i_worst]:.1f}</div>'
-            f'<div class="l">direct 在 {dorder[i_worst]} 的落后（{_ber(dsum[dorder[i_worst]]["best_ber"])} vs '
-            f'{_ber(summary[dorder[i_worst]]["best_ber"])}）</div></div>')
+            f'<div class="l">回传 × {db_mode[e]} 在 {e} 的落后（{_ber(db[e]["best_ber"])} vs '
+            f'{_ber(summary[e]["best_ber"])}）</div></div>')
     kpi_rows.append(
         f'<div class="kpi"><div class="v">{int(np.mean(steps_d))} vs {int(np.mean(steps_s))} 步</div>'
-        f'<div class="l">平均实际步数（评估量 ≈{evals_d} vs ≈{evals_s} 次/用例）</div></div>')
+        f'<div class="l">平均实际步数（回传行三格 ≈{ev3} 次/用例，现役 ≈{evals_s}）</div></div>')
     direct_kpis = '\n'.join(kpi_rows)
 
     def _sr(rec):
@@ -2454,17 +2475,17 @@ def _build_direct_section(a, summary, order, fs=None):
 
     bullets = []
     if ratio[i_best] < 0.95:
-        e = dorder[i_best]
+        e = dorder_db[i_best]
         bullets.append(
-            f'<li><strong>{e}：direct 更好</strong>——真实目标把最优 BER 压到 {_ber(dsum[e]["best_ber"])}'
-            f'（第 {int(dsum[e]["best_step"])} 步），现役方案停在 {_ber(summary[e]["best_ber"])}'
+            f'<li><strong>{e}：回传 × {db_mode[e]} 更好</strong>——真实目标把最优 BER 压到 {_ber(db[e]["best_ber"])}'
+            f'（第 {int(db[e]["best_step"])} 步），现役方案停在 {_ber(summary[e]["best_ber"])}'
             f'（第 {int(summary[e]["best_step"])} 步，{_sr(summary[e])}）。代理预测在 BER 最深段分辨率不足，'
             f'真实目标没有这个盲区。</li>')
     if ratio[i_worst] > 1.05:
-        e = dorder[i_worst]
+        e = dorder_db[i_worst]
         bullets.append(
-            f'<li><strong>{e}：direct 更差</strong>——direct 停在 {_ber(dsum[e]["best_ber"])}'
-            f'（{int(dsum[e]["n_steps_actual"])} 步，{_sr(dsum[e])}），现役方案 {_ber(summary[e]["best_ber"])}'
+            f'<li><strong>{e}：回传 × {db_mode[e]} 更差</strong>——回传 × {db_mode[e]} 停在 {_ber(db[e]["best_ber"])}'
+            f'（{int(db[e]["n_steps_actual"])} 步，{_sr(db[e])}），现役方案 {_ber(summary[e]["best_ber"])}'
             f'。真实 BER 的差分梯度幅值大、噪声也大，固定步长在陡峭区域容易贴住物理量程或来回过冲；'
             f'现役方案走的是代理预测的组归一化方向，步幅被门控约束。</li>')
     bullets.append(
@@ -2473,23 +2494,26 @@ def _build_direct_section(a, summary, order, fs=None):
         f'同一套下降机制给出的落点水平一致。</li>')
     bullets = '\n      '.join(bullets)
 
-    # 结果对比表
+    # 结果对比表：现役格（代理 × full）并列回传行三格；「最好回传」= 该用例三格中最优 BER
     rows = []
     for env in dorder:
-        r = dsum[env]
         s = summary[env]
-        rr = r['best_ber'] / s['best_ber']
+        per = [(m, dmap[m]['summ'].get(env) if m in dmap else None) for m in _MODE_ORDER]
+        avail = [(m, rec) for m, rec in per if rec is not None]
+        bm, brec = min(avail, key=lambda t: float(t[1]['best_ber'])) if avail else (None, None)
+        rr = (float(brec['best_ber']) / float(s['best_ber'])) if brec is not None else float('nan')
         mark = 'win' if rr < 0.95 else ('lose' if rr > 1.05 else '')
-        sr = r.get('stop_reason')
-        sr = sr if isinstance(sr, str) else ''   # pandas 把空字段读成 NaN，归一成 ''
+        tds = ''.join(
+            ('<td class="n">%s (%d)</td>' % (_ber(rec['best_ber']), int(rec['best_step'])))
+            if rec is not None else '<td class="n">—</td>' for _m, rec in per)
         rows.append(
-            f"<tr><td>{env}</td><td>{_cond(r)}</td>"
+            f"<tr><td>{env}</td><td>{_cond(s)}</td>"
             f"<td class=\"n\">{_ber(s['seed_ber'])}</td>"
             f"<td class=\"n\">{_ber(s['best_ber'])} ({int(s['best_step'])})</td>"
-            f"<td class=\"n\">{_ber(r['best_ber'])} ({int(r['best_step'])})</td>"
+            f"{tds}"
             f"<td class=\"n {mark}\">x{rr:.2f}</td>"
-            f"<td class=\"n\">{int(r['n_steps_actual'])}</td>"
-            f"<td class=\"mono\" style=\"font-size:11.5px\">{sr or '步数用尽'}</td></tr>")
+            f"<td class=\"mono\" style=\"font-size:11.5px\">"
+            f"{(_sr(brec) if brec is not None else '—')}（回传 × {bm}）</td></tr>")
     rows_html = '\n'.join(rows)
 
     # 对比图：写到交付件自己的缓存目录（**不写进 result/**，结果目录只由仿真产出，
@@ -2500,18 +2524,17 @@ def _build_direct_section(a, summary, order, fs=None):
         scale_label=_scale_label(_dir_num_symbols(a.baseline)))
     img_tag = _img_tag(img_png)
 
-    n_evals_note = (f"每用例真实评估量：direct ≈ {evals_d}（第 0 步一轮 16 个微扰态 + "
-                    f"{int(np.mean(steps_d))} 落点均值）vs 现役 ≈ {evals_s}"
-                    f"（含第 0 步 14 个微扰态 + {int(np.mean(steps_s))} 落点均值）")
+    n_evals_note = (f"每用例真实评估量：回传行三格 ≈ {ev3}（full / rotate / secant，均含第 0 步一轮 16 个微扰态）"
+                    f" vs 现役 ≈ {evals_s}（含第 0 步 14 个微扰态 + {int(np.mean(steps_s))} 落点均值）")
 
     # 逐用例形态解读引用的实测终点（数据驱动，缺用例时退化为泛指）
-    _hn = dsum.get('HighNoise_IL10x10')
+    _hn = db.get('HighNoise_IL10x10')
     real_ber_ref = _ber(_hn['best_ber']) if _hn is not None else '该区域可及的最优位'
 
     # 3×2 矩阵里「真实 BER 回传」这一行：三格总览（每格只与同一种方式的代理格比）
     _ref_scale = _dir_scale(a.baseline)
     ov_rows = []
-    for c in _direct_cells(a.dirs, order, summary, a.mode):
+    for c in dcells:
         if _ref_scale and c['scale'] != _ref_scale:
             if not getattr(a, 'allow_mixed_scale', False):
                 continue
@@ -2538,7 +2561,7 @@ def _build_direct_section(a, summary, order, fs=None):
   {ov_html}
 </table>
 </div>
-<p>下面给出 <strong>secant</strong> 格（第 0 步一轮全 8 维实测后靠割线外推，在线代价最低）的逐用例明细，对照<strong>现役格（代理 × full）</strong>；full / rotate 两格的逐用例数据在同一 schema 的结果目录里（<span class="mono">result/ddps_cpp_direct_*</span>）。</p>
+<p>下面给出<strong>回传行三格</strong>的逐用例明细，并列<strong>现役格（代理 × full）</strong>：三格共用同一次优起点、同一套下降机制与同一 15 步上限，差别只在形状维取法（full 每步 8 维全量重测 / rotate 每步轮转 2 维 / secant 第 0 步后割线外推）。「最好回传」= 该用例三格中的最优最优点，用它对照现役格，回答「回传行的上限相对现役如何」；逐格评估量与打平情况见上表，收敛轨迹对照见 6.2。</p>
 
 <div class="tabs">
   <div class="tab-bar">
@@ -2557,12 +2580,12 @@ def _build_direct_section(a, summary, order, fs=None):
     <p style="margin-bottom:0">定位：<strong>回传格不是替代方案，而是「若有回传通道，直接梯度下降能达到什么水平」的参照</strong>——本方案的默认前提是拿不到端到端 BER，此时代理路径是唯一选择（§1）。</p>
     <figure>
       <div class="fig-scroll"><img src="{img_tag}" alt="direct 与现役方案最优 BER 对比"></div>
-      <figcaption>图 13 · 15 用例最优 BER_MLSE 对比（对数横轴；蓝点 = 代理 × full，红菱 = 回传 × secant；灰线连接同一用例）。</figcaption>
+      <figcaption>图 13 · 15 用例最优 BER_MLSE 对比（对数横轴；蓝点 = 代理 × full，红菱 = 回传 × secant 这一格；灰线连接同一用例）。三格逐用例数字见下表，逐格评估量与打平情况见上表。</figcaption>
     </figure>
     <div class="tw">
     <table class="wide" id="tbl-direct-cmp">
-      <caption>同协议逐用例对比（回传 × secant 对照 代理 × full）：起点 = 同一次优工作点；最优 = 全轨迹真实 BER_MLSE 最小值（步序）；比值 &lt; 1 表示回传格更优 <span class="sh">· 可左右滑动</span></caption>
-      <tr><th>用例</th><th>物理条件</th><th class="n">起点 BER</th><th class="n">代理 × full 最优 BER（步）</th><th class="n">回传 × secant 最优 BER（步）</th><th class="n">比值</th><th class="n">回传格步数</th><th>回传格停止原因</th></tr>
+      <caption>同协议逐用例对比（回传行三格并列 代理 × full）：起点 = 同一次优工作点；最优 = 全轨迹真实 BER_MLSE 最小值（步序）；「最好回传 ÷ 现役」&lt; 1 表示回传行更优 <span class="sh">· 可左右滑动</span></caption>
+      <tr><th>用例</th><th>物理条件</th><th class="n">起点 BER</th><th class="n">代理 × full 最优 BER（步）</th><th class="n">回传 × full 最优 BER（步）</th><th class="n">回传 × rotate 最优 BER（步）</th><th class="n">回传 × secant 最优 BER（步）</th><th class="n">最好回传 ÷ 现役</th><th>最好回传格停止原因</th></tr>
       {rows_html}
     </table>
     </div>
@@ -2581,7 +2604,7 @@ def _build_direct_section(a, summary, order, fs=None):
         <tr><td>每步梯度维持</td><td>形状 7 维按方式：full 每步全量重算 / rotate 每步轮转 2 维 / secant Broyden 秩一修正（0 微扰）；gain 维每步解析重算</td><td>全 8 维按方式：full 每步全量重测 / rotate 每步轮转 2 维 / secant Broyden 秩一修正真实 Δlog10(BER)（无代理即无解析 gain 梯度，gain 维也随方式走）</td></tr>
         <tr><td>落点安全机制</td><td>无否决层：方向对不对由 15 个环境的落点实测 BER 回答（6.1 / 6.3）</td><td>无（同上；搜索盒与固定步数预算仍在）</td></tr>
         <tr><td>微扰态（真实链路工作点）</td><td>第 0 步 14 个；此后按方式为 14 / 4 / 0 个每步</td><td>第 0 步 16 个；此后按方式为 16 / 4 / 0 个每步</td></tr>
-        <tr><td>在线真实评估（每用例）</td><td>≈{evals_s} 次（现役格实测均值）</td><td>≈{evals_d} 次（实测均值）</td></tr>
+        <tr><td>在线真实评估（每用例）</td><td>≈{evals_s} 次（现役格实测均值）</td><td>≈{ev3} 次（full / rotate / secant 三格实测均值）</td></tr>
       </table>
       </div>
       <p><strong>记账口径</strong>：trace 的 <span class="mono">pred_a</span> 列在 direct 下记录当前落点目标值（= real_lb，即回传的 log10 BER），<span class="mono">pred_b / allowed_ber / pred_b_ber</span> 恒 0（无代理），列结构与其余结果目录一致，报表工具统一解析。第 0 步 16 个微扰态的真实 BER 逐一记入 <span class="mono">probes_&lt;用例&gt;.csv</span>（param/sign/坐标/真实 BER），与其余格同 schema。</p>
@@ -3224,26 +3247,34 @@ def main():
         'secant': '微扰态真实 BER_MLSE 包络：仅第 0 步 14 个 ±ε 微扰态（7 维 × ±ε；其后 0 微扰，gain 维解析）',
     }.get(a.mode, '微扰态真实 BER_MLSE 包络')
     if direct_section:
-        dsum, _ = _load_summary(a.direct)
-        dorder = [e for e in order if e in dsum]
-        ratio = np.array([dsum[e]['best_ber'] / summary[e]['best_ber'] for e in dorder])
+        # 摘要行与 6.5 同口径：回传行三格（full/rotate/secant）逐用例取最好的一格
+        _dmap = {}
+        for _m in _MODE_ORDER:
+            _d, _sc = _pick_dir(a.dirs, f'direct_{_m}')
+            if _d:
+                _dmap[_m], _ = _load_summary(_d)
+        dorder = [e for e in order if _dmap and all(e in _dmap[m] for m in _dmap)]
+        _b = {e: min(((m, _dmap[m][e]) for m in _dmap), key=lambda t: float(t[1]['best_ber']))
+              for e in dorder}
+        ratio = np.array([_b[e][1]['best_ber'] / summary[e]['best_ber'] for e in dorder])
         n_same = int(((ratio >= 0.95) & (ratio <= 1.05)).sum())
         n_both = sum(1 for e in dorder
-                     if _is_zero_error(dsum[e]['best_ber'], fs.get('num_symbols') or 0)
+                     if _is_zero_error(_b[e][1]['best_ber'], fs.get('num_symbols') or 0)
                      and _is_zero_error(summary[e]['best_ber'], fs.get('num_symbols') or 0))
         i_best, i_worst = int(ratio.argmin()), int(ratio.argmax())
         e_best, e_worst = dorder[i_best], dorder[i_worst]
         # 打平行（几何平均倍数读者无感：换成锚点式逐用例事实）
         hl_direct = (f"{n_same}/{len(dorder)} 用例打平（{n_both} 例两边同到 0 错误检测底）")
         if ratio[i_best] < 0.95:
-            hl_direct += (f"，{e_best} direct 更深（{_ber(dsum[e_best]['best_ber'])} vs "
+            hl_direct += (f"，{e_best} 回传 × {_b[e_best][0]} 更深（{_ber(_b[e_best][1]['best_ber'])} vs "
                           f"{_ber(summary[e_best]['best_ber'])}）")
         if ratio[i_worst] > 1.05:
-            hl_direct += f"，{e_worst} direct 更浅（×{ratio[i_worst]:.1f}）"
+            hl_direct += f"，{e_worst} 回传 × {_b[e_worst][0]} 更浅（×{ratio[i_worst]:.1f}）"
         headline += (
-            f"<tr><td>对比实验 direct（有回传通道）</td>"
+            f"<tr><td>对比实验 回传行（有回传通道）</td>"
             f"<td>若端到端 BER 可回传：目标直接换成真实 BER、不用代理的直接梯度下降，"
-            f"与现役方案同协议对比（{_scale_label(fs.get('num_symbols'))} C++、同次优起点）：{hl_direct}，见 6.5</td></tr>")
+            f"与现役方案同协议对比（{_scale_label(fs.get('num_symbols'))} C++、同次优起点、"
+            f"三格逐用例取最好）：{hl_direct}，见 6.5</td></tr>")
 
     html = TEMPLATE
     repl = {
