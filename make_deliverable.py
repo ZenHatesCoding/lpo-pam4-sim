@@ -2557,12 +2557,12 @@ def _build_direct_section(a, summary, order, fs=None):
     <p style="margin-bottom:0">定位：<strong>回传格不是替代方案，而是「若有回传通道，直接梯度下降能达到什么水平」的参照</strong>——本方案的默认前提是拿不到端到端 BER，此时代理路径是唯一选择（§1）。</p>
     <figure>
       <div class="fig-scroll"><img src="{img_tag}" alt="direct 与现役方案最优 BER 对比"></div>
-      <figcaption>图 13 · 15 用例最优 BER_MLSE 对比（对数横轴；蓝点 = 现役方案，红菱 = direct；灰线连接同一用例）。</figcaption>
+      <figcaption>图 13 · 15 用例最优 BER_MLSE 对比（对数横轴；蓝点 = 代理 × full，红菱 = 回传 × secant；灰线连接同一用例）。</figcaption>
     </figure>
     <div class="tw">
     <table class="wide" id="tbl-direct-cmp">
-      <caption>同协议逐用例对比：起点 = 同一次优工作点；最优 = 全轨迹真实 BER_MLSE 最小值（步序）；direct/现役 &lt; 1 表示 direct 更优 <span class="sh">· 可左右滑动</span></caption>
-      <tr><th>用例</th><th>物理条件</th><th class="n">起点 BER</th><th class="n">现役最优 BER（步）</th><th class="n">direct 最优 BER（步）</th><th class="n">direct/现役</th><th class="n">direct 步数</th><th>direct 停止原因</th></tr>
+      <caption>同协议逐用例对比（回传 × secant 对照 代理 × full）：起点 = 同一次优工作点；最优 = 全轨迹真实 BER_MLSE 最小值（步序）；比值 &lt; 1 表示回传格更优 <span class="sh">· 可左右滑动</span></caption>
+      <tr><th>用例</th><th>物理条件</th><th class="n">起点 BER</th><th class="n">代理 × full 最优 BER（步）</th><th class="n">回传 × secant 最优 BER（步）</th><th class="n">比值</th><th class="n">回传格步数</th><th>回传格停止原因</th></tr>
       {rows_html}
     </table>
     </div>
@@ -2570,12 +2570,12 @@ def _build_direct_section(a, summary, order, fs=None):
 
   <div class="tab-panel" id="tab-direct-method">
     <div class="card">
-      <p><strong>前提与动机</strong>：现役方案在线只拿得到发端可测量（7-tap Tx FIR 探针、drive_rms），方向完全由冻结的 Model A 给出。direct 假设收端 BER 可回传（等效于每次调参都能拿到端到端误码统计），此时目标本身可得，代理失去存在理由——直接对真实目标做梯度下降就是上限参照。</p>
-      <p><strong>下降机制与现役一致</strong>（这是对照有效的前提）：同一 8 维搜索空间、同一组归一化步长与组门控、同一固定 15 步上限、同一次优起点。差别只在<strong>目标与梯度来源</strong>：</p>
+      <p><strong>前提与动机</strong>：现役方案在线只拿得到发端可测量（7-tap Tx FIR 探针、drive_rms），方向完全由冻结的 Model A 给出。回传行假设收端 BER 可回传（等效于每次调参都能拿到端到端误码统计），此时目标本身可得，代理失去存在理由——直接对真实目标做梯度下降就是上限参照。</p>
+      <p><strong>下降机制与代理行一致</strong>（这是对照有效的前提）：同一 8 维搜索空间、同一组归一化步长与组门控、同一固定 15 步上限、同一次优起点。差别只在<strong>目标与梯度来源</strong>：</p>
       <div class="tw">
       <table class="wide" style="margin-bottom:8px">
-        <caption>机制对照：现役（探针代理，三种取法可选）vs direct</caption>
-        <tr><th>环节</th><th>现役（Model A 方向代理，无需回传）</th><th>direct（需回传通道）</th></tr>
+        <caption>机制对照：代理行（探针代理，三种取法可选）vs 回传行（真实 BER，三种取法可选）</caption>
+        <tr><th>环节</th><th>代理行（Model A 方向代理，无需回传）</th><th>回传行（真实 BER，需回传通道）</th></tr>
         <tr><td>下降目标</td><td>Model A 预测 log10(BER)（探针域代理）</td><td>端到端真实 log10(BER)（回传值）</td></tr>
         <tr><td>第 0 步初始化</td><td>形状 7 维中心差分查 A（14 个 ±ε 微扰态）+ gain 维解析梯度（A 的 8 维探针特征严格 ∝ gain，闭式可得，0 微扰）</td><td>全 8 维中心差分实测真实 BER（16 个 ±ε 微扰态）——无代理即无解析 gain 梯度，gain 维也只能实测</td></tr>
         <tr><td>每步梯度维持</td><td>形状 7 维按方式：full 每步全量重算 / rotate 每步轮转 2 维 / secant Broyden 秩一修正（0 微扰）；gain 维每步解析重算</td><td>全 8 维按方式：full 每步全量重测 / rotate 每步轮转 2 维 / secant Broyden 秩一修正真实 Δlog10(BER)（无代理即无解析 gain 梯度，gain 维也随方式走）</td></tr>
