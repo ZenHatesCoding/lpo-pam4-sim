@@ -1189,11 +1189,11 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
   <!--CORE_ROWS-->
 </table>
 </div>
-<p>三档形状梯度在<strong>同一协议、同一落点序列起点</strong>下的横向对比（落点 BER 取 15 用例的几何平均；「与 full 打平」= 逐用例最优 BER 之差在 5% 以内）：</p>
+<p>把梯度获取摊成 <strong>3 × 2 矩阵</strong>——3 种形状维获取方式 × 2 种梯度来源——在<strong>同一协议、同一起点、同一固定 15 步</strong>下横向对比（落点 BER 取 15 用例的几何平均；「打平」＝ 逐用例最优 BER 之差在 5% 以内，基准 = 代理 × full）：</p>
 <div class="tw">
 <table class="wide" id="tbl-mode-cmp">
-  <caption>三档形状梯度的代价与效果（15 用例） <span class="sh">· 可左右滑动</span></caption>
-  <tr><th>档</th><th class="n">15 用例最优 BER 几何平均</th><th class="n">相对 full</th><th class="n">与 full 打平</th><th class="n">最坏单例倍数</th><th class="n">每用例真实评估</th><th class="n">15 用例合计</th></tr>
+  <caption>六格矩阵的代价与效果（15 用例） <span class="sh">· 可左右滑动</span></caption>
+  <tr><th>格（梯度来源 × 形状维获取方式）</th><th class="n">15 用例最优 BER 几何平均</th><th class="n">相对代理 full</th><th class="n">与代理 full 打平</th><th class="n">最坏单例倍数</th><th class="n">每用例真实评估</th><th class="n">15 用例合计</th></tr>
   <!--MODE_CMP_ROWS-->
 </table>
 </div>
@@ -1432,7 +1432,7 @@ python make_deliverable.py --baseline result/ddps_cpp_<!--MODE_KEY--> --mode <!-
 <p>比对命令：<span class="mono">python cpp/compare_traces.py --py &lt;Python 目录&gt; --cpp &lt;C++ 目录&gt;</span>；比对列 <span class="mono">gdc / gdc2 / gain / u_gain / drive_rms / pred_a / real_lb / real_ber / grad_norm</span>。通过比对后，全量规模（2<sup>22</sup> 高 SNR）只用 C++ 跑（见 §6）；Python 结果作为低 SNR 收敛与等价性参照。</p>
 <h3>10.5 评估量对比（三档形状梯度 + direct 参照）</h3>
 <p>同一次优起点、同一 15 步上限、同一物理链路，四个入口每用例真实打到链路上的次数（落地评估三档相同，差别全在梯度估计）：</p>
-<div class="kpis" style="grid-template-columns:repeat(4,1fr)">
+<div class="kpis" style="grid-template-columns:repeat(3,1fr)">
   <!--EVAL_KPI_CARDS-->
 </div>
 <p>相对「每步都做全量中心差分」的格，轮转格把在线代价降到约 1/3、割线格外推格降到约 1/8（每格精确次数见 4.3）；真实 BER 回传格虽然也可不做全量微扰，但它需要回传通道——这是它换来的代价。单次真实评估的实测耗时见 §4.3（同一物理链、同一符号数）。现役格 15 用例全量重跑（15 步）合计墙钟：<!--CXX_TOTAL_WALL-->（4 路并行，见 <span class="mono">result/ddps_cpp_<!--MODE_KEY-->/</span>）。</p>
@@ -1721,11 +1721,19 @@ def _rows_target_rms(rms_data, order):
 
 # 三档形状梯度 + direct 参照：每用例真实评估次数（落地 = 走的步数，微扰态 = 为估计梯度额外打到链路上的次数）
 _EVAL_MODES = [
-    ('full', 'full（7 维全量中心差分）', '7 维每步重算'),
-    ('rotate', 'rotate（每步轮转 2 维）', '其余维沿用上次实测值'),
-    ('secant', 'secant（第 0 步一轮后割线外推）', 'Broyden 秩一修正，0 微扰'),
-    ('direct', 'direct 参照（真实 BER 差分）', '第 0 步 8 维中心差分，其后 Broyden'),
+    ('full', '代理 × full（7 维每步全量中心差分）', '7 维每步重算，gain 维解析'),
+    ('rotate', '代理 × rotate（每步轮转 2 维）', '其余维沿用上次实测值'),
+    ('secant', '代理 × secant（第 0 步一轮后割线外推）', 'Broyden 秩一修正，0 微扰'),
+    ('direct_full', '回传 × full（8 维每步全量中心差分）', '每步 16 态，需真实 BER 回传'),
+    ('direct_rotate', '回传 × rotate（每步轮转 2 维）', '每步 4 态，需真实 BER 回传'),
+    ('direct_secant', '回传 × secant（第 0 步一轮后割线外推）', 'Broyden 秩一修正，需真实 BER 回传'),
 ]
+
+# 3×2 矩阵：3 种形状维获取方式 × 2 种梯度来源
+_CELL_SOURCE = {'full': 'proxy', 'rotate': 'proxy', 'secant': 'proxy',
+                'direct_full': 'direct', 'direct_rotate': 'direct', 'direct_secant': 'direct'}
+_MODE_ORDER = ('full', 'rotate', 'secant')
+_SOURCE_ZH = {'proxy': '发端代理（Model A，无需回传）', 'direct': '真实 BER 回传'}
 
 
 def _dir_scale(d):
@@ -2032,8 +2040,17 @@ def _scale_guard(a):
 
 
 def _pick_dir(dirs, mode):
-    """优先用全量结果目录；没有就退到 2^18 比对目录（规模标签取自 run_config.json）。"""
-    for d, fallback in ((dirs.get(mode), '全量'), (dirs.get(f'{mode}_eq'), '2^18')):
+    """优先用全量结果目录；没有就退到 2^18 比对目录（规模标签取自 run_config.json）。
+
+    direct_secant 兼容旧命名：早期结果目录叫 `direct`，语义就是「第 0 步一轮后 Broyden」。
+    """
+    cands = [(dirs.get(mode), '全量')]
+    if mode == 'direct_secant':
+        cands.append((dirs.get('direct'), '全量'))
+    cands.append((dirs.get(f'{mode}_eq'), '2^18'))
+    if mode == 'direct_secant':
+        cands.append((dirs.get('direct_eq'), '2^18'))
+    for d, fallback in cands:
         if d and os.path.exists(os.path.join(d, 'case_summary.csv')):
             return d, (_dir_scale(d) or fallback)
     return None, None
@@ -2042,9 +2059,10 @@ def _pick_dir(dirs, mode):
 def _rows_eval_cost(dirs, cur_mode='secant'):
     rows = []
     vals = {}
+    ref = _pick_dir(dirs, 'full')[1]          # 参考规模：只比同协议的格
     for mode, label, note in _EVAL_MODES:
         d, scale = _pick_dir(dirs, mode)
-        if not d:
+        if not d or (ref and scale != ref):
             continue
         _, df = _load_summary(d)
         ev = float(df['n_real_evals'].mean())
@@ -2077,60 +2095,79 @@ def _rows_eval_cost(dirs, cur_mode='secant'):
 
 
 def _kpi_eval(dirs):
-    """10.5 的四个评估量数字卡片（数据取自各档结果目录的实测统计）。"""
+    """10.5 的评估量数字卡片（数据取自各格结果目录的实测统计；只取同协议的格）。"""
     cards = []
+    ref = _pick_dir(dirs, 'full')[1]
     for mode, label, note in _EVAL_MODES:
-        d, _scale = _pick_dir(dirs, mode)
-        if not d:
+        d, scale = _pick_dir(dirs, mode)
+        if not d or (ref and scale != ref):
             continue
         _, df = _load_summary(d)
         ev = float(df['n_real_evals'].mean())
         pr = float(df['n_probe_states'].mean()) if 'n_probe_states' in df else 0.0
         ld = float(df['n_landed'].mean()) if 'n_landed' in df else ev - pr
         desc = {
-            'full': f'full：{ld:.0f} 落地 + {pr:.0f} 个 ±ε 微扰态（每步 7 维全量中心差分）',
-            'rotate': f'rotate：{ld:.0f} 落地 + {pr:.0f} 个 ±ε 微扰态（每步轮转 2 维）',
-            'secant': f'secant：{ld:.0f} 落地 + {pr:.0f} 个 ±ε 微扰态（仅第 0 步一轮）',
-            'direct': f'direct 参照：{ld:.0f} 落地 + {pr:.0f} 个 ±ε 微扰态（第 0 步 8 维全测，需真实 BER 回传）',
+            'full': f'代理 × full：{ld:.0f} 落地 + {pr:.0f} 个 ±ε 微扰态（每步 7 维全量中心差分）',
+            'rotate': f'代理 × rotate：{ld:.0f} 落地 + {pr:.0f} 个 ±ε 微扰态（每步轮转 2 维）',
+            'secant': f'代理 × secant：{ld:.0f} 落地 + {pr:.0f} 个 ±ε 微扰态（仅第 0 步一轮）',
+            'direct_full': f'回传 × full：{ld:.0f} 落地 + {pr:.0f} 个 ±ε 微扰态（每步 8 维全量；需回传）',
+            'direct_rotate': f'回传 × rotate：{ld:.0f} 落地 + {pr:.0f} 个 ±ε 微扰态（每步轮转 2 维；需回传）',
+            'direct_secant': f'回传 × secant：{ld:.0f} 落地 + {pr:.0f} 个 ±ε 微扰态（仅第 0 步一轮；需回传）',
         }.get(mode, label)
         cards.append(f'<div class="kpi"><div class="v">{ev:.0f} 次</div><div class="l">{desc}</div></div>')
     return '\n  '.join(cards)
 
 
 def _mode_series(dirs, order):
-    """三档模式的落点 BER 序列与每用例真实评估次数（用于三档横向对比）。"""
+    """矩阵各格的落点 BER 序列与真实评估次数（代理 3 格 + 真实回传 3 格）。
+
+    结果目录缺哪一格就跳过哪一格（矩阵按实有数据渲染，不臆造）。
+    """
     out = {}
-    for mode in ('full', 'rotate', 'secant'):
-        d, _scale = _pick_dir(dirs, mode)
+    for cell, _label, _note in _EVAL_MODES:
+        d, scale = _pick_dir(dirs, cell)
         if not d:
             continue
         summ, df = _load_summary(d)
         envs = [e for e in order if e in summ]
-        out[mode] = {
+        out[cell] = {
             'dir': d,
+            'scale': scale,
+            'source': _CELL_SOURCE[cell],
+            'mode': cell if cell in _MODE_ORDER else cell.split('_', 1)[1],
             'envs': envs,
             'best': np.array([float(summ[e]['best_ber']) for e in envs]),
             'ev': float(df['n_real_evals'].mean()),
+            'ev_all': float(df['n_real_evals'].sum()),
             'probe': float(df['n_probe_states'].mean()) if 'n_probe_states' in df else 0.0,
+            'landed': float(df['n_landed'].mean()) if 'n_landed' in df else float('nan'),
         }
     return out
 
 
-def _rows_mode_cmp(dirs, order, cur_mode='full'):
-    """三档模式横向对比表 + 一句话摘要（供 6.1 与首页结论表使用）。"""
+def _rows_mode_cmp(dirs, order, cur_mode='full', allow_mixed=False):
+    """3×2 矩阵横向对比表 + 一句话摘要（供 6.1 与首页结论表使用）。
+
+    参考基准 = 代理 × full（现役工作点）；「打平」＝ 逐用例最优 BER 之差在 5% 以内。
+    **只比同一协议规模的格**：规模不一致的格直接不参与（正式交付件不允许混规模），
+    allow_mixed 只在调试时放行并在行名上标注规模，避免把 2^18 的 2 个用例和 2^22 的 15 个用例混算。
+    """
     s = _mode_series(dirs, order)
     if 'full' not in s:
         return '', '', {}
     envs = s['full']['envs']
     base = s['full']['best']
+    ref_scale = s['full']['scale']
     rows = []
     bits = []
-    for mode, label in (('full', MODE_ZH['full']),
-                        ('rotate', MODE_ZH['rotate']),
-                        ('secant', 'secant（第 0 步后割线外推）')):
-        if mode not in s:
+    for cell, label, _note in _EVAL_MODES:
+        if cell not in s:
             continue
-        d = s[mode]
+        d = s[cell]
+        if d['scale'] != ref_scale:
+            if not allow_mixed:
+                continue
+            label = f'{label}〔{d["scale"]} 调试格，不计入对比〕'
         b = d['best']
         n = min(len(b), len(base))
         geo = float(10 ** np.mean(np.log10(b[:n])))
@@ -2139,8 +2176,8 @@ def _rows_mode_cmp(dirs, order, cur_mode='full'):
         tie = int((np.abs(np.log10(b[:n] / base[:n])) <= np.log10(1.05)).sum())
         worst_ratio = float(np.max(b[:n] / base[:n]))
         ev = d['ev']
-        ev_all = ev * len(envs)
-        win = ' win' if mode == cur_mode else ''
+        ev_all = d['ev_all']
+        win = ' win' if d['mode'] == cur_mode and d['source'] == 'proxy' else ''
         rows.append(
             f"<tr><td>{label}</td>"
             f"<td class=\"n\">{geo:.2e}</td>"
@@ -2149,7 +2186,7 @@ def _rows_mode_cmp(dirs, order, cur_mode='full'):
             f"<td class=\"n\">{worst_ratio:.2f}×</td>"
             f"<td class=\"n{win}\">{ev:.0f}</td>"
             f"<td class=\"n\">{ev_all:.0f}</td></tr>")
-        bits.append(f"{mode}: 落点 {ratio:.2f}× / 每用例 {ev:.0f} 次评估")
+        bits.append(f"{label.split('（')[0]}: 落点 {ratio:.2f}× / 每用例 {ev:.0f} 次评估")
     return '\n'.join(rows), '；'.join(bits), s
 
 
@@ -2921,7 +2958,11 @@ def main():
     ap.add_argument('--dataset', default=None)
     ap.add_argument('--report-src', default=None, help='报告图数据源（缺省 = 主结果目录，图用 C++ 出）')
     ap.add_argument('--direct', default='result/ddps_cpp_direct',
-                    help='direct 对比实验全量结果目录（C++ 15 用例；存在才渲染 6.5 节）')
+                    help='真实 BER 回传 × secant 全量结果目录（旧命名；存在才渲染矩阵对应行）')
+    ap.add_argument('--direct-full', default='result/ddps_cpp_direct_full',
+                    help='真实 BER 回传 × full 全量结果目录（存在才渲染）')
+    ap.add_argument('--direct-rotate', default='result/ddps_cpp_direct_rotate',
+                    help='真实 BER 回传 × rotate 全量结果目录（存在才渲染）')
     ap.add_argument('--eq-py', default='result/ddps_equiv_py',
                     help='Python 2^18 验证目录前缀（比对参考侧，后缀 _full/_rotate/_secant/_direct）')
     ap.add_argument('--eq-cpp', default='result/ddps_equiv_cpp',
@@ -2937,10 +2978,16 @@ def main():
         'rotate': a.baseline if a.mode == 'rotate' else a.rotate,
         'secant': a.baseline if a.mode == 'secant' else a.secant,
         'direct': a.direct,
+        'direct_secant': a.direct,
+        'direct_full': a.direct_full,
+        'direct_rotate': a.direct_rotate,
         'full_eq': _eq_dir(a.eq_cpp, 'full'),
         'rotate_eq': _eq_dir(a.eq_cpp, 'rotate'),
         'secant_eq': _eq_dir(a.eq_cpp, 'secant'),
         'direct_eq': _eq_dir(a.eq_cpp, 'direct'),
+        'direct_full_eq': _eq_dir(a.eq_cpp, 'direct_full'),
+        'direct_rotate_eq': _eq_dir(a.eq_cpp, 'direct_rotate'),
+        'direct_secant_eq': _eq_dir(a.eq_cpp, 'direct_secant'),
         'eq_py_root': a.eq_py,
     }
 
@@ -2997,7 +3044,8 @@ def main():
     # 检测限口径（0 错误报告值 / N_bits / 95% CL 上界 / 到检测底的用例数）：从该档实测结果反推
     fs = _floor_stats(summary, order, _dir_num_symbols(a.baseline) or _dir_num_symbols(a.direct))
 
-    mode_cmp_rows, mode_cmp_bits, mode_series = _rows_mode_cmp(a.dirs, order, a.mode)
+    mode_cmp_rows, mode_cmp_bits, mode_series = _rows_mode_cmp(
+        a.dirs, order, a.mode, allow_mixed=a.allow_mixed_scale)
     cur_mode_zh = MODE_ZH.get(a.mode, a.mode)
     cur_mode_plain = MODE_ZH_PLAIN.get(a.mode, a.mode)
     cur_ev = mode_series.get(a.mode, {}).get('ev', float('nan'))
