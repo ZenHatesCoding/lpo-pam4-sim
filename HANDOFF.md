@@ -31,21 +31,19 @@
 
 ## 待办（8 维 + 形状维三种取法口径，2^22 六格全量对比）
 
-> 路径提示：`result/ddps_cpp_{full,rotate,secant,direct}/` 是**重构后**的现役结果目录；
+> 路径提示：`result/ddps_cpp_{full,rotate,secant}/` 是代理行三格、`result/ddps_cpp_direct_{secant,full,rotate}/` 是回传行三格的**现役结果目录**；`result/ddps_cpp_direct_secant/` 沿用最早那批 direct 全量数据（已用新代码 2^18 逐位核对一致）。
 > 重构前的 secant / direct 2^22 全量数据在 `archive/20261022_ddps_ab_secant_2to22/` 下，引用时别混。
 
-六格 2^22 campaign：代理行 `full → rotate → secant`，回传行 `full → rotate`（`secant` 复用既有目录）（`cpp/run_all_cases.py --backend wsl --jobs 4`，
-结果目录 `result/ddps_cpp_{full,rotate,secant,direct}/`，每档 15 用例）。跑完后按顺序收尾：
+六格 2^22 campaign：代理行 `full → rotate → secant`，回传行 `full → rotate`（`secant` 复用既有目录）（`cpp/run_all_cases.py --backend wsl --jobs 4`）。跑完后按顺序收尾——**全部走入库的命令，不依赖任何本地临时脚本**：
 
-1. **确认六格齐**：每格 15 用例、顶层 `case_summary.csv` 已汇总（`_parts/` 只是逐用例中间件，被 git 忽略）。
-   `scratch/final_build.py --check-only` 会硬校验；未齐就只汇报进度、不要生成交付件。
-2. **机制体检**：`scratch/check_first_batch.py --prefix result/ddps_cpp --mode <档>`（落点/微扰态/记账恒等式/
-   刷新维序列/成对性），全齐后 `scratch/verify_22.py --prefix result/ddps_cpp --symbols 4194304 --expect-envs 15`。
-3. **定现役档**：`scratch/mode_verdict.py --prefix result/ddps_cpp --symbols 4194304 --expect-envs 15 --decide`
-   （full 为参照，逐用例 ≤5%、最坏单例 ≤1.05 才算同水平；同水平优选取代价最低且梯度仍会转的档）。
-4. **一键收尾**：`scratch/final_build.py --dirs-prefix result/ddps_cpp --expect-symbols 4194304 --expect-cases 15 --mode <选定档>`
-   （逐档出图 → 生成 HTML → 生成 Word → 自检）。
-5. **独立复核**：`scratch/audit_numbers.py`、`scratch/audit_safety.py`、`scratch/audit_constants_parity.py`。
+1. **确认六格齐 + 机制体检 + 等价 + 交付件新鲜度**：`python tools\verify_ddps.py --expect-cells 6`
+   （自动发现 `result/ddps_cpp_*` 里已汇总的格；查完整性 / 记账恒等式 `n_real_evals = n_landed + n_probe_states` / 每格微扰机制 / 2^18 逐轨迹等价 / 交付件与禁词）。
+   格数不足直接 exit 2——**未齐时不要生成交付件**。
+2. **逐格出报告图**：`python report_ddps.py --test-dir result/ddps_cpp_direct_full --model-dir models/ddps --method direct --seed-config result/seed_config_bad_1e4.json`
+   （回传行的格要加 `--method direct`，代理行的格不加；图写进该格 `report/`，不加 `--summary-out` 以免用单格覆盖整轮汇总。）
+3. **生成交付件（六格）**：`python make_deliverable.py --baseline result/ddps_cpp_full --mode full --rotate result/ddps_cpp_rotate --secant result/ddps_cpp_secant --direct result/ddps_cpp_direct_secant --direct-full result/ddps_cpp_direct_full --direct-rotate result/ddps_cpp_direct_rotate --out deliverables/DDPS_Deliverable.html`
+   （规模不一致的格默认拒绝生成，`--allow-mixed-scale` 仅供调试；现役格裁定句由结果实算，见交付件 6.1。）
+4. **再跑一次验收**：`python tools\verify_ddps.py --expect-cells 6` —— exit 0 才算这一轮收尾完成。
 6. **文档对齐**：`scratch/patch_docs_22.py --prefix result/ddps_cpp --n-cases 15`（§4 单次评估与全量墙钟、
    §3.3 各格转角表）。
 7. **修入口默认值不一致**（等没有仿真在跑）：`cpp/main.cpp` 的 `--n-steps` 默认值 50 → 15（批量入口都显式传参），
