@@ -2442,10 +2442,11 @@ def _build_direct_section(a, summary, order, fs=None):
             f"<td class=\"mono\" style=\"font-size:11.5px\">{sr or '步数用尽'}</td></tr>")
     rows_html = '\n'.join(rows)
 
-    # 对比图（写入 direct 结果目录的 report/，与主结果目录的报告图同规格）
+    # 对比图：写到交付件自己的缓存目录（**不写进 result/**，结果目录只由仿真产出，
+    # 否则每生成一次交付件就把 git 跟踪的结果目录 mtime 刷新一遍，"交付件是否比结果旧"就没法判了）
     img_png = _direct_cmp_figure(
         summary, dsum, dorder,
-        os.path.join(a.direct, 'report', 'direct_vs_active.png'),
+        os.path.join(os.path.dirname(a.out), '_parts', 'direct_vs_active.png'),
         scale_label=_scale_label(_dir_num_symbols(a.baseline)))
     img_tag = _img_tag(img_png)
 

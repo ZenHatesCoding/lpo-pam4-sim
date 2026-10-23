@@ -154,6 +154,14 @@ def check_cell(prefix, cell, expect_cases, expect_symbols, rep):
             if not trace_refreshed_ok(mode_of(tag), len(tr), parsed, n_shape):
                 print(f'  !! {d}/{env} 刷新维序列与 {tag} 语义不符')
                 anomalies += 1
+            # 机制体检②：微扰态次数 = Σ 各步刷新维数 × 2（每维 ±ε 两侧），落地次数 = 轨迹行数
+            exp_probe = 2 * sum(len(r) for r in parsed)
+            if n_prob is not None and int(n_prob) != exp_probe:
+                print(f'  !! {d}/{env} 微扰态次数 {int(n_prob)} != 轨迹推出的 {exp_probe}')
+                anomalies += 1
+            if n_land is not None and int(n_land) != len(tr):
+                print(f'  !! {d}/{env} 落地次数 {int(n_land)} != 轨迹行数 {len(tr)}')
+                anomalies += 1
         pr = read_csv_any(os.path.join(d, f'probes_{safe}.csv'))
         if pr is not None and not pr.empty and 'sign' in pr.columns:
             bad = 0
@@ -277,8 +285,12 @@ def main():
     newest = 0.0
     for cell in cells:
         d = f'{a.prefix}_{cell}'
-        for f in glob.glob(os.path.join(d, '*')) + glob.glob(os.path.join(d, 'report', '*')):
-            newest = max(newest, os.path.getmtime(f)) if os.path.isfile(f) else newest
+        # 只看测量数据（run_config / case_summary / trace / probes）；
+        # report/ 下的图是派生件、随时可重画，不作为新鲜度依据。
+        for pat in ('run_config.json', 'case_summary.csv', 'case_summary.json',
+                    'trace_*.csv', 'probes_*.csv'):
+            for f in glob.glob(os.path.join(d, pat)):
+                newest = max(newest, os.path.getmtime(f))
     del_bad = check_deliverable(a.deliverable, newest)
 
     print('\n=== 验收结论 ===')
