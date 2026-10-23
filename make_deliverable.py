@@ -1435,7 +1435,7 @@ python make_deliverable.py --baseline result/ddps_cpp_<!--MODE_KEY--> --mode <!-
 <div class="kpis" style="grid-template-columns:repeat(4,1fr)">
   <!--EVAL_KPI_CARDS-->
 </div>
-<p>相对「每步都做 7 维全量中心差分」的 full 档，rotate 把代价降到约 1/3，secant 降到约 1/8；direct 参照虽然也不做全量微扰（第 0 步一轮 8 维全测后走 Broyden），但它需要真实 BER 回传通道——这是它换来的代价。单次真实评估的实测耗时见 §4.3（同一物理链、同一符号数）。现役档 15 用例全量重跑（15 步）合计墙钟：<!--CXX_TOTAL_WALL-->（4 路并行，见 <span class="mono">result/ddps_cpp_<!--MODE_KEY-->/</span>）。</p>
+<p>相对「每步都做全量中心差分」的格，轮转格把在线代价降到约 1/3、割线格外推格降到约 1/8（每格精确次数见 4.3）；真实 BER 回传格虽然也可不做全量微扰，但它需要回传通道——这是它换来的代价。单次真实评估的实测耗时见 §4.3（同一物理链、同一符号数）。现役格 15 用例全量重跑（15 步）合计墙钟：<!--CXX_TOTAL_WALL-->（4 路并行，见 <span class="mono">result/ddps_cpp_<!--MODE_KEY-->/</span>）。</p>
 
 <h3>10.6 统一入口</h3>
 <pre><code># C++ 后端：全量在线调优（Base_IL10x10，2^22 符号，无噪声，单种子 42，次优起点，full 档）
@@ -1455,7 +1455,6 @@ wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity ./cpp/build/run_ddps cp
 # 15 用例并行全量重跑（C++ 侧；WSL 内存放开到 28 GB 后 4 路并行）
 python cpp\run_all_cases.py --backend wsl --num-symbols 4194304 --n-steps 15 --jobs 4 \
     --method proxy --grad-mode <!--MODE_KEY--> --out-dir result\ddps_cpp_<!--MODE_KEY--></code></pre>
-    --num-symbols 4194304 --n-steps 15 --jobs 2</code></pre>
 
 <footer>
   <p><strong>测量口径</strong>：Python 3.11.11 / NumPy 2.4.6 / SciPy 1.17.1；BLAS 线程数固定为 1（<span class="mono">OMP_NUM_THREADS=1</span>）；
