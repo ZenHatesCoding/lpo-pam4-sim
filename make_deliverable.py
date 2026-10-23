@@ -1443,7 +1443,7 @@ python tools\verify_ddps.py --expect-cells 6</code></pre>
 <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
   <!--EVAL_KPI_CARDS-->
 </div>
-<p>相对「每步都做全量中心差分」的格，轮转格把在线代价降到约 1/3、割线格外推格降到约 1/8（每格精确次数见 4.3）；真实 BER 回传格虽然也可不做全量微扰，但它需要回传通道——这是它换来的代价。单次真实评估的实测耗时见 §4.3（同一物理链、同一符号数）。现役格 15 用例全量重跑（15 步）合计墙钟：<!--CXX_TOTAL_WALL-->（4 路并行，见 <span class="mono">result/ddps_cpp_<!--MODE_KEY-->/</span>）。</p>
+<p>单次真实评估的实测耗时见 §4.3（同一物理链、同一符号数）。现役格 15 用例全量重跑（15 步）合计墙钟：<!--CXX_TOTAL_WALL-->（4 路并行，见 <span class="mono">result/ddps_cpp_<!--MODE_KEY-->/</span>）。</p>
 
 <h3>10.6 统一入口</h3>
 <pre><code># C++ 后端：全量在线调优（Base_IL10x10，2^22 符号，无噪声，单种子 42，次优起点，代理 × full）

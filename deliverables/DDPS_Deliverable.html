@@ -1816,7 +1816,7 @@ python tools\verify_ddps.py --expect-cells 6</code></pre>
   <div class="kpi"><div class="v">29 次</div><div class="l">代理 × secant：15 落地 + 14 个 ±ε 微扰态（仅第 0 步一轮）</div></div>
   <div class="kpi"><div class="v">25 次</div><div class="l">回传 × secant：9 落地 + 16 个 ±ε 微扰态（仅第 0 步一轮；需回传）</div></div>
 </div>
-<p>相对「每步都做全量中心差分」的格，轮转格把在线代价降到约 1/3、割线格外推格降到约 1/8（每格精确次数见 4.3）；真实 BER 回传格虽然也可不做全量微扰，但它需要回传通道——这是它换来的代价。单次真实评估的实测耗时见 §4.3（同一物理链、同一符号数）。现役格 15 用例全量重跑（15 步）合计墙钟：33483 s（4 路并行，见 <span class="mono">result/ddps_cpp_full/</span>）。</p>
+<p>单次真实评估的实测耗时见 §4.3（同一物理链、同一符号数）。现役格 15 用例全量重跑（15 步）合计墙钟：33483 s（4 路并行，见 <span class="mono">result/ddps_cpp_full/</span>）。</p>
 
 <h3>10.6 统一入口</h3>
 <pre><code># C++ 后端：全量在线调优（Base_IL10x10，2^22 符号，无噪声，单种子 42，次优起点，代理 × full）
