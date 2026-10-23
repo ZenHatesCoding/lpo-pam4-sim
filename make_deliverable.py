@@ -2298,6 +2298,43 @@ def _direct_cmp_figure(summary, dsum, order, out_png, scale_label='—'):
     return out_png
 
 
+def _direct_cells(dirs, order, live_summary, live_mode='full'):
+    """矩阵里「真实 BER 回传」那一行的三个格：逐格统计 + 与同方式代理格的逐用例对照。
+
+    对照取**同一种形状维获取方式**的代理格（回传 × rotate 对 代理 × rotate），这样唯一的变量
+    就是梯度来源；代理侧缺同方式的格时退到现役格。返回按 full/rotate/secant 顺序的列表。
+    """
+    out = []
+    for mode in _MODE_ORDER:
+        d, scale = _pick_dir(dirs, f'direct_{mode}')
+        if not d:
+            continue
+        dsum, ddf = _load_summary(d)
+        envs = [e for e in order if e in dsum]
+        if not envs:
+            continue
+        pd, _p_scale = _pick_dir(dirs, mode)
+        p_label = f'代理 × {mode}'
+        psum = None
+        if pd:
+            psum, _ = _load_summary(pd)
+        if psum is None:
+            psum, p_label = live_summary, '现役格'
+        menvs = [e for e in envs if e in psum]
+        ratio = np.array([dsum[e]['best_ber'] / psum[e]['best_ber'] for e in menvs])
+        out.append({
+            'cell': f'direct_{mode}', 'mode': mode, 'dir': d, 'scale': scale,
+            'summ': dsum, 'envs': envs, 'peer': psum, 'peer_label': p_label,
+            'peer_envs': menvs, 'ratio': ratio,
+            'n_same': int(((ratio >= 0.95) & (ratio <= 1.05)).sum()),
+            'n_better': int((ratio < 0.95).sum()),
+            'n_worse': int((ratio > 1.05).sum()),
+            'ev': float(ddf['n_real_evals'].mean()) if 'n_real_evals' in ddf else float('nan'),
+            'steps': float(np.mean([int(dsum[e]['n_steps_actual']) for e in envs])),
+        })
+    return out
+
+
 def _build_direct_section(a, summary, order, fs=None):
     """构建 6.5 整节 HTML（结果对比 / 方案说明 两个页签；等价性证据在第 10 节）。
 
@@ -2420,8 +2457,37 @@ def _build_direct_section(a, summary, order, fs=None):
     _hn = dsum.get('HighNoise_IL10x10')
     real_ber_ref = _ber(_hn['best_ber']) if _hn is not None else '该区域可及的最优位'
 
+    # 3×2 矩阵里「真实 BER 回传」这一行：三格总览（每格只与同一种方式的代理格比）
+    _ref_scale = _dir_scale(a.baseline)
+    ov_rows = []
+    for c in _direct_cells(a.dirs, order, summary, a.mode):
+        if _ref_scale and c['scale'] != _ref_scale:
+            if not getattr(a, 'allow_mixed_scale', False):
+                continue
+            c['mode_label'] = f"{MODE_ZH.get(c['mode'], c['mode'])}〔{c['scale']} 调试格，不计入对比〕"
+        else:
+            c['mode_label'] = MODE_ZH.get(c['mode'], c['mode'])
+        n = len(c['ratio'])
+        geo = float(10 ** np.mean(np.log10(c['ratio']))) if n else float('nan')
+        ov_rows.append(
+            f"<tr><td>{c['mode_label']}</td>"
+            f"<td class=\"n\">{c['ev']:.0f}</td>"
+            f"<td class=\"n\">{c['steps']:.1f}</td>"
+            f"<td class=\"n\">{c['n_same']}/{n}</td>"
+            f"<td class=\"n\">{geo:.2f}×</td>"
+            f"<td>{c['peer_label']}</td></tr>")
+    ov_html = '\n'.join(ov_rows) if ov_rows else '<tr><td colspan="6">回传格结果尚未生成</td></tr>'
+
     section = f'''
-<p>现役方案的假设是<strong>没有回传通道</strong>：在线调优拿不到收端端到端 BER，只能用发端可测的波形探针训练的方向代理（Model A）来指方向。如果有回传通道、端到端 BER 可得呢？<strong>direct 方案</strong>回答这个问题：目标直接换成真实 log10(BER)，梯度直接对真实目标做，不用任何代理。两方案在同一协议下对比（同一次优起点、同 15 用例、{_scale_label(_dir_num_symbols(a.baseline))} 符号、单种子 42、同一套 C++ 复刻实现与下降机制，收敛轨迹图对照见 6.2 页签），页签切换查看结果对比与方案说明；direct 的 C++ 等价性证据在第 10 节。</p>
+<p>现役方案的假设是<strong>没有回传通道</strong>：在线调优拿不到收端端到端 BER，只能用发端可测的波形探针训练的方向代理（Model A）指方向。如果有回传通道、端到端 BER 可得呢？<strong>回传格</strong>回答这个问题：目标直接换成真实 log10(BER)，梯度直接对真实目标取，不用任何代理。三种形状维取法各跑一格，与<strong>同一种取法</strong>的代理格一一对照——这样唯一的变量就是梯度来源（同一次优起点、同 15 用例、{_scale_label(_dir_num_symbols(a.baseline))} 符号、单种子 42、同一套 C++ 复刻实现与下降机制；收敛轨迹对照见 6.2，C++ 等价性证据见第 10 节）：</p>
+<div class="tw">
+<table class="wide" id="tbl-direct-overview">
+  <caption>回传格总览（15 用例；「打平」= 与同方式代理格的逐用例最优 BER 之差在 5% 以内；比值 = 落点 BER 几何平均之比，&lt;1 表示回传格更好） <span class="sh">· 可左右滑动</span></caption>
+  <tr><th>形状维获取方式</th><th class="n">每用例真实评估</th><th class="n">平均步数</th><th class="n">与同方式代理格打平</th><th class="n">落点几何平均比</th><th>对照参考</th></tr>
+  {ov_html}
+</table>
+</div>
+<p>下面给出 <strong>secant</strong> 格（第 0 步一轮全 8 维实测后靠割线外推，在线代价最低）的逐用例明细，对照<strong>现役格（代理 × full）</strong>；full / rotate 两格的逐用例数据在同一 schema 的结果目录里（<span class="mono">result/ddps_cpp_direct_*</span>）。</p>
 
 <div class="tabs">
   <div class="tab-bar">
@@ -2463,9 +2529,9 @@ def _build_direct_section(a, summary, order, fs=None):
         <tr><th>环节</th><th>现役（Model A 方向代理，无需回传）</th><th>direct（需回传通道）</th></tr>
         <tr><td>下降目标</td><td>Model A 预测 log10(BER)（探针域代理）</td><td>端到端真实 log10(BER)（回传值）</td></tr>
         <tr><td>第 0 步初始化</td><td>形状 7 维中心差分查 A（14 个 ±ε 微扰态）+ gain 维解析梯度（A 的 8 维探针特征严格 ∝ gain，闭式可得，0 微扰）</td><td>全 8 维中心差分实测真实 BER（16 个 ±ε 微扰态）——无代理即无解析 gain 梯度，gain 维也只能实测</td></tr>
-        <tr><td>每步梯度维持</td><td>形状 7 维按档：full 每步全量重算 / rotate 每步轮转 2 维 / secant Broyden 秩一修正（0 微扰）；gain 维每步解析重算</td><td>Broyden 秩一修正真实 Δlog10(BER)，全 8 维，0 微扰</td></tr>
+        <tr><td>每步梯度维持</td><td>形状 7 维按方式：full 每步全量重算 / rotate 每步轮转 2 维 / secant Broyden 秩一修正（0 微扰）；gain 维每步解析重算</td><td>全 8 维按方式：full 每步全量重测 / rotate 每步轮转 2 维 / secant Broyden 秩一修正真实 Δlog10(BER)（无代理即无解析 gain 梯度，gain 维也随方式走）</td></tr>
         <tr><td>落点安全机制</td><td>无否决层：方向对不对由 15 个环境的落点实测 BER 回答（6.1 / 6.3）</td><td>无（同上；搜索盒与固定步数预算仍在）</td></tr>
-        <tr><td>微扰态（真实链路工作点）</td><td>第 0 步 14 个；此后按档为 14 / 4 / 0 个每步</td><td>第 0 步 16 个；此后 0 个</td></tr>
+        <tr><td>微扰态（真实链路工作点）</td><td>第 0 步 14 个；此后按方式为 14 / 4 / 0 个每步</td><td>第 0 步 16 个；此后按方式为 16 / 4 / 0 个每步</td></tr>
         <tr><td>在线真实评估（每用例）</td><td>≈{evals_s} 次（现役档实测均值）</td><td>≈{evals_d} 次（实测均值）</td></tr>
       </table>
       </div>
