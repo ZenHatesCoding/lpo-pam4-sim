@@ -3034,8 +3034,8 @@ def main():
     ap.add_argument('--model-dir', default='models/ddps', help='模型目录')
     ap.add_argument('--dataset', default=None)
     ap.add_argument('--report-src', default=None, help='报告图数据源（缺省 = 主结果目录，图用 C++ 出）')
-    ap.add_argument('--direct', default='result/ddps_cpp_direct',
-                    help='真实 BER 回传 × secant 全量结果目录（旧命名；存在才渲染矩阵对应行）')
+    ap.add_argument('--direct', default='result/ddps_cpp_direct_secant',
+                    help='真实 BER 回传 × secant 全量结果目录（存在才渲染矩阵对应行）')
     ap.add_argument('--direct-full', default='result/ddps_cpp_direct_full',
                     help='真实 BER 回传 × full 全量结果目录（存在才渲染）')
     ap.add_argument('--direct-rotate', default='result/ddps_cpp_direct_rotate',

@@ -2,14 +2,15 @@
 #
 # 口径与 test_generalization.py 完全一致：8 维搜索向量
 #   x = [5 个 Tx FFE 抽头, gDC, gDC2, u_gain]（N_DIM=8 / N_SHAPE=7，抽头全自由无边界）。
-# 形状维梯度三档由 --grad-mode {full,rotate,secant} 选择；direct 参照用 --method direct。
+# 形状维取法由 --grad-mode {full,rotate,secant} 选择；梯度来源由 --method {proxy,direct} 选择，
+# 两者正交，构成 3×2 矩阵（proxy = 发端 Model A 代理；direct = 收端真实 BER 回传）。
 # 在线只用 Model A（Model B 已不在线使用），真实 BER_MLSE 只记账、不回传决策。
 # 只打印逐步 trace（落点 + 记账），与 cpp/tests/test_optimizer.cpp 对照做逐位比对。
 #
 # 用法（与 scratch/current_spec.md §5 同口径）：
 #   python cpp/optimizer_debug.py --env Base_IL10x10 --num-symbols 262144 --n-steps 15 \
 #       --method proxy --grad-mode full --seed-config result/seed_config_bad_1e4.json
-#   python cpp/optimizer_debug.py --method direct   # direct 忽略 --grad-mode
+#   python cpp/optimizer_debug.py --method direct --grad-mode secant   # 真实 BER 回传 × 割线外推
 import os
 import sys
 import argparse
@@ -41,7 +42,7 @@ def main():
     ap.add_argument('--method', type=str, default='proxy', choices=['proxy', 'direct'],
                     help='proxy = Model A 探针代理在线调优；direct = 端到端真实 BER 直梯（回传参照）')
     ap.add_argument('--grad-mode', type=str, default='full', choices=['full', 'rotate', 'secant'],
-                    help='proxy 的形状维梯度刷新方式（direct 忽略该参数）')
+                    help='形状维梯度刷新方式（proxy 与 direct 都适用：full/rotate/secant）')
     ap.add_argument('--rotate-k', type=int, default=D.ROTATE_K,
                     help='rotate 模式每步刷新的形状维个数')
     ap.add_argument('--seed-config', type=str, default=None,
