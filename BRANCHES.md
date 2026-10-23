@@ -15,7 +15,7 @@
 | `main` | 项目基线：古典优化器（BO/GA/SA/SHC/ESC） |
 | `feature/ddps-optimization` | DDPS v1 建立：双代理架构、Stage-2 梯度下降 |
 | `sjtu-channel-model` | SJTU 微观物理信道建模 + 历史归档整理 |
-| **`physical-model`（当前）** | DDPS：Model A 探针方向代理（唯一在线代理）+ 8 维在线搜索（5 抽头全自由无边界 + gDC + gDC2 + u_gain），gain 解析梯度 + 形状 7 维三档（`full` / `rotate` / `secant`），固定 15 步、代理档不早停，direct 参照（有回传通道），per-case target_rms 标定参照，次优起点冷启动 |
+| **`physical-model`（当前）** | DDPS：Model A 探针方向代理（唯一在线代理）+ 8 维在线搜索（5 抽头全自由无边界 + gDC + gDC2 + u_gain），gain 解析梯度 + 形状 7 维三种取法（\ull\ / otate\ / \secant\）× 两种梯度来源（发端代理 / 真实 BER 回传），固定 15 步、代理行不早停，per-case target_rms 标定参照，次优起点冷启动 |
 
 ## 本地归档（不入远端）
 
