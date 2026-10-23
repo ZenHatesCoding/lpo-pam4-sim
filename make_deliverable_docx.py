@@ -510,7 +510,8 @@ def build(html_path, out_path):
     cache = os.path.join('_parts', 'svg_png')
     print('[docx] rasterizing inline SVGs (headless Edge, 2x) ...')
     svg_png = rasterize_svgs(soup, style_css, cache)
-    print('[docx] %d svg -> png' % len(svg_png))
+    n_svg = len([s for s in soup.find_all('svg') if 'd-narrow' not in (s.get('class') or [])])
+    print('[docx] %d 张内联图 -> %d 个 PNG（内容相同的图复用同一张）' % (n_svg, len(svg_png)))
 
     b = DocxBuilder(svg_png)
     for el in soup.body.children:

@@ -67,6 +67,8 @@ def main():
         sc = {'best_gain': float(row['driver_gain'])}
 
     out = copy.deepcopy(sc)
+    # best_taps = Stage-2 搜索口径的 5 个抽头（全自由）；best_pre_post 保留为旧口径。
+    out['best_taps'] = taps.tolist()
     out['best_pre_post'] = pre_post
     out['best_gdc'] = gdc
     out['best_gdc2'] = gdc2

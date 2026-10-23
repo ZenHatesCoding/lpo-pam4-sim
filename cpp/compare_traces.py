@@ -7,7 +7,7 @@
 作为 C++ 复刻一致性的机器判据（历史基线：secant 等价比对最大相对差 ~4.6e-13）。
 
 用法：
-  python cpp/compare_traces.py --py result/ddps_direct_py --cpp result/ddps_cpp_direct_equiv
+  python cpp/compare_traces.py --py result/ddps_equiv_py_full --cpp result/ddps_equiv_cpp_full
 
 判据：max_rel < 1e-9 视为数值等价（BER 为错误计数导出量，逐点一致即逐位一致）。
 """

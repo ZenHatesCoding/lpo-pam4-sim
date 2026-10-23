@@ -2,6 +2,37 @@
 
 > 本文件记录每个版本的核心变化。只记"变了什么"，不记排错过程。
 
+## 8 维在线搜索 + 形状三档梯度（2026-10-22）：抽头全自由、Model B 下线、direct 修正
+
+### 在线搜索空间
+- 在线搜索向量改为 `x = [5 个 FFE 抽头, gDC, gDC2, u_gain]`（`N_DIM=8`、`N_TAP=5`、`N_SHAPE=7`）。5 个抽头全部是自由搜索变量，**无任何边界**（删除抽头信任盒与峰值和约束）；`TRUST_FFE=0.10` 退化为步长尺度，`STEP_SPAN = [0.20]×5 + [6.0, 6.0, 0.60]`。
+- 只有 CTLE / gain 保留物理量程：`gDC ∈ [0, 12] dB`、`gDC2 ∈ [0, 4] dB`、`u_gain ∈ [−0.52, 0.6]`（`u_gain = log10(gain/0.3399)`）。
+- `construct_taps()` 与 `PEAK_SUM_LIMIT=0.8` 只保留在 Stage-1 数据集采样口径（主抽头 `1 − Σ|旁瓣|` 派生只用于构型与评估），在线不受此限。
+- 固定 15 步、代理档不早停；`direct` 档保留边际停止（`MIN_GAIN_DEX=0.01` dex，step > 0 才判）。
+
+### 梯度获取
+- **gain 维解析梯度**（`_analytic_gain_grad`）：`∂A/∂u_gain = ln(10)·Σ_j (∂A/∂feat_j)·feat_j`（8 维探针特征全部 ∝ gain），每步用当前落点探针现算、0 微扰态。
+- **形状 7 维（5 抽头 + gDC + gDC2）改为三档一键切换**：`--grad-mode full|rotate|secant`（Python `_stage2_descent_proxy`，C++ `stage2_descent_proxy`）。`full` 每步 7 维中心差分（14 个 `±ε 微扰态`）；`rotate` 第 0 步全量、此后每步轮转刷新 `ROTATE_K=2` 个维（4 个/步）；`secant` 只第 0 步测一轮（14 个），此后 Broyden 秩一修正（0 个/步）。三档第 0 步完全一致，共用同一次优起点与固定 15 步。
+- **删除割线专属实现**：`_stage2_descent_secant`、`_secant_line_search`、`_predict_b_params` 等旧函数退出 `ddps_optimizer.py`（历史快照保留在 `archive/`）；现役入口只剩 `_stage2_descent_proxy`（三档）+ `_stage2_descent_direct`。
+- **Model B 下线**：参数域产物仍在 Stage 1 训练 / 导出（`models/ddps/model_b.json`），**不在线使用**；在线只有 Model A 方向代理，无候选否决、无红线、无轨迹信任域。
+- **direct 修正**：`grad_direct_chain` 非抽头维原先未使用扰动后的坐标（应为 `gdc_p = xp[N_TAP]`、`gdc2_p = xp[N_TAP+1]`、`gain_p = gain_from_u(xp[N_TAP+2])`），导致 gDC/gDC2 两维梯度恒为 0、两平台不一致；修正后 2^18 逐轨迹比对 `max_rel = 8.89e-13` 通过。direct 第 0 步为全 8 维中心差分（16 个微扰态，每维都实测真实 BER），此后全 8 维 Broyden。
+
+### 验证与交付
+- **四档 2^18 等价全部通过**（判据 `max_rel < 1e-9`，`cpp/compare_traces.py`）：full 1.42e-12 / rotate 1.20e-12 / secant 8.53e-12 / direct 8.89e-13；参照目录 `result/ddps_equiv_{py,cpp}_{full,rotate,secant,direct}/`。
+- 2^22 全量只走 C++（`cpp/run_all_cases.py --backend wsl --jobs 4`），四个结果目录 `result/ddps_cpp_{full,rotate,secant,direct}/`；每用例真实评估 `n_real_evals = n_landed + n_probe_states`：full 225 / rotate 85 / secant 29。
+- **2^22 实验完整性核验**：campaign 期间 `cpp/build/run_ddps` 在 20:30:14 被重建过一次（源文件时间戳晚于启动）。用 `/proc/<pid>/exe` 取出运行中进程实际执行的 inode 与磁盘二进制比对，两者 sha256 前 16 位同为 `43d7b4b3de6ad55b`（inode 不同、内容相同）；再用当前二进制在 2^18 重跑两个对等用例，与 20:15 记录的等价目录逐列一致（20 列 trace + 23 列 probes + case_summary，最大相对差 0.000e+00）。结论：2^22 全程跑的是通过 2^18 等价性验证的同一份程序，无混构建。
+- **交付件 §4.3 环节耗时表按当前代码重测**：模型训练 0.02→**0.05 s**、模型单次推理 30→**50 µs**、物理探针（含驱动 RMS）30→**5 ms**、一次形状维微扰态（在线决策路径）60→**5 ms**、gain 维解析梯度 30 µs→**0.14 ms**（均 21 次取中位，`scratch/remeasure_stage_costs2.py` / `scratch/measure_train_cost.py`）。探针特征在 2^18 与 2^22 符号数下逐位相同，确认"与评估符号数无关"。定性结论不变：在线决策路径比一次真实评估便宜约 3 个数量级。
+- **交付件单次评估耗时（C++）与一次真实 BER 评估**：表格改用实测值，正文补平台来源（Python 实测中位）。
+- **交付件 §1–§10 与新口径对齐**：8 维搜索空间、三档形状梯度、解析 gain、Model B 离线、direct 参照、四档 2^18 等价页签；复现命令与 §4.3 目录路径随现役档动态生成（不再写死 full）。
+- **交付件规模口径改为数据驱动**：凡描述"本次交付数据"的符号数（§1 头条、§4.3 表头、§6 引言、§6.5 公平性、§8 检测底、§9 产物清单、§6.5 对比图纵轴）一律由结果目录的 `num_symbols` 生成（`<!--SCALE_LABEL-->` / `<!--SCALE_LABEL_PLAIN-->`），只有设计口径与复现命令里的 `4194304` 保持写死；此前任何非 2^22 规模的渲染都会谎报数据规模。顺带修掉两处 f-string 内的 token（组装时机晚于 token 替换，永远替不掉）与对比图纵轴标签的作用域错误。
+- **报告种子文案改为读数据**：`report_ddps.py` 的"在线调优从次优起点（gain ×…）"原先用模块默认常量算，恒为 ×1.000；现改为读 `case_summary.csv` 的 `seed_gain_ratio`（读不到才回落常量），本次交付渲染为 ×0.325，与种子配置 `result/seed_config_bad_1e4.json` 一致。
+- **Python 参照侧复现核验**：用当前代码在 2^18 重跑 15 步 `full` 档（Base_IL10x10 + IL20x20，`result/_integrity_py`），与既有 Python 等价目录 `result/ddps_equiv_py_full` 逐列比对：`case_summary` 39 列、`trace` 21 列、`probes` 24 列（含 `x`/`taps`/`grad`/`refreshed` 文本列）**最大相对差 0.000e+00**（`scratch/compare_py_integrity.py`）。
+- **2^22 四档全量完成 + 逐用例机制体检**：15 用例 × 4 档全部落地（`result/ddps_cpp_{full,rotate,secant,direct}/`，各档顶层 `case_summary.csv` + `run_config.json` 已汇总），体检 0 异常——落点数、微扰态数、记账恒等式 `n_real_evals = n_landed + n_probe_states`、每步刷新维序列（full 全 7 维 / rotate `(2k+j) mod 7` / secant 与 direct 仅第 0 步）、微扰态 ± 成对、无 NaN 与非正 BER（`scratch/check_first_batch.py`、`scratch/verify_22.py`）。15 用例几何均值：full 2.013e-07、rotate 2.063e-07、secant 1.861e-07；full 档 11/15 打到 2^22 零错误检测底（5.975e-08）。
+- **现役档定为 `full`**：裁定规则＝以 `full` 为参照，逐用例 ≤5% 且最坏单例 ≤1.05 才算同水平，同水平者取更省评估的档。rotate 几何比 1.025、最坏单例 1.21；secant 几何比 0.924、最坏单例 2.71——两档都因最坏用例明显退步被否，取最忠实的每步全量微扰（每用例 225 次真实评估）。交付件主结果目录 = `result/ddps_cpp_full`，其余三档作为同预算对照页签（`scratch/mode_verdict.py`）。
+- **文档口径按 2^22 实测刷新**：`docs/DDPS_Method.md` §4 单次评估＝full 36.63 s / rotate 35.93 s / secant 37.49 s / direct 37.25 s（各 15 用例 `elapsed_sec / n_real_evals` 均值），full 档 15 用例 4 路并行 ≈8.6 h；§3.3 转角表换为 2^22 实测四档：full 10.0°/33.3°、rotate 8.7°/27.0°、secant **0.0°/0.0°**、direct **0.0°/0.0°**——即"每步全量微扰"与"轮流微扰"两档的下降方向确实在转，而"第 0 步后不再微扰"的两档组内方向严格冻结（`scratch/patch_docs_22.py`）。
+- **入口默认步数与协议对齐**：`cpp/main.cpp` 的 `--n-steps` 默认值 50 → 15（与 `N_STEPS=15` 协议一致）。批量入口一直显式传 `--n-steps 15`，故 2^22 全量结果由改前二进制产出、不受该改动影响；改后重编 WSL 二进制（`cpp/build_wsl.sh`）并在 2^18 复跑 `full` 档与既有等价目录逐列比对确认数值一致。
+- **归档被取代的旧等价结果**：`result/ddps_cpp_direct_equiv/`、`result/ddps_cpp_secant_analytic_equiv/` → `archive/20261023_superseded_secant_direct_equiv/`（`BRANCHES.md` 归档表已登记）；`cpp/compare_traces.py` 顶部示例路径改为现役 `result/ddps_equiv_{py,cpp}_full`。
+
 ## 交付件 Word 版（2026-10-13）：HTML 派生 docx
 
 - **新增 `make_deliverable_docx.py` + `deliverables/DDPS_Deliverable.docx`**：从当版 HTML 交付件派生 Word 版，单一事实来源、内容逐字一致（不维护第二套文案）。
@@ -54,7 +85,7 @@
 - 同步刷新提及该规则的文档：README（导航表 + §4 改为 Python 小点数低 SNR 验证命令 + §4b 标注 C++ 为全量规模仿真唯一入口 + §5 指向 `result/ddps_cpp_secant`）、HANDOFF（新增「双后端分工」段 + 复现命令/并行内存约束改口径）、docs/DDPS_REQUIREMENTS（新增「六、双后端分工与比对口径」）、make_deliverable.py §10（交付件同步表述）。
 - 工具脚本 docstring 对齐：`tools/run_parallel_envs.py` 用法示例与默认值改为 2^18 小点数；`tools/run_py_cases_parallel.py` 标注不得用于高 SNR 大点数；`cpp/run_all_cases.py` 标注为全量规模仿真唯一入口。
 
-## v8（当前版本 · 割线在线调优 + gain 解析梯度）
+## v8（已归档 · 割线在线调优 + gain 解析梯度）
 
 ### 在线调优方式重做（模型不重训）
 - 把每步 14 个 ±ε 试探态（中心差分链式梯度）换成 **gain 维解析梯度 + shape 维割线更新**：除第 0 步外全程零 ±ε 过渡态。

@@ -1,6 +1,6 @@
 {
-  "backend": "cpp",
-  "exe": "cpp\\build\\run_ddps.exe",
+  "backend": "cpp-wsl",
+  "exe": "wsl -d Ubuntu cpp/build/run_ddps",
   "model_dir": "models/ddps",
   "n_steps": 15,
   "num_symbols": 4194304,
@@ -26,7 +26,9 @@
     "HighNoise_IL10x10",
     "HighNoise_IL16x16"
   ],
-  "jobs": 15,
-  "total_wall_sec": 4134.730431318283,
-  "method": "secant"
+  "jobs": 4,
+  "total_wall_sec": 4546.6148092746735,
+  "method": "proxy",
+  "grad_mode": "secant",
+  "rotate_k": 2
 }

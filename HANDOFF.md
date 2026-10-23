@@ -11,33 +11,46 @@
 
 - **`make_deliverable_docx.py`**：从 `deliverables/DDPS_Deliverable.html` 派生 `deliverables/DDPS_Deliverable.docx`（单一事实来源，先跑 `make_deliverable.py` 再跑它）。页签平铺为顺序小节（▍页签强调行）、走查帧全展开、折叠块展开、内联 SVG 无头 Edge 栅格化 2× PNG（缓存 `_parts/svg_png/`，Edge 路径硬编码 `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`）、报告 PNG data-URI 解码、TOC 域 + 导航窗格、KPI 卡转双行表。依赖 `python-docx` + `beautifulsoup4`（已装进 .venv）。
 
-## 当前状态（v8 割线在线调优 + direct 对比实验 · C++ 走 WSL 编译运行）
+## 当前状态（8 维在线搜索 + 形状三档梯度 + gain 解析 + direct 参照 · C++ 走 WSL 编译运行）
 
-v8 只改「在线调优方式」，物理层 / 代理模型 / 数据集 / 训练全部不动（模型不重训）。核心：把 v7 每步 14 个 ±ε 试探态（中心差分链式梯度）换成 **gain 维解析梯度 + shape 维割线更新**，除第 0 步外全程零 ±ε 过渡态。
+在线调优的现状口径（速查 `docs/DDPS_Method.md`，冲突以 `ddps_optimizer.py` / `cpp/src/optimizer.hpp` / `cpp/main.cpp` 为准）。物理层 / 数据集 / 训练口径不变。
 
-- **方法**：`ddps_optimizer._stage2_descent_secant`（Python 参照）+ `cpp/src/optimizer.hpp` `stage2_descent_secant`（C++ 一比一复刻）。
-  - gain 维（第 7 维）：解析闭式 `∂A/∂u_gain = ln(10)·Σ_j (∂A/∂feat_j)·feat_j`（Model A 8 维探针全部 ∝ gain，driver_gain 是 Tx 链末尾标量乘子），每步用当前落点探针现算、0 试探、永不陈旧。
-  - shape 维（4 FFE 旁瓣 + gDC + gDC2）：第 0 步一次性中心差分初始化（12 探针，唯一一轮试探态），此后每步割线 `g_{k+1} = g_k + (ΔA − g_gain·Δx_gain − g_kᵀΔx)·Δx/‖Δx‖²`（割线方程剔除 gain 的已知贡献）。
-  - Model A 只消费历史/当前落点探针（第 0 步之后不再制造任何参数微扰态）；Model B 在新参数 apply 前免费拒绝。
-  - 已移除周期刷新（`SECANT_REFRESH_EVERY`）与 Model B 全拒回退刷新——gain 维解析后不再需要。
-- **诊断结论（为什么 gain 维不割线）**：纯割线（K=0）shape 维收敛正常、gain 维卡 ×0.302 / u_gain=−0.52 不动——Broyden 秩-1 更新只沿已走过方向修正，gain 维方向分量弱被压塌（梯度幅值跌破门控冻结）。gain 用解析梯度后正常爬升并收敛到链式水平。根因不是「gain 不适合梯度下降」，也不是「缩放不匹配」。
-- **已归档**：v7.3（2^22 · 单种子 42 · 15 用例 · 链式梯度）→ `archive/20260930_ddps_v7.3_2to22/`。
-- **低SNR验证（2^18 单种子 42，已核）**：15/15 用例 secant(解析 gain) = chain（含 IL20x20 3.97e-6、Comb_IL20x20_CD15_DGD5 3.97e-6 硬用例）；评估量 28 vs 226 次/用例 = **8× 减少**。
-- **等价性（低SNR bit级对齐，已核）**：IL20x20 @ 2^18，Python vs C++ 轨迹 gdc/gdc2/gain/pred_a/pred_b/real_ber 最大相对差 ~4.6e-13。
-- **C++ 高SNR 15 用例 2^22 已完成**（secant，15 jobs，墙钟 4134.7s，`result/ddps_cpp_secant/`）。C++ eval ≈105 s/次 @2^22；secant 每用例 28 eval（vs 链式 226）= 8× 评估量缩减。
-- **编译器绕行（本机 WDAC 拦 g++.exe）**：用同源 `gcc.exe` + `-lstdc++` 编译 C++；`cpp/build.ps1` 注释已改 ASCII（Windows PowerShell 5.1 会把无 BOM UTF-8 中文按 GBK 误读、导致解析失败）。
-- **direct 对比实验（2026-10-12 增）**：`_stage2_descent_direct` / `stage2_descent_direct`（有回传通道时的参照：目标 = 端到端真实 log10 BER，第 0 步 7 维中心差分 14 试探 + 全维 Broyden 割线，无 A/B；搜索盒/步长/门控/边际停止与 secant 一致）。2^18 Python 验证 `result/ddps_direct_py/`、C++ 等价 `result/ddps_cpp_direct_equiv/`（最大相对差 9.05e-13，PASS）、C++ 2^22 全量 `result/ddps_cpp_direct/`；对比刷进交付件 6.5 节页签。
-- **本机 Smart App Control 已转强制模式（2026-10-12 实测）**：拦 MinGW cc1plus 依赖的 `libisl-23.dll`（C/C++ 编译全死）+ 拦既有 `run_ddps.exe`（旧产物也跑不了）；换任何 Windows 侧编译器都无解（产物仍是本地无签名 exe，照样被拦）。**现役编译运行路线 = WSL**：`cpp/build_wsl.sh`（Ubuntu g++ 13.3，源码纯标准 C++17）+ `cpp/run_all_cases.py --backend wsl`。gcc.exe 绕行路线（build.ps1）仅在策略放开后可用。
+- **搜索空间 8 维**：`x = [5 个 Tx FFE 抽头, gDC, gDC2, u_gain]`。5 个抽头全部自由、无边界（`_search_bounds()` 里抽头是 ±inf）；只有 CTLE / gain 保留物理量程（`gDC∈[0,12] dB`、`gDC2∈[0,4] dB`、`u_gain∈[−0.52,0.6]`）。`TRUST_FFE=0.10` 退化为**步长尺度**，不是参数范围；Stage-1 的 `construct_taps()` 与 `PEAK_SUM_LIMIT=0.8` 只用于数据集采样，在线不受限。
+- **方法**：`ddps_optimizer._stage2_descent_proxy`（Python 参照，`grad_mode = full / rotate / secant`）+ `cpp/src/optimizer.hpp` `stage2_descent_proxy`（C++ 一比一复刻）；direct 参照是 `_stage2_descent_direct` / `stage2_descent_direct`。历史函数 `_stage2_descent_secant`、`_stage2_descent_aonly`、`_secant_line_search`、`_predict_b_params`、`_stage2_descent` 已从 `ddps_optimizer.py` 删除。
+- **gain 维（第 8 维）解析梯度**：`_analytic_gain_grad`，`∂A/∂u_gain = ln(10)·Σ_j (∂A/∂feat_j)·feat_j`（8 维探针特征全部 ∝ gain），每步用当前落点探针现算、0 微扰态。
+- **形状 7 维（5 抽头 + gDC + gDC2）三档**：`full` 每步 7 维中心差分（14 个 `±ε 微扰态`/步）；`rotate` 第 0 步全量、此后每步轮转刷新 `ROTATE_K=2` 个维（4 个/步，`refreshed = [(step·2+j) mod 7]`）；`secant` 只第 0 步测一轮、此后 Broyden 秩一修正（0 个/步）。三档第 0 步完全一致（14 个微扰态），共用同一次优起点、固定 15 步、代理档不早停。每用例真实评估 `n_real_evals = n_landed + n_probe_states`：full 225、rotate 85、secant 29。
+- **Model B 下线**：参数域产物仍在 Stage-1 训练 / 导出（`models/ddps/model_b.json`），**不在线使用**；在线只有 Model A 方向代理，无候选否决、无红线、无轨迹信任域。
+- **direct 参照**：目标 = 真实 `log10(BER_MLSE)`（需要回传通道）；第 0 步全 8 维中心差分 = 16 个 `±ε 微扰态`（每维 ±ε 都实测真实 BER），此后全 8 维 Broyden 更新、0 微扰态；保留边际停止（`MIN_GAIN_DEX=0.01` dex，step>0 才判）。与代理三档共用同一 8 维搜索空间 / 步长调度 / 组门控 / 15 步上限。`grad_direct_chain` 非抽头维未用扰动后坐标的 bug 已修（修前 gDC/gDC2 梯度恒为 0、两平台不一致）。
+- **2^18 四档等价全部通过**（判据 `max_rel < 1e-9`，`cpp/compare_traces.py` 逐轨迹比对，目录 `result/ddps_equiv_{py,cpp}_{full,rotate,secant,direct}/`）：full 1.42e-12 / rotate 1.20e-12 / secant 8.53e-12 / direct 8.89e-13。
+- **2^22 全量只用 C++、`--jobs 4`**：`python cpp\run_all_cases.py --backend wsl --num-symbols 4194304 --n-steps 15 --jobs 4 --method proxy --grad-mode full --out-dir result\ddps_cpp_full`；三档换 `--grad-mode rotate|secant`（`--rotate-k 2`），direct 用 `--method direct --out-dir result\ddps_cpp_direct`。单次评估实测：2^18 ≈1.86 s、2^22 **≈36.1 s**（2^22 为四档 campaign 首批 4 用例的 `elapsed_sec / n_real_evals` 均值；单进程阶段性峰值 RSS ≈5.6 GB）。
+- **交付件**：`make_deliverable.py --baseline result/ddps_cpp_full --mode full --direct result/ddps_cpp_direct --out deliverables/DDPS_Deliverable.html`（`--mode` 指定主结果目录对应的档）；Word 版由 `make_deliverable_docx.py` 从 HTML 派生。
+- **本机 Smart App Control 已转强制模式**：拦 MinGW cc1plus 依赖的 `libisl-23.dll`（Windows 侧 C/C++ 编译不可用）+ 拦既有 `run_ddps.exe`（旧产物也跑不了）；换任何 Windows 侧编译器都无解（产物仍是本地无签名 exe）。**现役编译运行路线 = WSL**：`cpp/build_wsl.sh`（Ubuntu g++ 13.3，源码纯标准 C++17）+ `cpp/run_all_cases.py --backend wsl`，结果/日志仍落 Windows 文件树、受 git 跟踪。
 
-## 待办
+## 待办（8 维 + 形状三档口径，2^22 四档全量对比）
 
-1. ✅ C++ 高SNR 15 用例完成（`result/ddps_cpp_secant/`，2^22 secant，墙钟 4134.7s）。
-2. ✅ `report_ddps.py` 出图。
-3. ✅ `make_deliverable.py` 改写文案 + 替换 §6.1/§7 结论数字 + 重新生成 HTML。
-4. ✅ README / HANDOFF / docs（DDPS_Method、CHANGELOG）刷新到 v8 口径（含结果数字）。
-5. ✅ 旧 K=3 scratch（`result/ddps_secant_refresh3/`、`result/ddps_secant_sanity/`、`result/ddps_cpp_secant_equiv/`、`result/ddps_secant_equiv_il20/`、`result/ddps_secant_equiv_py/`、`_diag_gain.py`）归档至 `archive/20260930_ddps_secant_k3_scratch/`。
-6. ✅ `git add` 全部 + 提交 + 推送。
-7. ✅ `present deliverables/DDPS_Deliverable.html`（最后动作）。
+> 路径提示：`result/ddps_cpp_{full,rotate,secant,direct}/` 是**重构后**的现役结果目录；
+> 重构前的 secant / direct 2^22 全量数据在 `archive/20261022_ddps_ab_secant_2to22/` 下，引用时别混。
+
+四档 2^22 campaign 顺序跑 `full → rotate → secant → direct`（`cpp/run_all_cases.py --backend wsl --jobs 4`，
+结果目录 `result/ddps_cpp_{full,rotate,secant,direct}/`，每档 15 用例）。跑完后按顺序收尾：
+
+1. **确认四档齐**：每档 15 用例、顶层 `case_summary.csv` 已汇总（`_parts/` 只是逐用例中间件，被 git 忽略）。
+   `scratch/final_build.py --check-only` 会硬校验；未齐就只汇报进度、不要生成交付件。
+2. **机制体检**：`scratch/check_first_batch.py --prefix result/ddps_cpp --mode <档>`（落点/微扰态/记账恒等式/
+   刷新维序列/成对性），全齐后 `scratch/verify_22.py --prefix result/ddps_cpp --symbols 4194304 --expect-envs 15`。
+3. **定现役档**：`scratch/mode_verdict.py --prefix result/ddps_cpp --symbols 4194304 --expect-envs 15 --decide`
+   （full 为参照，逐用例 ≤5%、最坏单例 ≤1.05 才算同水平；同水平优选取代价最低且梯度仍会转的档）。
+4. **一键收尾**：`scratch/final_build.py --dirs-prefix result/ddps_cpp --expect-symbols 4194304 --expect-cases 15 --mode <选定档>`
+   （逐档出图 → 生成 HTML → 生成 Word → 自检）。
+5. **独立复核**：`scratch/audit_numbers.py`、`scratch/audit_safety.py`、`scratch/audit_constants_parity.py`。
+6. **文档对齐**：`scratch/patch_docs_22.py --prefix result/ddps_cpp --n-cases 15`（§4 单次评估与全量墙钟、
+   §3.3 四档转角表）。
+7. **修入口默认值不一致**（等没有仿真在跑）：`cpp/main.cpp` 的 `--n-steps` 默认值 50 → 15（批量入口都显式传参），
+   重编 `cpp/build_wsl.sh` + 重跑 2^18 四档等价确认行为不变，记入 CHANGELOG。
+8. **归档被取代的旧等价目录**：`result/ddps_cpp_direct_equiv/`、`result/ddps_cpp_secant_analytic_equiv/` → `archive/`；
+   同步 `cpp/compare_traces.py` 的示例路径。
+9. **git add + commit**（新增 `result/ddps_equiv_*`、`result/ddps_cpp_*`、`docs/DDPS_Gradient_Direction_Analysis.md`）。
+10. **`present deliverables/DDPS_Deliverable.html`（最后动作）**。
 
 本轮（2026-10-12 · 双后端分工规则固化）：
 
@@ -181,10 +194,11 @@ PAM4（数字电平 [-3,-1,1,3]，峰值 3）→ 5-tap Tx FFE → DAC(ZOH, ENOB 
 
 ## 架构
 
-- **Model A（方向代理）**：输入 = [7-tap Tx FIR 探针, drive_rms]（8 维波形域）→ log10(BER_MLSE)。WhiteBoxRidge（二阶多项式 + L2 Ridge 闭式解，带解析梯度）。
-- **Model B（风险控制）**：输入 = [4 FFE 旁瓣, gDC, gDC2, drive_rms]（7 维参数域）→ log10(BER_MLSE) 保守上包络。gain 经 drive_rms 进入 B。
-- **梯度（7 维链式法则）**：扰动 7 维参数（4 FFE 旁瓣 + gDC + gDC2 + u_gain）→ 重算探针 → 查 A（中心差分）。
-- 信任域：FFE ±0.10、CTLE ±3.0 dB；gain ±0.30 dex 围绕种子。
+- **Model A（方向代理，唯一在线代理）**：输入 = [7-tap Tx FIR 探针, drive_rms]（8 维波形域）→ `log10(BER_MLSE)`。WhiteBoxRidge（二阶多项式 + L2 Ridge 闭式解，带解析梯度）。Stage 1 离线冻结，在线不重训。
+- **参数域产物（Stage-1 离线产物）**：输入 = [4 FFE 旁瓣, gDC, gDC2, drive_rms]（7 维参数域）。随 Stage 1 训练/导出（`models/ddps/model_b.json`），**不在线使用**。
+- **在线搜索空间（8 维）**：`x = [5 个 FFE 抽头, gDC, gDC2, u_gain]`。抽头全自由、无边界；只有 CTLE / gain 保留物理量程。
+- **梯度**：gain 维解析（`_analytic_gain_grad`，0 微扰态）；形状 7 维三档 `--grad-mode full|rotate|secant`（第 0 步一致 = 14 个 `±ε 微扰态`）。固定 15 步、代理档不早停。
+- **direct 参照**：`--method direct`，目标 = 真实 `log10(BER_MLSE)`（需回传通道）；第 0 步全 8 维中心差分（16 个微扰态），此后全 8 维 Broyden。
 
 ## 复现命令
 
@@ -195,36 +209,37 @@ PAM4（数字电平 [-3,-1,1,3]，峰值 3）→ 5-tap Tx FFE → DAC(ZOH, ENOB 
 .venv\Scripts\python.exe -c "from train_surrogates import train; import glob; train(sorted(glob.glob('dataset/ddps_dataset_*.csv'))[-1], 'models/ddps', pipeline_tag='ddps', gain_mode='gradient_with_rms_init')"
 .venv\Scripts\python.exe tools/pick_seed_config.py --target-log10 -4.0 --env Base_IL10x10 --out result/seed_config_bad_1e4.json
 
-# 1) Python 小点数低 SNR 验证（比对口径：2^18、单种子 42、次优起点、割线 + 解析 gain）
-.venv\Scripts\python.exe test_generalization.py --model-dir models/ddps --out-dir result/ddps_secant_analytic_py \
-    --method secant --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 262144 --sim-seeds 42
+# 1) Python 2^18 等价参照（比对口径：2^18 小点数低 SNR、单种子 42、次优起点、固定 15 步）
+.venv\Scripts\python.exe tools/run_parallel_envs.py --model-dir models/ddps --out-dir result/ddps_equiv_py_full `
+    --method proxy --grad-mode full --only-envs Base_IL10x10,IL20x20 --num-symbols 262144 --n-steps 15 --sim-seeds 42 --jobs 2 `
+    --seed-config result/seed_config_bad_1e4.json
+# 三档换 --grad-mode rotate|secant（--rotate-k 2）；direct 用 --method direct
 
 # 2) C++ 编译 + 模型转换（WSL 内 g++：本机 SAC 强制模式拦本地无签名 exe；pkl -> json 一次性）
 wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity bash cpp/build_wsl.sh
 .venv\Scripts\python.exe cpp\export_models.py
 
-# 3) 全量规模仿真（高 SNR 大点数，只允许 C++）：15 用例 2^22 在线调优
-.venv\Scripts\python.exe cpp\run_all_cases.py --backend wsl --method secant --out-dir result/ddps_cpp_secant \
-    --num-symbols 4194304 --n-steps 15 --jobs 2
+# 3) 2^18 等价比对（C++ 侧，与 Python 参照同环境同参数）+ 逐轨迹比对
+.venv\Scripts\python.exe cpp\run_all_cases.py --backend wsl --only-envs Base_IL10x10,IL20x20 --num-symbols 262144 `
+    --n-steps 15 --jobs 2 --method proxy --grad-mode full --out-dir result\ddps_equiv_cpp_full
+.venv\Scripts\python.exe cpp\compare_traces.py --py result/ddps_equiv_py_full --cpp result/ddps_equiv_cpp_full
 
-# 4) 对比实验 direct（有回传通道时的参照）：Python 2^18 验证 -> C++ 2^18 比对 -> C++ 2^22 全量
-.venv\Scripts\python.exe tools/run_parallel_envs.py --model-dir models/ddps --out-dir result/ddps_direct_py \
-    --method direct --seed-config result/seed_config_bad_1e4.json --n-steps 15 --num-symbols 262144 --sim-seeds 42 --jobs 12
-.venv\Scripts\python.exe cpp\run_all_cases.py --backend wsl --method direct --out-dir result/ddps_cpp_direct_equiv \
-    --only-envs Base_IL10x10,IL20x20 --num-symbols 262144 --n-steps 15 --jobs 2
-.venv\Scripts\python.exe cpp\compare_traces.py --py result/ddps_direct_py --cpp result/ddps_cpp_direct_equiv
-.venv\Scripts\python.exe cpp\run_all_cases.py --backend wsl --method direct --out-dir result/ddps_cpp_direct \
-    --num-symbols 4194304 --n-steps 15 --jobs 2
+# 4) 全量规模仿真（高 SNR 大点数，只允许 C++）：15 用例 2^22，三档 + direct
+.venv\Scripts\python.exe cpp\run_all_cases.py --backend wsl --num-symbols 4194304 --n-steps 15 --jobs 4 `
+    --method proxy --grad-mode full --out-dir result\ddps_cpp_full
+# 换档：--grad-mode rotate|secant --out-dir result\ddps_cpp_rotate|secant（--rotate-k 2）
+.venv\Scripts\python.exe cpp\run_all_cases.py --backend wsl --method direct --out-dir result\ddps_cpp_direct `
+    --num-symbols 4194304 --n-steps 15 --jobs 4
 
 # 5) 报告 + 交付件
-.venv\Scripts\python.exe report_ddps.py --test-dir result/ddps_cpp_secant --model-dir models/ddps \
+.venv\Scripts\python.exe report_ddps.py --test-dir result/ddps_cpp_full --model-dir models/ddps `
     --seed-config result/seed_config_bad_1e4.json --summary-out result/SUMMARY.md
-.venv\Scripts\python.exe make_deliverable.py --baseline result/ddps_cpp_secant --model-dir models/ddps \
+.venv\Scripts\python.exe make_deliverable.py --baseline result/ddps_cpp_full --mode full `
     --direct result/ddps_cpp_direct --out deliverables/DDPS_Deliverable.html
 ```
 
 ## 并行内存约束（C++ 全量）
 
 - **Windows 侧（历史，SAC 强制模式后不可用）**：15 用例 15 路并行实测墙钟 4134.7s——事后看当时内存已顶到天花板（31.7 GB 物理 RAM），单 eval 被换页拖到 ~105 s。
-- **WSL 侧（现役）**：WSL2 VM 默认内存上限 = 物理 50%（本机 15.8 GB）；2^22 单 worker 阶段性峰值 RSS ~5 GB（MLSE/白化阶段，稳态 ~1.7 GB，峰值可持续 1 分钟以上）→ **jobs=2 是稳妥上限**（3 路峰值重叠即 OOM）。Linux 单线程单 eval ~30 s（无换页，约为当年 Windows 拥塞态的 1/4），2^22 每用例 ~30 eval ≈ 15 min，15 用例 2 路并行 ≈ 2 h。
+- **WSL 侧（现役）**：WSL2 VM 已放开到 28 GB / 20 CPU；2^22 单 worker 阶段性峰值 RSS ~5.6 GB（MLSE/白化阶段）→ **15 用例 2^22 用 `--jobs 4`**，2^18 等价参照用 `--jobs 2`。Linux 单 eval：2^22 单线程无竞争 ~28–30 s、2^18 ~1.86 s（无换页）；四路并行实测 2^22 ≈36.1 s/次（内存带宽竞争所致）、2^18 ≈1.95 s/次。
 - Python 侧只跑 2^18 小点数低 SNR 验证，不承担全量规模仿真（AGENTS.md「开发方式」）。

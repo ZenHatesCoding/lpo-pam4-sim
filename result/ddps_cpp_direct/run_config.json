@@ -26,7 +26,9 @@
     "HighNoise_IL10x10",
     "HighNoise_IL16x16"
   ],
-  "jobs": 2,
-  "total_wall_sec": 5073.1125228405,
-  "method": "direct"
+  "jobs": 4,
+  "total_wall_sec": 3977.176538705826,
+  "method": "direct",
+  "grad_mode": "direct",
+  "rotate_k": 2
 }

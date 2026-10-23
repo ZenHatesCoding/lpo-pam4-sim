@@ -6,6 +6,10 @@
 比对只在 2^18 小点数低 SNR 下做，通过比对后的全量规模仿真一律走本脚本调度的
 run_ddps（不允许用 Python 跑高 SNR 大点数）。
 
+主机侧只保留一个开关：--method proxy|direct，proxy 下用 --grad-mode full|rotate|secant
+选择形状维的梯度刷新方式（full 每步全量微扰 / rotate 每步轮转刷 k 个维 / secant 只
+第 0 步测一轮）。
+
 每个环境：apply_env_to_config -> dump per-env config.txt -> run_ddps -> case_summary.json + trace/probes CSV。
 聚合输出到 result/<out-dir>/（case_summary.csv/json + trace/probes + run_config.json + _parts/<env>/）。
 并行度 = 逻辑核数（每个 run_ddps 单线程）。
@@ -43,7 +47,9 @@ WSL_DISTRO = "Ubuntu"
 BACKEND = "win"
 CFG_DIR = r"cpp\build\cfg"
 OUT_DIR = "result/ddps_cpp_main"
-METHOD = "chain"
+METHOD = "proxy"
+GRAD_MODE = "full"
+ROTATE_K = 2
 SEED_CONFIG = "result/seed_config_bad_1e4.json"
 NUM_SYM = 4194304
 SEED = 42
@@ -85,7 +91,7 @@ def _safe(name):
 
 
 def run_one(args):
-    env, num_sym, n_steps, out_root, method, backend, distro, root_linux = args
+    env, num_sym, n_steps, out_root, method, grad_mode, rotate_k, backend, distro, root_linux = args
     name = env['name']
     safe = _safe(name)
     out_dir = os.path.join(out_root, '_parts', safe)
@@ -101,12 +107,15 @@ def run_one(args):
                _posix(cfg_path), '--num-symbols', str(num_sym), '--tx-noise-snr', '0',
                '--seed', str(SEED), '--n-steps', str(n_steps),
                '--seed-config', _posix(SEED_CONFIG), '--env-name', name,
-               '--model-dir', _posix(MODEL_DIR), '--method', method, '--out', _posix(out_json)]
+               '--model-dir', _posix(MODEL_DIR), '--method', method,
+               '--grad-mode', grad_mode, '--rotate-k', str(rotate_k),
+               '--out', _posix(out_json)]
     else:
         cmd = [EXE, cfg_path, '--num-symbols', str(num_sym), '--tx-noise-snr', '0',
                '--seed', str(SEED), '--n-steps', str(n_steps),
                '--seed-config', SEED_CONFIG, '--env-name', name,
-               '--model-dir', MODEL_DIR, '--method', method, '--out', out_json]
+               '--model-dir', MODEL_DIR, '--method', method,
+               '--grad-mode', grad_mode, '--rotate-k', str(rotate_k), '--out', out_json]
     t0 = time.time()
     with open(log, 'w', encoding='utf-8') as lf:
         rc = subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT).returncode
@@ -144,13 +153,18 @@ def _wsl_path(win_abs):
 
 
 def main():
-    global OUT_DIR, METHOD
+    global OUT_DIR, METHOD, GRAD_MODE
     ap = argparse.ArgumentParser()
     ap.add_argument('--jobs', type=int, default=15)
     ap.add_argument('--only-envs', type=str, default=None)
     ap.add_argument('--num-symbols', type=int, default=NUM_SYM)
     ap.add_argument('--n-steps', type=int, default=N_STEPS)
-    ap.add_argument('--method', type=str, default='chain', choices=['chain', 'secant', 'direct'])
+    ap.add_argument('--method', type=str, default='proxy', choices=['proxy', 'direct'],
+                    help='proxy = Model A 探针代理在线调优；direct = 端到端 BER 直接梯度下降（参照）')
+    ap.add_argument('--grad-mode', type=str, default='full', choices=['full', 'rotate', 'secant'],
+                    help='proxy 的形状维梯度刷新方式：full 每步全量微扰；rotate 每步轮转刷新 k 个维；'
+                         'secant 只第 0 步测一次')
+    ap.add_argument('--rotate-k', type=int, default=2, help='rotate 模式每步刷新的形状维个数')
     ap.add_argument('--out-dir', type=str, default=OUT_DIR)
     ap.add_argument('--backend', type=str, default='win', choices=['win', 'wsl'],
                     help='win = 直接调 cpp/build/run_ddps.exe；wsl = WSL 内 g++ 编译的 '
@@ -158,6 +172,8 @@ def main():
     ap.add_argument('--wsl-distro', type=str, default=WSL_DISTRO, help='WSL 发行版名（--backend wsl 时生效）')
     a = ap.parse_args()
     METHOD = a.method
+    GRAD_MODE = a.grad_mode
+    ROTATE_K = a.rotate_k
     OUT_DIR = a.out_dir
     backend = a.backend
     distro = a.wsl_distro
@@ -174,8 +190,8 @@ def main():
         len(cases), jobs, num_sym, n_steps, backend), flush=True)
     t0 = time.time()
     with Pool(jobs) as pool:
-        results = pool.map(run_one, [(e, num_sym, n_steps, OUT_DIR, METHOD, backend, distro,
-                                      root_linux) for e in cases])
+        results = pool.map(run_one, [(e, num_sym, n_steps, OUT_DIR, METHOD, GRAD_MODE, ROTATE_K,
+                                      backend, distro, root_linux) for e in cases])
     total_wall = time.time() - t0
 
     oks = [r for r in results if r.get('ok')]
@@ -190,6 +206,7 @@ def main():
     ordered = ['env', 'il_tx', 'il_rx', 'cd', 'dgd', 'pol', 'noise_stress',
                'seed_lb', 'seed_ber', 'pa_seed', 'pb_seed', 'n_steps_requested',
                'n_steps_actual', 'freeze_extra', 'seed_gain', 'seed_gain_ratio', 'cloud',
+               'n_landed', 'n_probe_states', 'n_real_evals', 'max_probe_lb', 'max_probe_ber',
                'best_lb', 'best_ber', 'best_step', 'final_lb', 'final_ber', 'max_lb',
                'delta_lb_seed_to_best', 'delta_lb_seed_to_final', 'best_taps',
                'best_gdc', 'best_gdc2', 'best_gain', 'best_gain_ratio', 'best_u_gain',
@@ -223,6 +240,7 @@ def main():
         'num_symbols': num_sym, 'sim_seeds': [SEED], 'seed_config': SEED_CONFIG,
         'tx_noise_snr_db': 0.0, 'envs': [e['name'] for e in cases],
         'jobs': jobs, 'total_wall_sec': total_wall, 'method': METHOD,
+        'grad_mode': (GRAD_MODE if METHOD == 'proxy' else 'direct'), 'rotate_k': ROTATE_K,
     }
     with open(os.path.join(OUT_DIR, 'run_config.json'), 'w', encoding='utf-8') as f:
         json.dump(run_cfg, f, indent=2, ensure_ascii=False)

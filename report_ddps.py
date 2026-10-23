@@ -1,13 +1,15 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""report_ddps.py — DDPS 结果可视化与报告（精简版）。
+"""report_ddps.py — DDPS 结果可视化与报告。
 
-在线调优：7 维（4 FFE 旁瓣 + gDC + gDC2 + u_gain）链式梯度，gain 纳入梯度。
-从 case_summary / trace / per-case target_rms 生成：
-  ddps_convergence.png   3×5 三曲线收敛（Model A / Model B / 实测 BER）
+在线调优：8 维（5 个 Tx FFE 抽头 + gDC + gDC2 + u_gain），抽头无边界；
+形状维梯度获取方式由 run_config.json 的 grad_mode 决定（full / rotate / secant）。
+从 case_summary / trace / probes 生成：
+  ddps_convergence.png   3×5 收敛图（Model A 预测 / 实测 BER / ±ε 微扰态 + 种子线）
   ddps_gain_rms.png      逐用例 gain 倍率与 drive_rms 轨迹
-  ddps_report.md         中文报告
-  （--summary）SUMMARY.md   跨实验汇总
+  ddps_tracking.png      Δ预测 vs Δ实测 散点 + 逐用例相关系数
+  ddps_case_<最难用例>.png  最难用例四联图
+  ddps_report.md         中文报告（含真实评估次数记账）
 
 --method direct（端到端 BER 直接梯度下降，无代理）只出三张图（不出 tracking
 诊断图、不写报告/SUMMARY.md、不读 model-dir）：
@@ -29,9 +31,17 @@ import ddps_optimizer as D
 from ddps_cases import ENV_CASES, env_label
 from tx_channel_extract import extract_tx_s21
 from utils_config import load_config
-import json as _json
 
 BAUD = 56e9  # 56 GBd
+
+# 三种梯度获取模式的人话说明（报告与图标题共用）
+GRAD_MODE_TEXT = {
+    'full': 'full：每步全量微扰（7 个形状维各 ±ε = 14 个微扰态/步）',
+    'rotate': 'rotate：每步轮转微扰（每步 2 个形状维 ×±ε = 4 个微扰态/步）',
+    'secant': 'secant：第 0 步微扰一次，此后割线维持（0 微扰态/步）',
+    'direct': 'direct：端到端 BER 直接梯度下降（无代理）',
+}
+
 
 def _ctle_response_db(f, gdc_db, gdc2_db):
     """Tx CTLE |H(f)| in dB (peaking topology, DC gain = 0 dB). f: Hz array."""
@@ -57,9 +67,7 @@ plt.rcParams['axes.unicode_minus'] = False
 
 C_REAL = '#0b63ce'
 C_PREDA = '#e08a1e'
-C_PREDB = '#0f8a4a'
 C_SEED = '#c0392b'
-C_LIMIT = '#8e44ad'
 C_GAIN = '#2c7a2c'
 
 
@@ -69,13 +77,13 @@ def _trace(test_dir, env):
 
 
 def _probes(test_dir, env):
-    """每步 14 个 ±ε 试探微扰态的端到端 MLSE BER（梯度估计期间的链路实测点）。"""
+    """某个用例梯度估计期间实际落到链路上的 ±ε 微扰态（每行 = 一次真实 BER 评估）。"""
     p = os.path.join(test_dir, f'probes_{env}.csv')
     return pd.read_csv(p) if os.path.exists(p) else None
 
 
 def _probe_stats(test_dir, envs):
-    """逐用例的试探步 BER 概览（探针工作点包络的统计）。"""
+    """逐用例的微扰态 BER 概览（真实链路上为估计梯度而经历的工作点包络）。"""
     rows = []
     for env in envs:
         pr = _probes(test_dir, env)
@@ -96,53 +104,52 @@ def _summary(test_dir):
     return pd.read_csv(os.path.join(test_dir, 'case_summary.csv'))
 
 
-def _is_aonly(test_dir):
-    """A-only 结果的 case_summary 里 pb_seed 全为 0（未跑 Model B）。"""
-    summ = _summary(test_dir)
-    return ('pb_seed' in summ.columns) and (float(summ['pb_seed'].abs().sum()) < 1e-12)
+def _run_meta(test_dir):
+    """读 run_config.json（没有则回落到 C++ run_config / 缺省）。"""
+    for name in ('run_config.json',):
+        p = os.path.join(test_dir, name)
+        if os.path.exists(p):
+            try:
+                with open(p, encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    return {}
 
 
-def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True, pr=None,
-                      direct=False):
+def _mode_text(meta):
+    if not meta:
+        return ''
+    method = meta.get('method', 'proxy')
+    if method == 'direct':
+        return GRAD_MODE_TEXT['direct']
+    gm = meta.get('grad_mode', 'full')
+    if gm == 'rotate':
+        k = int(meta.get('rotate_k', D.ROTATE_K))
+        return f'rotate：每步轮转微扰（每步 {k} 个形状维 ×±ε = {2 * k} 个微扰态/步）'
+    return GRAD_MODE_TEXT.get(gm, gm)
+
+
+def _plot_convergence(ax, tr, row, title=None, small=False, pr=None, direct=False):
     steps = tr['step'].values
     # 种子点（step -1）作为曲线起点：trace 从梯度第 1 步开始记录，
-    # 种子点（次优工作点，~1e-4）的 BER 高于后续各步，
-    # 不 prepend 的话看不到"种子→最优"的下降。
+    # 种子点（次优工作点）的 BER 高于后续各步，不 prepend 就看不到"种子→最优"的下降。
     seed = float(row['seed_ber'])
     seed_lb = float(row['seed_lb'])
     steps_ext = np.concatenate([[-1], steps])
     real_ber_ext = np.concatenate([[seed], tr['real_ber'].values])
     if direct:
-        # direct：无代理预测曲线（pred_a 列=当前落点目标值、pred_b 恒 0，无预测含义），
-        # 只画实测 BER、试探态灰点与起点 x₀ 虚线。
+        # direct：无代理预测曲线（pred_a 列 = 当前落点目标值、pred_b 恒 0，无预测含义）
         ax.semilogy(steps_ext, real_ber_ext, marker='o', ms=3.6, lw=1.5,
                     color=C_REAL, label='实测 BER_MLSE')
-        # 试探态 BER：第 0 步 7 维中心差分的 14 个 ±ε 微扰态（probes 只记录第 0 步）
-        if pr is not None and not pr.empty:
-            for step in steps:
-                ps = pr[pr['step'] == step]['real_ber'].values
-                if len(ps):
-                    ax.scatter([step] * len(ps), ps, s=7, color='#9aa0a6', alpha=0.45,
-                               zorder=2.6, edgecolors='none')
-        ax.axhline(seed, color=C_SEED, ls='--', lw=0.9, alpha=0.8,
-                   label='种子 BER（起点 x₀）')
-        ax.set_yscale('log')
-        ax.grid(True, which='both', ls='--', alpha=0.35)
-        if title:
-            ax.set_title(title, fontsize=9.5)
-        if small:
-            ax.tick_params(labelsize=7)
-        return
-    pred_a_ext = np.concatenate([[seed_lb], tr['pred_a'].values])
-    pred_b_ext = np.concatenate([[seed_lb], tr['pred_b'].values])
-    ax.semilogy(steps_ext, 10.0 ** pred_a_ext, marker='^', ms=3.2, ls='--',
-                lw=1.1, color=C_PREDA, label='Model A 预测（方向代理）')
-    if 'pred_b' in tr.columns and tr['pred_b'].abs().sum() > 0:
-        ax.semilogy(steps_ext, 10.0 ** pred_b_ext, marker='s', ms=3.0, ls=':',
-                    lw=1.1, color=C_PREDB, label='Model B 预测（风险控制）')
-    ax.semilogy(steps_ext, real_ber_ext, marker='o', ms=3.6, lw=1.5,
-                color=C_REAL, label='实测 BER_MLSE')
-    # 试探步 BER 包络：每步 14 个 ±ε 微扰态（梯度估计期间链路实际所处的探针工作点）
+    else:
+        pred_a_ext = np.concatenate([[seed_lb], tr['pred_a'].values])
+        ax.semilogy(steps_ext, 10.0 ** pred_a_ext, marker='^', ms=3.2, ls='--',
+                    lw=1.1, color=C_PREDA, label='Model A 预测（探针代理）')
+        ax.semilogy(steps_ext, real_ber_ext, marker='o', ms=3.6, lw=1.5,
+                    color=C_REAL, label='实测 BER_MLSE')
+    # ±ε 微扰态：为估计梯度而让链路真实经过的工作点（full 每步 14 个、rotate 每步 4 个、
+    # secant 仅第 0 步 14 个）
     if pr is not None and not pr.empty:
         for step in steps:
             ps = pr[pr['step'] == step]['real_ber'].values
@@ -150,14 +157,7 @@ def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True, pr
                 ax.scatter([step] * len(ps), ps, s=7, color='#9aa0a6', alpha=0.45,
                            zorder=2.6, edgecolors='none')
     ax.axhline(seed, color=C_SEED, ls='--', lw=0.9, alpha=0.8,
-               label='种子 BER（起点）')
-    # 安全红线：如果从不触发（B 单调下降），不画——画一条没人碰的线只会干扰
-    # 如果有触发步（allowed < pred_b 某些步），画红线轨迹
-    if 'allowed_ber' in tr.columns and tr['allowed_ber'].iloc[0] > 0:
-        triggered = (tr['pred_b_ber'] > tr['allowed_ber']).any() if 'pred_b_ber' in tr.columns else False
-        if triggered:
-            ax.plot(steps, tr['allowed_ber'].values, color=C_LIMIT, ls='-.', lw=0.9,
-                    alpha=0.8, label='安全红线（最优×1.25）')
+               label='种子 BER（起点 x0）')
     ax.set_yscale('log')
     ax.grid(True, which='both', ls='--', alpha=0.35)
     if title:
@@ -167,40 +167,27 @@ def _plot_convergence(ax, tr, row, title=None, small=False, show_legend=True, pr
 
 
 def _add_shared_legend(fig, loc='upper center', ncol=5, fontsize=9, y_offset=0.985,
-                       aonly=False, direct=False):
+                       direct=False, mode_text=None):
     """在 figure 顶部（suptitle 下方）放统一图例，避免子图内 legend 挤压数据。"""
     from matplotlib.lines import Line2D
-    probe_h = Line2D([0], [0], marker='o', ms=5, color='#9aa0a6', ls='none', alpha=0.6,
-                     markeredgecolor='none', label='试探步 BER（每步 14 个 ±ε 微扰态）')
     if direct:
         handles = [
             Line2D([0], [0], color=C_REAL, marker='o', ms=5, lw=1.5,
                    label='实测 BER_MLSE'),
             Line2D([0], [0], marker='o', ms=5, color='#9aa0a6', ls='none', alpha=0.6,
-                   markeredgecolor='none', label='试探态 BER（第 0 步 14 个 ±ε 微扰态）'),
-            Line2D([0], [0], color=C_SEED, ls='--', lw=1.2, label='种子 BER（起点 x₀）'),
+                   markeredgecolor='none', label='±ε 微扰态 BER（第 0 步 8 维全测 = 16 次）'),
+            Line2D([0], [0], color=C_SEED, ls='--', lw=1.2, label='种子 BER（起点 x0）'),
         ]
     else:
         handles = [
             Line2D([0], [0], color=C_PREDA, marker='^', ms=5, ls='--', lw=1.2,
-                   label='Model A 预测（方向代理）'),
+                   label='Model A 预测（探针代理）'),
             Line2D([0], [0], color=C_REAL, marker='o', ms=5, lw=1.5,
                    label='实测 BER_MLSE'),
-            probe_h,
-            Line2D([0], [0], color=C_SEED, ls='--', lw=1.2, label='种子 BER（起点）'),
+            Line2D([0], [0], marker='o', ms=5, color='#9aa0a6', ls='none', alpha=0.6,
+                   markeredgecolor='none', label='±ε 微扰态 BER（为估计梯度真实经过的工作点）'),
+            Line2D([0], [0], color=C_SEED, ls='--', lw=1.2, label='种子 BER（起点 x0）'),
         ]
-        if not aonly:
-            handles = [
-                Line2D([0], [0], color=C_PREDA, marker='^', ms=5, ls='--', lw=1.2,
-                       label='Model A 预测（方向代理）'),
-                Line2D([0], [0], color=C_PREDB, marker='s', ms=5, ls=':', lw=1.2,
-                       label='Model B 预测（风险控制）'),
-                Line2D([0], [0], color=C_REAL, marker='o', ms=5, lw=1.5,
-                       label='实测 BER_MLSE'),
-                probe_h,
-                Line2D([0], [0], color=C_SEED, ls='--', lw=1.2, label='种子 BER（起点）'),
-                Line2D([0], [0], color=C_LIMIT, ls='-.', lw=1.2, label='安全红线（种子×1.25）'),
-            ]
     fig.legend(handles=handles, loc=loc, ncol=ncol, fontsize=fontsize,
                framealpha=0.9, edgecolor='#ccc', bbox_to_anchor=(0.5, y_offset))
 
@@ -209,6 +196,8 @@ def figure_convergence_grid(test_dir, report_dir, envs, direct=False):
     os.makedirs(report_dir, exist_ok=True)
     summ = _summary(test_dir)
     rows = {r['env']: r for _, r in summ.iterrows()}
+    meta = _run_meta(test_dir)
+    mode_text = _mode_text(meta)
     n = len(envs)
     ncol = 5
     nrow = int(np.ceil(n / ncol))
@@ -229,15 +218,13 @@ def figure_convergence_grid(test_dir, report_dir, envs, direct=False):
         axes[j].axis('off')
     if direct:
         fig.suptitle('DDPS 在线调优收敛轨迹 — direct（端到端 BER 直接梯度下降）'
-                     '（15 环境，7 维 FFE+CTLE+gain）', fontsize=12)
+                     '（15 环境，8 维 FFE+CTLE+gain）', fontsize=12)
         _add_shared_legend(fig, ncol=3, fontsize=9, y_offset=0.965, direct=True)
         out_name = 'ddps_conv_grid.png'
     else:
-        aonly = _is_aonly(test_dir)
-        label = 'A-only（只用 Model A 梯度）' if aonly else 'A+B（完整流程）'
-        fig.suptitle(f'DDPS 在线调优收敛轨迹 — {label}'
-                     f'（15 环境，只用基线训练泛化，7 维 FFE+CTLE+gain）', fontsize=12)
-        _add_shared_legend(fig, ncol=4 if aonly else 6, fontsize=9, y_offset=0.965, aonly=aonly)
+        fig.suptitle(f'DDPS 在线调优收敛轨迹 — Model A 探针代理，{mode_text}'
+                     f'（15 环境，8 维 FFE+CTLE+gain，抽头无边界）', fontsize=12)
+        _add_shared_legend(fig, ncol=4, fontsize=9, y_offset=0.965)
         out_name = 'ddps_convergence.png'
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     out = os.path.join(report_dir, out_name)
@@ -247,13 +234,12 @@ def figure_convergence_grid(test_dir, report_dir, envs, direct=False):
 
 
 def figure_gain_rms(test_dir, report_dir, envs, direct=False):
-    """逐用例 gain 倍率与 drive_rms 轨迹。
-
-    gain 纳入梯度（第 7 维），从任意种子点出发走 7 维梯度。
-    """
+    """逐用例 gain 倍率与 drive_rms 轨迹（gain = 第 8 个搜索维，走解析梯度）。"""
     os.makedirs(report_dir, exist_ok=True)
     summ = _summary(test_dir)
     rows = {r['env']: r for _, r in summ.iterrows()}
+    meta = _run_meta(test_dir)
+    mode_text = _mode_text(meta)
     n = len(envs)
     ncol = 5
     nrow = int(np.ceil(n / ncol))
@@ -266,7 +252,6 @@ def figure_gain_rms(test_dir, report_dir, envs, direct=False):
             ax.axis('off')
             continue
         steps = tr['step'].values
-        # 种子（step -1）= 次优工作点的 gain；drive_rms 用首步近似
         seed_gr = float(rows[env].get('seed_gain_ratio', tr['gain_ratio'].iloc[0]))
         seed_rms = float(tr['drive_rms'].iloc[0])
         steps_ext = np.concatenate([[-1], steps])
@@ -287,11 +272,10 @@ def figure_gain_rms(test_dir, report_dir, envs, direct=False):
     for j in range(n, len(axes)):
         axes[j].axis('off')
     if direct:
-        fig.suptitle('DDPS gain / drive_rms 轨迹 — direct（端到端 BER 直接梯度下降）'
-                     '（gain 纳入梯度，第 7 维）', fontsize=12)
+        fig.suptitle('DDPS gain / drive_rms 轨迹 — direct（gain 为第 8 维，实测差分）', fontsize=12)
     else:
-        label = 'A-only' if _is_aonly(test_dir) else 'A+B'
-        fig.suptitle(f'DDPS gain / drive_rms 轨迹 — {label}（gain 纳入梯度，第 7 维）', fontsize=12)
+        fig.suptitle(f'DDPS gain / drive_rms 轨迹 — {mode_text}（gain 为第 8 维，解析梯度 0 微扰）',
+                     fontsize=12)
     from matplotlib.lines import Line2D
     _h = [Line2D([0], [0], color=C_GAIN, marker='o', ms=5, lw=1.5, label='gain 倍率（左轴）'),
           Line2D([0], [0], color=C_REAL, marker='s', ms=4, ls='--', lw=1.0, label='drive_rms (V)（右轴）')]
@@ -317,8 +301,9 @@ def _env_category(env):
 
 
 def figure_tracking(test_dir, report_dir, envs):
-    """Δ预测 vs Δ实测 散点 + 逐用例相关系数。"""
+    """Δ预测 vs Δ实测 散点 + 逐用例相关系数（代理方向可靠性诊断）。"""
     os.makedirs(report_dir, exist_ok=True)
+    mode_text = _mode_text(_run_meta(test_dir))
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5.5))
     corrs = []
     labels = []
@@ -333,7 +318,6 @@ def figure_tracking(test_dir, report_dir, envs):
         all_dA.extend(dA[1:]); all_dR.extend(dR[1:])
         c = np.corrcoef(dA, dR)[0, 1] if np.std(dA) > 1e-9 and np.std(dR) > 1e-9 else 0.0
         corrs.append(c); labels.append(env)
-        # 按类别着色，不逐用例加 legend
         cat = _env_category(env)
         ax1.scatter(dA, dR, s=20, alpha=0.6, color=CAT_COLORS[cat])
     if not all_dA or not all_dR:
@@ -359,8 +343,7 @@ def figure_tracking(test_dir, report_dir, envs):
     ax2.set_xlabel('corr(Δ预测, Δ实测)', fontsize=10)
     ax2.set_title('逐用例相关系数', fontsize=11)
     ax2.grid(True, ls='--', alpha=0.3, axis='x')
-    label = 'A-only' if _is_aonly(test_dir) else 'A+B'
-    fig.suptitle(f'预测变化量 vs 实测变化量 — {label}', fontsize=12)
+    fig.suptitle(f'预测变化量 vs 实测变化量 — Model A 探针代理，{mode_text}', fontsize=12)
     fig.tight_layout()
     out = os.path.join(report_dir, 'ddps_tracking.png')
     fig.savefig(out, dpi=125)
@@ -372,18 +355,18 @@ def figure_hardcase(test_dir, report_dir, envs, direct=False):
     """最难用例四联图：收敛曲线 + FFE 抽头 + CTLE 频响 + 探针 FIR。"""
     os.makedirs(report_dir, exist_ok=True)
     summ = _summary(test_dir)
+    mode_text = _mode_text(_run_meta(test_dir))
     hard_env = max(envs, key=lambda e: summ[summ['env'] == e].iloc[0]['seed_ber']
                    if e in summ['env'].values else 0)
     tr = _trace(test_dir, hard_env)
     if tr is None or tr.empty:
         return None
 
-    # 找 best 行
     best_idx = int(tr['real_ber'].values.argmin())
     best_row = tr.iloc[best_idx]
     seed_taps = D.SEED_TAPS.copy()
     try:
-        best_taps = np.array(_json.loads(best_row['taps']) if isinstance(best_row['taps'], str)
+        best_taps = np.array(json.loads(best_row['taps']) if isinstance(best_row['taps'], str)
                              else best_row['taps'], float)
     except Exception:
         best_taps = seed_taps
@@ -402,7 +385,6 @@ def figure_hardcase(test_dir, report_dir, envs, direct=False):
     ctle_best = _ctle_response_db(f, best_gdc, best_gdc2)
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    # (1) 收敛曲线（secant：Model A/B 预测 + 实测；direct：仅实测）
     _plot_convergence(axes[0, 0], tr, summ[summ['env'] == hard_env].iloc[0],
                       title=f'{hard_env} 收敛轨迹', pr=_probes(test_dir, hard_env),
                       direct=direct)
@@ -416,7 +398,7 @@ def figure_hardcase(test_dir, report_dir, envs, direct=False):
     ax.axvline(D.FFE_PRE - 0.5, color='k', lw=0.5, ls=':')
     ax.set_xticks(x); ax.set_xticklabels([f't{i}' for i in x], fontsize=9)
     ax.set_ylabel('抽头值', fontsize=9); ax.legend(fontsize=8)
-    ax.set_title(f'5-tap Tx FFE（种子 vs 最优，主抽头 t{D.FFE_PRE}）', fontsize=10)
+    ax.set_title('5-tap Tx FFE（种子 vs 最优；5 个抽头全部自由、无边界）', fontsize=10)
     ax.grid(True, ls='--', alpha=0.3)
     # (3) CTLE |H(f)| 频响
     ax = axes[1, 0]
@@ -444,9 +426,10 @@ def figure_hardcase(test_dir, report_dir, envs, direct=False):
         label = 'direct（端到端 BER 直接梯度下降）'
         out_name = 'ddps_case_hard.png'
     else:
-        label = 'A-only' if _is_aonly(test_dir) else 'A+B'
-        out_name = f'ddps_case_{hard_env}_a.png'
-    fig.suptitle(f'最难用例四联图 — {label}：{hard_env}（种子 BER → 最优 BER）', fontsize=12, fontweight='bold')
+        label = f'Model A 探针代理，{mode_text}'
+        out_name = f'ddps_case_{hard_env}.png'
+    fig.suptitle(f'最难用例四联图 — {label}：{hard_env}（种子 BER → 最优 BER）',
+                 fontsize=12, fontweight='bold')
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     out = os.path.join(report_dir, out_name)
     fig.savefig(out, dpi=125)
@@ -458,11 +441,21 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
                  summary_out=None):
     os.makedirs(report_dir, exist_ok=True)
     summ = _summary(test_dir)
+    meta = _run_meta(test_dir)
+    # 起点 gain 倍率以数据为准（种子配置随运行而变，模块常量只是兜底）
+    seed_ratio = None
+    if 'seed_gain_ratio' in summ.columns:
+        _sr = pd.to_numeric(summ['seed_gain_ratio'], errors='coerce').dropna()
+        if len(_sr):
+            seed_ratio = float(_sr.mean())
+    if seed_ratio is None:
+        seed_ratio = D.SEED_GAIN / D.DRIVER_GAIN_NOMINAL
+    mode_text = _mode_text(meta)
     try:
         with open(os.path.join(model_dir, 'meta.json'), encoding='utf-8') as f:
-            meta = json.load(f)
+            mmeta = json.load(f)
     except Exception:
-        meta = {}
+        mmeta = {}
 
     fig_conv = figure_convergence_grid(test_dir, report_dir, envs)
     fig_gain = figure_gain_rms(test_dir, report_dir, envs)
@@ -470,68 +463,87 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
     fig_hard = figure_hardcase(test_dir, report_dir, envs)
 
     L = []
-    L.append(f'# DDPS 在线调优报告\n')
-    L.append(f'> 模型：`{model_dir}`（7 维 FFE+CTLE+gain 核岭代理；gain 纳入梯度，第 7 维）\n')
-    L.append(f'> 评估协议：4194304 符号/点 × 单种子 42\n')
-    L.append(f'> gain 维：每用例最优倍率见 per-case target_rms 标定参照（每个用例单独细扫）\n\n')
+    L.append('# DDPS 在线调优报告\n')
+    L.append(f'> 模型：`{model_dir}`（Model A：8 维探针 → log10 BER_MLSE 条件均值，核岭闭式解）\n')
+    L.append(f'> 搜索空间：8 维 = 5 个 Tx FFE 抽头（全自由、无边界）+ gDC + gDC2 + u_gain\n')
+    L.append(f'> 梯度获取：{mode_text or "见 run_config.json"}\n')
+    L.append(f'> 评估协议：{meta.get("num_symbols", 4194304)} 符号/点 × 单种子 '
+             f'{meta.get("sim_seeds", [42])[0] if meta.get("sim_seeds") else 42}\n\n')
 
     L.append('## 1. 逐用例结果\n\n')
-    L.append('| 用例 | 物理条件 | 种子 BER | 最优 BER | 终点 BER | 改善 × | 单调? | gain 倍率 | gDC | gDC2 |\n')
-    L.append('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n')
+    L.append('| 用例 | 物理条件 | 种子 BER | 最优 BER | 终点 BER | 改善 × | 真实评估（落点/微扰） | 最坏微扰 BER | gain 倍率 | gDC | gDC2 |\n')
+    L.append('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n')
     for env in envs:
         r = summ[summ['env'] == env]
         if r.empty:
             continue
         r = r.iloc[0]
         tr = _trace(test_dir, env)
-        lbs = tr['real_lb'].values if (tr is not None and not tr.empty) else np.array([r['seed_lb']])
-        mono = '是' if all(lbs[i+1] <= lbs[i] + 0.03 for i in range(len(lbs)-1)) else '否*'
         imp = r['seed_ber'] / r['best_ber']
+        n_land = int(r.get('n_landed', len(tr) if tr is not None else 0) or 0)
+        n_prob = int(r.get('n_probe_states', 0) or 0)
+        worst = r.get('max_probe_ber', float('nan'))
+        worst_s = f'`{worst:.2e}`' if worst == worst and worst > 0 else '—'
         L.append(f"| {env} | {env_label(env)} | `{r['seed_ber']:.3e}` | "
-                 f"`{r['best_ber']:.3e}` | `{r['final_ber']:.3e}` | ×{imp:.2f} | {mono} | "
+                 f"`{r['best_ber']:.3e}` | `{r['final_ber']:.3e}` | ×{imp:.2f} | "
+                 f"{n_land + n_prob}（{n_land}/{n_prob}） | {worst_s} | "
                  f"×{r.get('best_gain_ratio', 1.0):.2f} | {r['best_gdc']:+.2f} | {r['best_gdc2']:+.2f} |\n")
-    L.append('\n> *单调判定容差 0.03 dex（BER 估计噪声量级）；标"否*"的用例含单步抖动（0.03 dex 容差内的 BER 估计噪声），'
-             '终点劣化情况见 2 汇总。\n\n')
 
     n = len(summ)
     better = int((summ['delta_lb_seed_to_best'] < -0.01).sum())
     worse = int((summ['delta_lb_seed_to_final'] > 0.01).sum())
     mean_imp = float(np.exp(np.mean(np.log(summ['seed_ber'] / summ['best_ber']))))
+    tot_land = int(summ['n_landed'].sum()) if 'n_landed' in summ.columns else 0
+    tot_prob = int(summ['n_probe_states'].sum()) if 'n_probe_states' in summ.columns else 0
     L.append(f'## 2. 汇总\n\n')
     L.append(f'- 用例数：{n}\n')
     L.append(f'- 改善（d_best < −0.01 dex）：{better}/{n}\n')
     L.append(f'- 终点劣于种子（d_final > +0.01 dex）：{worse}/{n}\n')
-    L.append(f'- 平均改善（几何均值）：×{mean_imp:.2f}\n\n')
+    L.append(f'- 平均改善（几何均值）：×{mean_imp:.2f}\n')
+    L.append(f'- 在线真实 BER 评估：合计 {tot_land + tot_prob} 次'
+             f'（落点 {tot_land} 次 + 为估计梯度制造的 ±ε 微扰态 {tot_prob} 次）；'
+             f'每用例平均 {(tot_land + tot_prob) / max(n, 1):.1f} 次\n\n')
+
+    def _rel_img(path):
+        # Markdown 图片链接统一用正斜杠相对路径（Windows 反斜杠在别的查看器里不可点）
+        return os.path.relpath(path, os.path.dirname(test_dir) or '.').replace(os.sep, '/')
 
     L.append('## 3. 核心图\n\n')
-    L.append(f'![三曲线收敛]({os.path.relpath(fig_conv, os.path.dirname(test_dir) or ".")})\n\n')
-    L.append(f'![gain 倍率与 drive_rms 轨迹]({os.path.relpath(fig_gain, os.path.dirname(test_dir) or ".")})\n\n')
+    L.append(f'![收敛轨迹]({_rel_img(fig_conv)})\n\n')
+    L.append(f'![gain 倍率与 drive_rms 轨迹]({_rel_img(fig_gain)})\n\n')
+    L.append(f'![预测-实测跟踪]({_rel_img(fig_track)})\n\n')
+    if fig_hard:
+        L.append(f'![最难用例四联图]({_rel_img(fig_hard)})\n\n')
 
     probe_rows = _probe_stats(test_dir, envs)
     if probe_rows:
-        L.append('## 4. 试探步 BER 包络（梯度估计的 ±ε 微扰态）\n\n')
-        L.append('每步 7 维中心差分产生 14 个 ±ε 微扰态；真实在线系统里为拿探针而做的参数微扰')
-        L.append('会让链路实际处于这些工作点，因此逐一记录了各自的端到端 MLSE BER（核心图灰色散点）。\n\n')
-        L.append('| 用例 | 步数 | 试探态数 | 试探 BER 最小 | 试探 BER 最大 | 试探 BER 中位 |\n')
+        L.append('## 4. ±ε 微扰态的真实 BER（梯度估计的物理代价）\n\n')
+        L.append(f'{mode_text}。这些微扰态是真实在线系统里为得到探针而必须施加的参数扰动，'
+                 '链路会真实经过这些工作点，因此逐一记录各自的端到端 MLSE BER（核心图灰点）。'
+                 '这些记录不参与下降方向决策，只做代价记账。\n\n')
+        L.append('| 用例 | 有微扰的步数 | 微扰态数 | 微扰 BER 最小 | 微扰 BER 最大 | 微扰 BER 中位 |\n')
         L.append('| --- | --- | --- | --- | --- | --- |\n')
         for r in probe_rows:
             L.append(f"| {r['env']} | {r['n_steps']} | {r['n_probes']} | "
                      f"`{r['ber_min']:.2e}` | `{r['ber_max']:.2e}` | `{r['ber_med']:.2e}` |\n")
         L.append('\n')
 
-    L.append('## 5. 架构（A = 探针 → BER，B = 参数 → BER）\n\n')
+    L.append('## 5. 架构（只有 Model A）\n\n')
     L.append('**Model A（方向代理）**：输入 = [7-tap Tx FIR 探针, drive_rms]（8 维波形域）\n')
-    L.append('-> log10(BER_MLSE) 条件均值。在线调优时拿不到收端 BER，只能拿发端探针，\n')
-    L.append('所以 A 建立发端探针到收端 BER 的方向映射。梯度通过链式法则：扰动')
-    L.append('7 维参数（4 FFE 旁瓣 + gDC + gDC2 + u_gain）')
-    L.append('\n-> 重算探针 -> 查 A -> 得 ΔBER（中心差分）。\n\n')
-    L.append('**Model B（风险控制）**：输入 = [4 FFE 旁瓣, gDC, gDC2, drive_rms]（7 维参数域）\n')
-    L.append('-> log10(BER_MLSE) 保守上包络。按变差百分比拒绝候选，理想情况全程不触发。\n\n')
-    L.append('**A/B 输入空间不同**（波形域 vs 参数域），误差来源相互独立。\n\n')
-    L.append('**gain 维**：通过 drive_rms 进入 A/B 输入，作为第 7 维走链式梯度，信任域 ±0.30 dex；\n')
+    L.append('-> log10(BER_MLSE) 条件均值。在线调优拿不到收端 BER，只能拿发端探针，\n')
+    L.append('所以 A 建立「发端探针 → 收端 BER」的方向映射。梯度走链式法则：扰动 8 维参数\n')
+    L.append('（5 个 FFE 抽头 + gDC + gDC2 + u_gain）-> 重算探针 -> 查 A -> 得 ΔBER（中心差分）。\n\n')
+    L.append('**gain 维（第 8 维）**：driver_gain 是 Tx 链末尾的标量乘子，Model A 的 8 维探针\n')
+    L.append('特征全部正比于 gain，故 gain 维梯度有解析闭式（0 微扰态）；\n')
     L.append('每用例最优倍率见 per-case target_rms 标定参照（per-case target_rms -> 解析 gain）。\n')
-    L.append(f'在线调优从次优起点（gain ×{D.SEED_GAIN / D.DRIVER_GAIN_NOMINAL:.3f}）出发，'
+    L.append(f'在线调优从次优起点（gain ×{seed_ratio:.3f}）出发，'
              '随梯度下降把 gain 推到各用例最优倍率附近。\n\n')
+    if mmeta:
+        ma = mmeta.get('model_a', {})
+        if ma:
+            L.append(f"Model A 训练指标（离线基线环境 80/20 划分）："
+                     f"R²={ma.get('r2_test', float('nan')):.3f}、"
+                     f"Spearman={ma.get('spearman_test', float('nan')):.3f}\n\n")
 
     if summary_text:
         L.append('## 6. 汇总标注\n\n')
@@ -544,8 +556,9 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
     if summary_out:
         with open(summary_out, 'w', encoding='utf-8') as f:
             f.write('# DDPS：跨实验汇总（BER_MLSE）\n\n')
-            f.write('评估协议：4194304 符号/点 × 单种子 42；'
-                    '所有实验共用同一批用例与同一协议。\n\n')
+            f.write(f'评估协议：{meta.get("num_symbols", 4194304)} 符号/点 × 单种子 '
+                    f'{meta.get("sim_seeds", [42])[0] if meta.get("sim_seeds") else 42}；'
+                    f'梯度获取：{mode_text}\n\n')
             f.write('| 用例 | 物理条件 | 种子 | DDPS 最优 | 改善 × |\n')
             f.write('| --- | --- | --- | --- | --- |\n')
             for env in envs:
@@ -555,24 +568,25 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
                 r = r.iloc[0]
                 f.write(f"| {env} | {env_label(env)} | `{r['seed_ber']:.3e}` | "
                         f"`{r['best_ber']:.3e}` | ×{r['seed_ber']/r['best_ber']:.2f} |\n")
-            f.write(f'\n- **DDPS（A=探针->BER 方向 + B=参数->BER 风险控制 + gain per-case RMS）**：'
-                    f'{n} 用例，改善 {better}/{n}，平均改善 ×{mean_imp:.2f}\n')
+            f.write(f'\n- **DDPS（Model A 探针代理 + {mode_text} + gain 解析梯度）**：'
+                    f'{n} 用例，改善 {better}/{n}，平均改善 ×{mean_imp:.2f}，'
+                    f'在线真实评估合计 {tot_land + tot_prob} 次\n')
     return out
 
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
-    ap.add_argument('--test-dir', default='result/ddps_main')
+    ap.add_argument('--test-dir', default='result/ddps_cpp_full')
     ap.add_argument('--model-dir', default='models/ddps')
-    ap.add_argument('--method', choices=['secant', 'direct'], default='secant',
-                    help='secant=现役（A+B 代理割线，全量输出）；'
-                         'direct=端到端 BER 直接梯度（只出三张图：收敛/gain·rms/最难用例，'
+    ap.add_argument('--method', choices=['proxy', 'direct'], default='proxy',
+                    help='proxy=现役（Model A 探针代理，梯度获取方式由 run_config 的 grad_mode 决定，'
+                         '全量输出）；direct=端到端 BER 直接梯度（只出三张图：收敛/gain·rms/最难用例，'
                          '不出代理诊断图、不写报告与 SUMMARY）')
     ap.add_argument('--summary', default=None)
     ap.add_argument('--summary-out', default=None)
     ap.add_argument('--seed-config', default=None,
-                    help='种子点 JSON（best_pre_post/best_gdc/best_gdc2，可选 best_u_gain/best_gain）；'
-                         '不提供则用默认 SEED_TAPS')
+                    help='种子点 JSON（best_taps 或 best_pre_post + best_gdc/best_gdc2，'
+                         '可选 best_u_gain/best_gain）；不提供则用默认 SEED_TAPS')
     a = ap.parse_args()
     if a.seed_config:
         D.apply_seed_config(a.seed_config)
