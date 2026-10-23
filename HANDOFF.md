@@ -12,19 +12,20 @@
 - **默认只出 HTML**（`deliverables/DDPS_Deliverable.html` 是唯一事实来源，明确写进 AGENTS.md 交付流程）。Word 版**只在用户明确要求时**才生成，不用每轮刷新。
 - **`make_deliverable_docx.py`**：从 `deliverables/DDPS_Deliverable.html` 派生 `deliverables/DDPS_Deliverable.docx`（先跑 `make_deliverable.py` 再跑它）。页签平铺为顺序小节（▍页签强调行）、走查帧全展开、折叠块展开、内联 SVG 无头 Edge 栅格化 2× PNG（缓存 `_parts/svg_png/`，Edge 路径硬编码 `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`）、报告 PNG data-URI 解码、TOC 域 + 导航窗格、KPI 卡转双行表。依赖 `python-docx` + `beautifulsoup4`（已装进 .venv）。
 
-## 当前状态（8 维在线搜索 + 形状三档梯度 + gain 解析 + direct 参照 · C++ 走 WSL 编译运行）
+## 当前状态（8 维在线搜索 + 梯度获取 3×2 矩阵 + gain 解析 · C++ 走 WSL 编译运行）
 
 在线调优的现状口径（速查 `docs/DDPS_Method.md`，冲突以 `ddps_optimizer.py` / `cpp/src/optimizer.hpp` / `cpp/main.cpp` 为准）。物理层 / 数据集 / 训练口径不变。
 
 - **搜索空间 8 维**：`x = [5 个 Tx FFE 抽头, gDC, gDC2, u_gain]`。5 个抽头全部自由、无边界（`_search_bounds()` 里抽头是 ±inf）；只有 CTLE / gain 保留物理量程（`gDC∈[0,12] dB`、`gDC2∈[0,4] dB`、`u_gain∈[−0.52,0.6]`）。`TRUST_FFE=0.10` 退化为**步长尺度**，不是参数范围；Stage-1 的 `construct_taps()` 与 `PEAK_SUM_LIMIT=0.8` 只用于数据集采样，在线不受限。
-- **方法**：`ddps_optimizer._stage2_descent_proxy`（Python 参照，`grad_mode = full / rotate / secant`）+ `cpp/src/optimizer.hpp` `stage2_descent_proxy`（C++ 一比一复刻）；direct 参照是 `_stage2_descent_direct` / `stage2_descent_direct`。历史函数 `_stage2_descent_secant`、`_stage2_descent_aonly`、`_secant_line_search`、`_predict_b_params`、`_stage2_descent` 已从 `ddps_optimizer.py` 删除。
+- **方法**：`ddps_optimizer._stage2_descent_proxy`（Python 参照，`grad_mode = full / rotate / secant`）+ `cpp/src/optimizer.hpp` `stage2_descent_proxy`（C++ 一比一复刻）；真实 BER 回传路线是 `_stage2_descent_direct` / `stage2_descent_direct`，**同样吃 `grad_mode = full / rotate / secant`**——于是在线梯度获取是一张对称的 3×2 矩阵：形状维获取方式（每步全量微扰 / 每步轮转 `ROTATE_K=2` 维 / 仅第 0 步后 Broyden）× 梯度来源（发端 Model A 代理 / 收端真实 BER 回传）。CLI 一键切换：`--method proxy|direct` 配 `--grad-mode full|rotate|secant`。历史函数 `_stage2_descent_secant`、`_stage2_descent_aonly`、`_secant_line_search`、`_predict_b_params`、`_stage2_descent` 已从 `ddps_optimizer.py` 删除。
 - **gain 维（第 8 维）解析梯度**：`_analytic_gain_grad`，`∂A/∂u_gain = ln(10)·Σ_j (∂A/∂feat_j)·feat_j`（8 维探针特征全部 ∝ gain），每步用当前落点探针现算、0 微扰态。
 - **形状 7 维（5 抽头 + gDC + gDC2）三档**：`full` 每步 7 维中心差分（14 个 `±ε 微扰态`/步）；`rotate` 第 0 步全量、此后每步轮转刷新 `ROTATE_K=2` 个维（4 个/步，`refreshed = [(step·2+j) mod 7]`）；`secant` 只第 0 步测一轮、此后 Broyden 秩一修正（0 个/步）。三档第 0 步完全一致（14 个微扰态），共用同一次优起点、固定 15 步、代理档不早停。每用例真实评估 `n_real_evals = n_landed + n_probe_states`：full 225、rotate 85、secant 29。
 - **Model B 下线**：参数域产物仍在 Stage-1 训练 / 导出（`models/ddps/model_b.json`），**不在线使用**；在线只有 Model A 方向代理，无候选否决、无红线、无轨迹信任域。
-- **direct 参照**：目标 = 真实 `log10(BER_MLSE)`（需要回传通道）；第 0 步全 8 维中心差分 = 16 个 `±ε 微扰态`（每维 ±ε 都实测真实 BER），此后全 8 维 Broyden 更新、0 微扰态；保留边际停止（`MIN_GAIN_DEX=0.01` dex，step>0 才判）。与代理三档共用同一 8 维搜索空间 / 步长调度 / 组门控 / 15 步上限。`grad_direct_chain` 非抽头维未用扰动后坐标的 bug 已修（修前 gDC/gDC2 梯度恒为 0、两平台不一致）。
+- **真实 BER 回传格（direct × 3）**：目标 = 真实 `log10(BER_MLSE)`（需要回传通道）；8 维一律靠真实 BER 中心差分（没有解析 gain 梯度——那依赖 Model A 的探针比例性）。第 0 步恒为全 8 维 = 16 个 `±ε 微扰态`，此后按 `grad_mode`：`full` 每步全 8 维重测（16 态/步）、`rotate` 每步轮转 2 维（4 态/步，`(step·2+j) mod 8`）、`secant` 仅 Broyden（0 态/步）。三格都保留边际停止（`MIN_GAIN_DEX=0.01` dex，step>0 才判）。与代理 3 格共用同一 8 维搜索空间 / 步长调度 / 组门控 / 15 步上限。`grad_direct_chain` 非抽头维未用扰动后坐标的 bug 已修（修前 gDC/gDC2 梯度恒为 0、两平台不一致）。
 - **2^18 四档等价全部通过**（判据 `max_rel < 1e-9`，`cpp/compare_traces.py` 逐轨迹比对，目录 `result/ddps_equiv_{py,cpp}_{full,rotate,secant,direct}/`）：full 1.42e-12 / rotate 1.20e-12 / secant 8.53e-12 / direct 8.89e-13。
 - **2^22 全量只用 C++、`--jobs 4`**：`python cpp\run_all_cases.py --backend wsl --num-symbols 4194304 --n-steps 15 --jobs 4 --method proxy --grad-mode full --out-dir result\ddps_cpp_full`；三档换 `--grad-mode rotate|secant`（`--rotate-k 2`），direct 用 `--method direct --out-dir result\ddps_cpp_direct`。单次评估实测：2^18 ≈1.86 s、2^22 **≈36.1 s**（2^22 为四档 campaign 首批 4 用例的 `elapsed_sec / n_real_evals` 均值；单进程阶段性峰值 RSS ≈5.6 GB）。
-- **交付件**：`make_deliverable.py --baseline result/ddps_cpp_full --mode full --direct result/ddps_cpp_direct --out deliverables/DDPS_Deliverable.html`（`--mode` 指定主结果目录对应的档）；Word 版由 `make_deliverable_docx.py` 从 HTML 派生。
+- **交付件**：`make_deliverable.py --baseline result/ddps_cpp_full --mode full --direct result/ddps_cpp_direct --out deliverables/DDPS_Deliverable.html`（`--mode` 指定主结果目录对应的档）。默认只出 HTML；Word 版只在用户明确要求时跑 `make_deliverable_docx.py`。
+- **一键验收（回答"到底跑完没有"）**：`python tools\verify_ddps.py`（默认验 `result/ddps_cpp_{full,rotate,secant,direct}`）——查结果完整性、逐用例记账恒等式（`n_real_evals = n_landed + n_probe_states`）、刷新维序列与档位语义、微扰态成对、2^18 逐轨迹等价、交付件新鲜度与禁词；exit 0 才算通过。六格齐了用 `--cells full,rotate,secant,direct_full,direct_rotate,direct_secant`。
 - **本机 Smart App Control 已转强制模式**：拦 MinGW cc1plus 依赖的 `libisl-23.dll`（Windows 侧 C/C++ 编译不可用）+ 拦既有 `run_ddps.exe`（旧产物也跑不了）；换任何 Windows 侧编译器都无解（产物仍是本地无签名 exe）。**现役编译运行路线 = WSL**：`cpp/build_wsl.sh`（Ubuntu g++ 13.3，源码纯标准 C++17）+ `cpp/run_all_cases.py --backend wsl`，结果/日志仍落 Windows 文件树、受 git 跟踪。
 
 ## 待办（8 维 + 形状三档口径，2^22 四档全量对比）
