@@ -1238,7 +1238,7 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
 </table>
 </div>
 
-<h3>6.5 对比实验：有回传通道时的端到端 BER 直接梯度下降（direct）</h3>
+<h3>6.5 另一条梯度来源：真实 BER 回传（三格）</h3>
 <!--DIRECT_SECTION-->
 
 <h2 id="s7"><span class="num">7</span>结论</h2>
@@ -1260,7 +1260,7 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
   <tr>
     <td>无回传通道（方案前提）</td>
     <td>在线调优拿不到收端端到端 BER，无法直接对真实目标做梯度下降</td>
-    <td>用发端可测探针训练 Model A 指方向；有回传通道时的 direct 直接梯度对照见 6.5</td>
+    <td>用发端可测探针训练 Model A 指方向；另一种梯度来源（真实 BER 回传）的三格对照见 6.5</td>
   </tr>
   <tr>
     <td>每次梯度估计都要真实打到链路上</td>
@@ -2499,13 +2499,11 @@ def _build_direct_section(a, summary, order, fs=None):
     <div class="kpis" style="grid-template-columns:repeat({len(kpi_rows)},1fr)">
       {direct_kpis}
     </div>
-    <p><strong>对照结论</strong>：{verdict} {n_evals_note}。direct 到达（或接近）检测限后真实梯度信号消失，
-    边际改善停止判据随即触发，步数普遍更省。逐用例形态（照实呈现）：</p>
+    <p><strong>对照结论</strong>：{verdict} {n_evals_note}。逐用例形态（照实呈现）：</p>
     <ul style="margin-top:6px">
 {bullets}
     </ul>
-    <p style="margin-bottom:0">这一对照的定位：<strong>direct 不是替代方案，而是「有回传通道时直接梯度下降能达到什么水平」的参照</strong>——
-    端到端 BER 拿不到时（本方案默认约束），代理路径是唯一选择；对照结果显示该约束下现役方案达到的水平与直接梯度下降的关系如上表所列，照实呈现。</p>
+    <p style="margin-bottom:0">定位：<strong>回传格不是替代方案，而是「若有回传通道，直接梯度下降能达到什么水平」的参照</strong>——本方案的默认前提是拿不到端到端 BER，此时代理路径是唯一选择（§1）。</p>
     <figure>
       <div class="fig-scroll"><img src="{img_tag}" alt="direct 与现役方案最优 BER 对比"></div>
       <figcaption>图 13 · 15 用例最优 BER_MLSE 对比（对数横轴；蓝点 = 现役方案，红菱 = direct；灰线连接同一用例）。</figcaption>
@@ -2536,7 +2534,7 @@ def _build_direct_section(a, summary, order, fs=None):
       </table>
       </div>
       <p><strong>记账口径</strong>：trace 的 <span class="mono">pred_a</span> 列在 direct 下记录当前落点目标值（= real_lb，即回传的 log10 BER），<span class="mono">pred_b / allowed_ber / pred_b_ber</span> 恒 0（无代理），列结构与其余结果目录一致，报表工具统一解析。第 0 步 16 个微扰态的真实 BER 逐一记入 <span class="mono">probes_&lt;用例&gt;.csv</span>（param/sign/坐标/真实 BER），与其余档同 schema。</p>
-      <p style="margin-bottom:0"><strong>公平性</strong>：同一次优起点（seed_config_bad_1e4）、同 15 用例、同评估协议（{_scale_label(_dir_num_symbols(a.baseline))} 符号、单种子 42）、同 C++ 实现、同 15 步上限；评估量 ≈{evals_d} vs ≈{evals_s} 次/用例{_eval_mag_txt(evals_d, evals_s)}。</p>
+      <p style="margin-bottom:0"><strong>公平性</strong>：六格共用同一次优起点、同 15 用例、同评估协议（{_scale_label(_dir_num_symbols(a.baseline))} 符号、单种子 42）、同 C++ 实现、同 15 步上限（协议正本见 §5；逐格评估量与步数见本节总览表）。</p>
     </div>
   </div>
 </div>
