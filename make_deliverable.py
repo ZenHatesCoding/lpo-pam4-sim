@@ -2623,12 +2623,14 @@ def _build_fig_tabs(a, hard_env):
         panels.append('\n  <div class="tab-panel%s" id="%s">\n    %s\n  </div>'
                       % (' active' if first else '', pid, '\n    '.join(figs)))
         first = False
-    # 回传 × secant 页签（回传行的代表格；其余两格页签在数据齐后加入）
-    if os.path.isdir(a.direct):
-        rd = os.path.join(a.direct, 'report')
-        imgs = [('ddps_conv_grid.png', '图 6 · 回传 × secant 收敛轨迹（实测 BER_MLSE / ±ε 微扰态灰点）'),
-                ('ddps_gain_rms.png', '图 7 · direct：gain 与 drive_rms 轨迹'),
-                ('ddps_case_hard.png', '图 9 · direct 最难用例四联图')]
+    # 回传行三格页签（结果目录/报告图缺失的格自动不出现）
+    for _cell, _mdir in (('full', a.direct_full), ('rotate', a.direct_rotate), ('secant', a.direct)):
+        if not _mdir or not os.path.isdir(_mdir):
+            continue
+        rd = os.path.join(_mdir, 'report')
+        imgs = [('ddps_conv_grid.png', f'图 6 · 回传 × {_cell} 收敛轨迹（实测 BER_MLSE / ±ε 微扰态灰点）'),
+                ('ddps_gain_rms.png', f'图 7 · 回传 × {_cell}：gain 与 drive_rms 轨迹'),
+                ('ddps_case_hard.png', f'图 9 · 回传 × {_cell} 最难用例四联图')]
         figs = []
         for fn, cap in imgs:
             p = os.path.join(rd, fn)
@@ -2636,9 +2638,10 @@ def _build_fig_tabs(a, hard_env):
                 figs.append('<figure>\n      <div class="fig-scroll"><img src="%s" alt="%s"></div>\n'
                             '      <figcaption>%s</figcaption>\n    </figure>' % (_img_tag(p), cap, cap))
         if figs:
-            bar.append('    <button class="tab-btn" data-tab="tab-fig-direct">回传 × secant（有回传通道）</button>')
-            panels.append('\n  <div class="tab-panel" id="tab-fig-direct">\n    %s\n  </div>'
-                          % '\n    '.join(figs))
+            pid = f'tab-fig-direct-{_cell}'
+            bar.append(f'    <button class="tab-btn" data-tab="{pid}">回传 × {_cell}（有回传通道）</button>')
+            panels.append('\n  <div class="tab-panel" id="%s">\n    %s\n  </div>'
+                          % (pid, '\n    '.join(figs)))
     if not bar:
         return ''
     return '  <div class="tab-bar">\n' + '\n'.join(bar) + '\n  </div>' + ''.join(panels)
