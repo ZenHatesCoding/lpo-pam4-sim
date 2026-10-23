@@ -7,9 +7,10 @@
 - **Python 定原理，C++ 一比一复刻**；两者比对（等价性验证、收敛对比）**只在 2^18 小点数低 SNR 下做**——唯一允许的比对口径，不允许在大点数/高 SNR 下比对。
 - **全量规模仿真（高 SNR 大点数，如 2^22 在线调优与全量评估）只允许用通过比对的 C++ 入口跑**（`cpp/run_all_cases.py`，现役 `--backend wsl` 调 `cpp/build/run_ddps`；Windows 直跑 exe 的旧路线被 SAC 强制模式拦截，见下方状态段）；**不允许用 Python 跑高 SNR 大点数**（`test_generalization.py` / `tools/run_parallel_envs.py` 等 Python 入口只用于小点数低 SNR 验证）。
 
-## 交付件 Word 版（2026-10-13）
+## 交付件 Word 版（按需；2026-10-13）
 
-- **`make_deliverable_docx.py`**：从 `deliverables/DDPS_Deliverable.html` 派生 `deliverables/DDPS_Deliverable.docx`（单一事实来源，先跑 `make_deliverable.py` 再跑它）。页签平铺为顺序小节（▍页签强调行）、走查帧全展开、折叠块展开、内联 SVG 无头 Edge 栅格化 2× PNG（缓存 `_parts/svg_png/`，Edge 路径硬编码 `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`）、报告 PNG data-URI 解码、TOC 域 + 导航窗格、KPI 卡转双行表。依赖 `python-docx` + `beautifulsoup4`（已装进 .venv）。
+- **默认只出 HTML**（`deliverables/DDPS_Deliverable.html` 是唯一事实来源，明确写进 AGENTS.md 交付流程）。Word 版**只在用户明确要求时**才生成，不用每轮刷新。
+- **`make_deliverable_docx.py`**：从 `deliverables/DDPS_Deliverable.html` 派生 `deliverables/DDPS_Deliverable.docx`（先跑 `make_deliverable.py` 再跑它）。页签平铺为顺序小节（▍页签强调行）、走查帧全展开、折叠块展开、内联 SVG 无头 Edge 栅格化 2× PNG（缓存 `_parts/svg_png/`，Edge 路径硬编码 `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`）、报告 PNG data-URI 解码、TOC 域 + 导航窗格、KPI 卡转双行表。依赖 `python-docx` + `beautifulsoup4`（已装进 .venv）。
 
 ## 当前状态（8 维在线搜索 + 形状三档梯度 + gain 解析 + direct 参照 · C++ 走 WSL 编译运行）
 

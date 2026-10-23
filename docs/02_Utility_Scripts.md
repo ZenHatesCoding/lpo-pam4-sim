@@ -44,4 +44,4 @@
 | `test_generalization.py` | 在线调优泛化测试：15 环境 Stage-2 8 维链式梯度下降（`--method proxy\|direct`、`--grad-mode full\|rotate\|secant`、`--seed-config`） |
 | `report_ddps.py` | 可视化报告：收敛三曲线 + gain/rms 轨迹 + 预测散点 + 四联图 |
 | `make_deliverable.py` | 交付件生成：自包含 HTML（结果数字全部由结果目录实算；四档结果规模不一致时默认拒绝生成，`--allow-mixed-scale` 仅供调试） |
-| `make_deliverable_docx.py` | Word 交付件：由上述 HTML 派生（图片/SVG 内嵌，内容与 HTML 同源） |
+| `make_deliverable_docx.py` | Word 交付件：由上述 HTML 派生（图片/SVG 内嵌，内容与 HTML 同源）。**按需**——常规交付只出 HTML，用户明确要 Word 时才跑 |
