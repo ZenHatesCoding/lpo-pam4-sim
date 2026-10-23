@@ -1197,6 +1197,7 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
   <!--MODE_CMP_ROWS-->
 </table>
 </div>
+<p><!--MODE_CMP_VERDICT--></p>
 
 <h3>6.2 收敛轨迹与物理量变化</h3>
 <p>收敛图曲线起点（step −1）是 x₀（次优工作点，基线实测 <!--SEED_BER_BASE-->）。逐格查看（页签切换），灰点为该格为估计梯度而施加的 ±ε 微扰态的真实 BER：</p>
@@ -2197,6 +2198,48 @@ def _rows_mode_cmp(dirs, order, cur_mode='full', allow_mixed=False):
     return '\n'.join(rows), '；'.join(bits), s
 
 
+def _live_verdict(s, live_mode='full'):
+    """现役格的裁定依据（全部由结果实算，不手写）。
+
+    规则：以「代理 × full」为参照，某格算「同水平」需同时满足
+    ① 逐用例最优 BER 相对参照劣化不超过 5%；② 最坏单例 ≤ 1.05×。
+    同水平者里取每用例真实评估次数最省的一格；没有同水平者就保留 full。
+    数据不足（缺参照格或只有单格）时返回空串。
+    """
+    if 'full' not in s or s['full'].get('best') is None or len(s['full']['best']) == 0:
+        return ''
+    proxy = [c for c in _MODE_ORDER
+             if c in s and s[c].get('source') == 'proxy'
+             and s[c].get('best') is not None and len(s[c]['best']) > 0]
+    if len(proxy) < 2:
+        return ''
+    base = np.asarray(s['full']['best'], float)
+    lines, peers = [], []
+    for cell in proxy:
+        b = np.asarray(s[cell]['best'], float)
+        n = min(len(b), len(base))
+        r = b[:n] / base[:n]
+        peers.append((cell, float(np.max(r)), int((r <= 1.05).sum()), n,
+                      float(s[cell].get('ev', float('nan')))))
+    same = [p for p in peers if p[1] <= 1.05 and p[2] == p[3]]
+    pick = min(same, key=lambda p: p[4]) if same else peers[0]
+    pick_cell, pick_worst, pick_tie, pick_n, pick_ev = pick
+    if pick_cell == 'full':
+        lines.append('逐用例劣化均不超过 5%%、最坏单例 %.2f×，因此保留最忠实的每步全量微扰取法'
+                     '（<strong>%s</strong> · 每步 7 维全量微扰），每用例 ≈%.0f 次真实评估。'
+                     % (pick_worst, pick_cell, pick_ev))
+    else:
+        lines.append('取同水平者中每用例真实评估最省的一格：<strong>%s</strong>（每用例 ≈%.0f 次；'
+                     '逐用例劣化均 ≤5%%、最坏单例 %.2f×）。'
+                     % (MODE_ZH_PLAIN.get(pick_cell, pick_cell), pick_ev, pick_worst))
+    rejected = [p for p in peers if p[0] != pick_cell]
+    if rejected:
+        lines.append('其余取法被否的理由（照实列数）：' + '；'.join(
+            '%s 打平 %d/%d、最坏单例 %.2f×' % (MODE_ZH_PLAIN.get(c, c), tie, n, w)
+            for c, w, tie, n, _ev in rejected) + '。')
+    return ' <strong>现役格裁定</strong>（数据实算）：' + ''.join(lines)
+
+
 def _rows_metrics(meta):
     _domain_zh = {'waveform_probe': '波形域（探针）', 'parameter': '参数域'}
     out = []
@@ -3123,6 +3166,7 @@ def main():
 
     mode_cmp_rows, mode_cmp_bits, mode_series = _rows_mode_cmp(
         a.dirs, order, a.mode, allow_mixed=a.allow_mixed_scale)
+    mode_cmp_verdict = _live_verdict(mode_series, a.mode)
     cur_mode_zh = MODE_ZH.get(a.mode, a.mode)
     cur_mode_plain = MODE_ZH_PLAIN.get(a.mode, a.mode)
     cur_ev = mode_series.get(a.mode, {}).get('ev', float('nan'))
@@ -3252,6 +3296,7 @@ def main():
         '<!--EVAL_COST_ROWS-->': eval_cost_rows,
         '<!--EVAL_KPI_CARDS-->': _kpi_eval(a.dirs),
         '<!--MODE_CMP_ROWS-->': mode_cmp_rows,
+        '<!--MODE_CMP_VERDICT-->': mode_cmp_verdict,
         '<!--DATASET_CARD-->': dataset_card,
         '<!--WALKTHROUGH-->': walkthrough,
     }
