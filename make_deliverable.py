@@ -4,7 +4,7 @@
 
 数据来源（全部为流水线产物，无需手工转录）：
   result/ddps_cpp_{full,rotate,secant}/  C++ 在线调优 15 环境（8 维：5 FFE 抽头 + gDC + gDC2 + gain）
-  result/ddps_cpp_direct/                direct 参照（有回传通道时的端到端 BER 直接梯度下降）
+  result/ddps_cpp_direct*/               真实 BER 回传格（有回传通道时的端到端 BER 直接梯度下降）
   models/ddps/                   meta.json（模型指标与特征维度）
   dataset/ddps_dataset_*.csv      数据集统计
 用法:
@@ -780,7 +780,7 @@ Model A：d = 8（7-tap 绝对标定 FIR + drive_rms），α = 1.0，预测 log1
 
 <h2 id="s4"><span class="num">4</span>寻优算法</h2>
 
-<p>现役方案是<strong>只依赖发端物理量、在线不做任何真实 BER 回传的 8 维梯度下降</strong>：方向由冻结的 Model A 给出，形状 7 维的梯度有三档获取方式（<strong>full</strong> 每步全量微扰 / <strong>rotate</strong> 每步轮转微扰 / <strong>secant</strong> 只用第 0 步微扰后割线外推），gain 维始终用解析梯度。三档共用同一起点、同一组归一化步长与门控、同一固定步数，一键切换，唯一区别是<strong>为估计梯度要真实打到链路上多少次</strong>——这个次数与每次的落点 BER 都在第 6 节逐条列出。平台另含 <strong>direct 参照方案</strong>：假设有回传通道、端到端 BER 可得时，不用代理、直接对真实目标做梯度下降（机制对照见 6.5 页签）。两者共享同一物理链路（第 2 节）与同一次优起点（6.0）。</p>
+<p>在线调优就是<strong>8 维梯度下降</strong>：<span class="mono">x = [5 个 Tx FFE 抽头, gDC, gDC2, u_gain]</span>。梯度怎么来，摊成一张 <strong>3 × 2 矩阵</strong>：<strong>3 种形状维取法</strong>（<strong>full</strong> 每步全量微扰 / <strong>rotate</strong> 每步轮转 2 维 / <strong>secant</strong> 只用第 0 步微扰、此后割线外推）× <strong>2 种梯度来源</strong>（发端 Model A 方向代理，无需回传；收端真实 BER 回传）。发端代理那一行是现役方案：方向由冻结的 Model A 给出，形状 7 维按三种取法之一刷新，gain 维始终用解析梯度。六格共用同一次优起点、同一组归一化步长与门控、同一固定 15 步，一键切换（<span class="mono">--method proxy|direct</span> 配 <span class="mono">--grad-mode full|rotate|secant</span>），唯一区别是<strong>为估计梯度要真实打到链路上多少次</strong>——次数与每次的落点 BER 在第 6 节逐条列出，代价正本在 §4.3。二者共享同一物理链路（第 2 节）与同一次优起点（6.0）。</p>
 
 <h3>4.1 两阶段结构：离线冻结方向，在线只走探针</h3>
 <figure>
@@ -921,12 +921,12 @@ Model A：d = 8（7-tap 绝对标定 FIR + drive_rms），α = 1.0，预测 log1
   <ol style="margin-bottom:0">
     <li><strong>取当前落点探针</strong>：把 x_k 打到链路上，取 7-tap 等效发射 FIR 形状 + 该点绝对驱动 RMS（8 维特征）。这一步链路真实处于 x_k。</li>
     <li><strong>gain 维解析梯度（0 微扰）</strong>：driver_gain 是 Tx 链末尾的标量乘子，8 维探针特征全部正比于 gain，因此 gain 维梯度有闭式链式解，用当前探针直接算出（§4.2.1）。</li>
-    <li><strong>形状 7 维梯度（三档可选）</strong>：full / rotate / secant，见 §4.2.2；三档都保证第 0 步先用一次 7 维全量中心差分把方向立起来。</li>
+    <li><strong>形状维梯度（三种取法）</strong>：full / rotate / secant，见 §4.2.2；三种取法都保证第 0 步先用一次 7 维全量中心差分把方向立起来。</li>
     <li><strong>组归一化与门控</strong>：缩放后梯度 <span class="mono">g·span</span> 按三组（FFE 5 维 / CTLE 2 维 / gain 1 维）各自归一化成方向，范数低于 <span class="mono">1e-3</span> dex 的组冻结（方向置 0），避免沿拟合噪声移动。</li>
     <li><strong>步长</strong>：<span class="mono">α = 0.05 · 0.97^k</span>，乘在步长尺度向量上（§4.2.3）；步长尺度只决定「一步走多远」，不是参数箱。</li>
     <li><strong>落点</strong>：<span class="mono">x_{k+1} = clip(x_k − α·span·d)</span>，只对 CTLE 与 gain 做物理量程裁剪，抽头维不裁剪。</li>
     <li><strong>记账</strong>：落点与本次所有微扰态都跑一次真实 BER_MLSE，逐条写入 trace 与 probes 文件；它们不参与方向与终止决策。</li>
-    <li><strong>迭代</strong>：固定走满 15 步（不提前停止），保证三档在同等步数下比较。</li>
+    <li><strong>迭代</strong>：固定走满 15 步（不提前停止），保证各种取法在同等步数下比较。</li>
   </ol>
 </div>
 
@@ -937,11 +937,11 @@ Model A：d = 8（7-tap 绝对标定 FIR + drive_rms），α = 1.0，预测 log1
 g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
 <p>这条链式解只用到 Model A 的雅可比 <span class="mono">∂A/∂p</span>（二阶多项式对特征的解析导数），不需要任何额外探针，也不需要数值差分。</p>
 
-<h4>4.2.2 形状 7 维的三档梯度获取（一键切换）</h4>
+<h4>4.2.2 形状维梯度的三种取法（一键切换）</h4>
 <div class="tw">
 <table>
-  <caption>三档模式的机制与真实代价（同一实现、同一超参、只换梯度来源）</caption>
-  <tr><th>档</th><th>每步形状维梯度怎么来</th><th class="n">每步 ±ε 微扰态</th><th>每步真实评估</th><th>代价特征</th></tr>
+  <caption>三种取法的机制与真实代价（同一实现、同一超参，只换「形状维梯度怎么来」）</caption>
+  <tr><th>取法</th><th>每步形状维梯度怎么来</th><th class="n">每步 ±ε 微扰态</th><th>每步真实评估</th><th>代价特征</th></tr>
   <tr>
     <td><strong>full</strong></td>
     <td>7 维全部用当前落点的中心差分重算，方向每步都是「当前波形邻域的实测斜率」</td>
@@ -962,13 +962,13 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
   </tr>
   <tr>
     <td><strong>gain（第 8 维）</strong></td>
-    <td>解析链式解（§4.2.1），与上面三档正交，任何档下都是 0 微扰</td>
+    <td>解析链式解（§4.2.1），与上面三种取法正交，任何取法下都是 0 微扰</td>
     <td class="n">0</td><td class="n">—</td>
     <td>不产生任何试探态</td>
   </tr>
 </table>
 </div>
-<p>三档的第 0 步完全一致（14 个微扰态把 7 维方向一次性立起来），因此「第 0 步的代价」是三者共有的固定开销；差异从第 1 步开始累积。实测每用例的评估次数与耗时见 §4.3，微扰态自身的 BER 包络见 6.4。</p>
+<p>三种取法的第 0 步完全一致（14 个微扰态把 7 维方向一次性立起来），因此「第 0 步的代价」是三者共有的固定开销；差异从第 1 步开始累积。实测每用例的评估次数与耗时见 §4.3，微扰态自身的 BER 包络见 6.4。</p>
 
 <!--TURN_BLOCK-->
 
@@ -978,7 +978,7 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
 步长         α_k = GD_LR · ALPHA_DECAY^k = 0.05 · 0.97^k
 更新         x_{k+1} = clip(x_k − α_k · span ⊙ d, 物理量程)
 物理量程     gDC ∈ [0, 12] dB，gDC2 ∈ [0, 4] dB，gain/g₀ ∈ [10^−0.52, 10^0.6]；抽头维无边界
-步数         固定 15 步，不做提前停止（direct 参照保留边际停止，见 6.5）</code></pre>
+步数         固定 15 步，不做提前停止（真实 BER 回传格保留边际停止，见 6.5）</code></pre>
 <p>步长尺度是「一步走多远」的尺度，不是参数的允许范围；抽头维没有范围限制，方向走多远完全由梯度与步长决定。三组各自归一化后再乘尺度，保证 FFE（±0.1 量级）、CTLE（dB 量级）、gain（dex 量级）三个量纲不同的组不会互相压制。</p>
 
 <h3>4.3 真实评估次数与耗时（梯度估计的物理代价）</h3>
@@ -1027,9 +1027,9 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
 <p>在线决策只使用 Model A 的梯度，因此没有「代理否决」这一层：方向对不对，最终由第 6 节 15 个环境的落点实测 BER 回答——这是比任何第二代理都更硬的证据。真实 BER 只在事后记账，既不当方向也不当停止判据。</p>
 
 <h3>4.5 停止判据：固定 15 步</h3>
-<p>三档模式都以「固定走满 15 步」为停止条件，不设提前停止。理由是可比较性与可预期性：</p>
+<p>三种取法都以「固定走满 15 步」为停止条件，不设提前停止。理由是可比较性与可预期性：</p>
 <ul>
-  <li><strong>可比较性</strong>：三档的差异是每步代价不同，只有在相同步数下比较落点 BER 与累计代价才有意义；提前停止会让「因为代价低而多走几步」与「因为代价高而早停」混在一起。</li>
+  <li><strong>可比较性</strong>：三种取法的差异是每步代价不同，只有在相同步数下比较落点 BER 与累计代价才有意义；提前停止会让「因为代价低而多走几步」与「因为代价高而早停」混在一起。</li>
   <li><strong>可预期性</strong>：上板时间可预算——15 步 × 每步评估次数 × 单次评估时间，就是这段调优的总时长（§4.3 已给出每用例的准确次数）。</li>
   <li><strong>不提前退出的代价很小</strong>：步长按 <span class="mono">0.97^k</span> 衰减，后段位移极小；组梯度门控会自动把已经趋平的组冻结。</li>
 </ul>
@@ -1059,7 +1059,7 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
  3   εᵢ = 0.01（5 个抽头）/ 0.1（gDC）/ 0.1（gDC2）
  4
  5   for k = 0 .. n_steps−1:
- 6       # ① 形状维梯度刷新：三档的代价差别全在这一步
+ 6       # ① 形状维梯度刷新：三种取法的代价差别全在这一步
  7       if k == 0 或 mode == full:
  8           for i in 0..6:  g[i] = [A(p(x_k+εᵢeᵢ)) − A(p(x_k−εᵢeᵢ))] / (2εᵢ)      # 14 个微扰态
  9       elif mode == rotate 且 k &gt; 0:
@@ -1081,7 +1081,7 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
 25           s = x_new[0..6] − x_k[0..6]； dA_shape = (A_new − A_prev) − g[7]·(x_new[7] − x_k[7])
 26           g[0..6] += [(dA_shape − g[0..6]ᵀ·s) / ‖s‖²] · s
 27       A_prev = A_new； x_k = x_new
-28   # 15 步走满，不做提前停止；direct 参照的边际停止另见 6.5</code></pre>
+28   # 15 步走满，不做提前停止；真实 BER 回传格的边际停止另见 6.5</code></pre>
 
 <div class="tw">
 <table class="wide">
@@ -1102,8 +1102,8 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
   <tr><td>初始步长 / 衰减</td><td class="n">GD_LR = 0.05 / ALPHA_DECAY = 0.97</td></tr>
   <tr><td>组梯度门控</td><td class="n">‖(g·span)_组‖ &lt; 1e-3 dex 冻结该组</td></tr>
   <tr><td>物理量程</td><td class="n">gDC [0,12] dB、gDC2 [0,4] dB、gain/g₀ ∈ [0.302, 3.98]</td></tr>
-  <tr><td>步数</td><td class="n">固定 15 步（三档一致，无提前停止）</td></tr>
-  <tr><td>边际改善门控</td><td class="n">仅 direct 参照使用（&lt; 0.01 dex 停止）</td></tr>
+  <tr><td>步数</td><td class="n">固定 15 步（三种取法一致，无提前停止）</td></tr>
+  <tr><td>边际改善门控</td><td class="n">仅真实 BER 回传格使用（&lt; 0.01 dex 停止）</td></tr>
   <tr><td rowspan="3">评估</td><td>在线 / 报告符号数</td><td class="n"><!--PROTO_SYMBOLS--></td></tr>
   <tr><td>仿真种子</td><td class="n">42（单种子）</td></tr>
   <tr><td>0 错误报告值</td><td class="n"><!--FLOOR_BER-->（= 0.5/N_bits，N_bits = <!--FLOOR_NBITS-->，逐用例由同步/训练段长度决定）</td></tr>
@@ -1161,7 +1161,7 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
 
 <h2 id="s6"><span class="num">6</span>实测结果</h2>
 
-<p>以下核心指标为<strong>现役档 <!--MODE_LABEL--></strong>（Model A 方向代理，无需回传通道）的 15 用例 <!--SCALE_LABEL--> 结果；另两档同协议结果与横向对比见 6.1 末表，direct 参照方案结果与对照见 6.2 页签、6.5。</p>
+<p>以下核心指标为<strong>现役格 <!--MODE_LABEL--></strong>（Model A 方向代理，无需回传通道）的 15 用例 <!--SCALE_LABEL--> 结果；六格矩阵的横向对比见 6.1 末表，真实 BER 回传三格的结果与对照见 6.5（收敛轨迹见 6.2 页签）。</p>
 
 <div class="kpis">
   <!--KPI_CARDS-->
@@ -1180,7 +1180,7 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
 </div>
 
 <h3>6.1 泛化：只用 10 dB 基线训练 → 跨 15 个环境</h3>
-<p>训练集只含 Base_IL10x10 邻域 <!--N_ROWS--> 行。方向代理冻结后，对 15 个用例环境逐个执行 Stage-2 在线调优，不重训、不重新标定；下表是<strong>现役档 <!--MODE_LABEL--></strong>的逐用例结果，最后一列是每个用例为此付出的真实评估次数（落地 + 微扰态），三档横向对比见本节末表。</p>
+<p>训练集只含 Base_IL10x10 邻域 <!--N_ROWS--> 行。方向代理冻结后，对 15 个用例环境逐个执行 Stage-2 在线调优，不重训、不重新标定；下表是<strong>现役格 <!--MODE_LABEL--></strong>的逐用例结果，最后一列是每个用例为此付出的真实评估次数（落地 + 微扰态），六格矩阵横向对比见本节末表。</p>
 <p class="win"><strong>结论</strong>：<!--POS_SUMMARY-->。次优起点的 BER 从 <!--SEED_BER_LO-->（<!--SEED_LO_HUMAN-->）到 <!--SEED_BER_HI-->（<!--SEED_HI_HUMAN-->）；调优后 <!--FLOOR_TXT_LONG-->。</p>
 <div class="tw">
 <table class="wide" id="tbl-core">
@@ -1206,7 +1206,7 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
 
 <h3>6.3 安全性核验（落点 + 微扰瞬时两口径）</h3>
 <div class="card">
-  <p>在线调优过程中系统会短暂停留两类<strong>真实硬件工作点</strong>，安全性分开核验：<strong>落点</strong>（每步落地后的 x<sub>k+1</sub>）与 <strong>±ε 微扰态</strong>（为估计形状维梯度而施加的参数偏移，链路真实经过这些工作点）。两者都会真实影响那一刻的端到端 BER，不能只看落点。本节口径为现役档 <strong><!--MODE_LABEL--></strong>：<!--MODE_PROBE_TEXT-->。direct 参照无代理安全机制（6.5 页签）。</p>
+  <p>在线调优过程中系统会短暂停留两类<strong>真实硬件工作点</strong>，安全性分开核验：<strong>落点</strong>（每步落地后的 x<sub>k+1</sub>）与 <strong>±ε 微扰态</strong>（为估计形状维梯度而施加的参数偏移，链路真实经过这些工作点）。两者都会真实影响那一刻的端到端 BER，不能只看落点。本节口径为现役格 <strong><!--MODE_LABEL--></strong>：<!--MODE_PROBE_TEXT-->。真实 BER 回传格无代理安全机制（6.5）。</p>
 
   <p><strong>口径 1 · 落点（accepted 轨迹）</strong>：<!--TOTAL_STEPS--> 落点中 <!--TOTAL_WORSE--> 落点劣于种子。</p>
   <div class="tw">
@@ -1225,11 +1225,11 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
     <!--SAFETY_PROBE_ROWS-->
   </table>
   </div>
-  <p class="mut" style="margin-bottom:0">微扰瞬时超种子的原因：中心差分要同时测 x+ε 与 x−ε 两边的斜率，必然向劣化方向也短暂挪一步——这是用实测斜率换方向的固有代价，三档的差别只是这个代价出现的频率（见 4.3）。若真实系统不能接受任何瞬时扰动，可改<strong>单边差分</strong>（只向预计改善方向探）或缩小 ε；<strong>secant 档把这类瞬时代价压缩到只有第 0 步一轮</strong>，此后不再产生任何微扰态。原始记录：<span class="mono">trace_&lt;用例&gt;.csv</span>（落点）、<span class="mono">probes_&lt;用例&gt;.csv</span>（微扰态，含 step / param / sign / 真实 BER）。</p>
+  <p class="mut" style="margin-bottom:0">微扰瞬时超种子的原因：中心差分要同时测 x+ε 与 x−ε 两边的斜率，必然向劣化方向也短暂挪一步——这是用实测斜率换方向的固有代价，三种取法的差别只是这个代价出现的频率（见 4.3）。若真实系统不能接受任何瞬时扰动，可改<strong>单边差分</strong>（只向预计改善方向探）或缩小 ε；<strong>secant 取法把这类瞬时代价压缩到只有第 0 步一轮</strong>，此后不再产生任何微扰态。原始记录：<span class="mono">trace_&lt;用例&gt;.csv</span>（落点）、<span class="mono">probes_&lt;用例&gt;.csv</span>（微扰态，含 step / param / sign / 真实 BER）。</p>
 </div>
 
 <h3>6.4 微扰态 BER 包络（梯度估计的物理代价）</h3>
-<p>为获取探针而施加的每一个 ±ε 参数偏移，都会让链路真实处于该工作点，因此每个微扰态自身的端到端 MLSE BER 都被逐一记录（在 6.2 收敛图中显示为灰点）。这些记录不参与下降方向（方向仍由 Model A 梯度决定），但它是方案真实运行代价的完整底账：<!--MODE_PROBE_TEXT-->。direct 参照同理：第 0 步 8 维全测共 16 个微扰态（无解析 gain 梯度，gain 维也实测），同样逐一记录真实 BER（<span class="mono">result/ddps_cpp_direct/probes_*.csv</span>）。</p>
+<p>为获取探针而施加的每一个 ±ε 参数偏移，都会让链路真实处于该工作点，因此每个微扰态自身的端到端 MLSE BER 都被逐一记录（在 6.2 收敛图中显示为灰点）。这些记录不参与下降方向（方向仍由 Model A 梯度决定），但它是方案真实运行代价的完整底账：<!--MODE_PROBE_TEXT-->。真实 BER 回传格同理：第 0 步 8 维全测共 16 个微扰态（无解析 gain 梯度，gain 维也实测），同样逐一记录真实 BER（<span class="mono">result/ddps_cpp_direct_*/probes_*.csv</span>）。</p>
 <div class="tw">
 <table class="wide" id="tbl-probe">
   <caption><!--MODE_PROBE_CAPTION--> <span class="sh">· 可左右滑动</span></caption>
@@ -1322,7 +1322,7 @@ python -c "from train_surrogates import train; import glob; \
 # 3) per-case target_rms 扫描（gain 维标定参照，只用于报告对照）
 python tools/scan_per_case_rms.py --jobs 8
 
-# 4) Python 2^18 验证（比对口径：2^18 符号、单种子 42、无人工噪声；三档 + direct）
+# 4) Python 2^18 验证（比对口径：2^18 符号、单种子 42、无人工噪声；六格）
 python tools/run_parallel_envs.py --model-dir models/ddps --out-dir result\ddps_equiv_py_full \
     --method proxy --grad-mode full --only-envs Base_IL10x10,IL20x20 \
     --num-symbols 262144 --n-steps 15 --sim-seeds 42 --jobs 2 \
@@ -1334,14 +1334,14 @@ python tools/run_parallel_envs.py --model-dir models/ddps --out-dir result\ddps_
 wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity bash cpp/build_wsl.sh
 python cpp\export_models.py
 
-# 6) C++ 2^18 等价比对（四个入口逐档比对，判据 < 1e-9）
+# 6) C++ 2^18 等价比对（六格逐格比对，判据 < 1e-9）
 python cpp/run_all_cases.py --backend wsl --only-envs Base_IL10x10,IL20x20 \
     --num-symbols 262144 --n-steps 15 --jobs 2 --method proxy --grad-mode full \
     --out-dir result/ddps_equiv_cpp_full
 （同理 rotate / secant；direct 用 --method direct；起点同上，由 run_all_cases.py 内置）
 python cpp\compare_traces.py --py result/ddps_equiv_py_full --cpp result/ddps_equiv_cpp_full
 
-# 7) 全量规模仿真（2^22 高 SNR 大点数，只允许 C++；三档 + direct 参照）
+# 7) 全量规模仿真（2^22 高 SNR 大点数，只允许 C++；六格）
 python cpp/run_all_cases.py --backend wsl --num-symbols 4194304 --n-steps 15 --jobs 4 \
     --method proxy --grad-mode <!--MODE_KEY--> --out-dir result/ddps_cpp_<!--MODE_KEY-->
 （换档只改 --grad-mode；direct 用 --method direct。
@@ -1365,8 +1365,8 @@ python make_deliverable.py --baseline result/ddps_cpp_<!--MODE_KEY--> --mode <!-
   <tr><th>类别</th><th>路径</th><th>内容</th></tr>
   <tr><td>数据集</td><td class="mono">dataset/ddps_dataset_&lt;ts&gt;.csv</td><td><!--DATASET_SHAPE-->（Stage-1 采样 7 维 x = 4 旁瓣 + gDC + gDC2 + u_gain；另含 5-tap FFE、驱动 RMS、7-tap FIR 探针、真实 BER）</td></tr>
   <tr><td>模型</td><td class="mono">models/ddps/</td><td>方向代理（8 维探针 / 参数域离线产物）+ meta.json</td></tr>
-  <tr><td>现役档主结果</td><td class="mono">result/ddps_cpp_<!--MODE_KEY-->/</td><td>C++ <!--SCALE_LABEL_PLAIN--> 全 15 用例，现役档 <!--MODE_LABEL-->：case_summary.csv/json、trace_&lt;用例&gt;.csv、probes_&lt;用例&gt;.csv、run_config.json、report/</td></tr>
-  <tr><td>另两档全量结果</td><td class="mono">result/ddps_cpp_rotate/、result/ddps_cpp_secant/</td><td>同协议、同起点的 rotate / secant 档 <!--SCALE_LABEL_PLAIN--> 结果（三档横向对比的数据源）</td></tr>
+  <tr><td>现役格主结果</td><td class="mono">result/ddps_cpp_<!--MODE_KEY-->/</td><td>C++ <!--SCALE_LABEL_PLAIN--> 全 15 用例，现役格 <!--MODE_LABEL-->：case_summary.csv/json、trace_&lt;用例&gt;.csv、probes_&lt;用例&gt;.csv、run_config.json、report/</td></tr>
+  <tr><td>另两格全量结果</td><td class="mono">result/ddps_cpp_rotate/、result/ddps_cpp_secant/</td><td>同协议、同起点的 rotate / secant 档 <!--SCALE_LABEL_PLAIN--> 结果（六格矩阵横向对比的数据源）</td></tr>
   <tr><td>direct 全量结果</td><td class="mono">result/ddps_cpp_direct/</td><td>有回传通道参照：<!--SCALE_LABEL_PLAIN--> 全 15 用例（case_summary + trace/probes + report/）</td></tr>
   <tr><td>2^18 等价参照</td><td class="mono">result/ddps_equiv_py_&lt;档&gt;/、result/ddps_equiv_cpp_&lt;档&gt;/</td><td>四档各自的 Python / C++ 2^18 比对结果（Base_IL10x10 + IL20x20）</td></tr>
   <tr><td>跨实验汇总</td><td class="mono">result/SUMMARY.md</td><td>15 用例结果汇总</td></tr>
@@ -1395,7 +1395,7 @@ python make_deliverable.py --baseline result/ddps_cpp_<!--MODE_KEY--> --mode <!-
 <tr><td class="mono">physim.hpp</td><td class="mono">main / channel_imdd / rx_dsp / mlse_burg</td><td>完整物理链 + run_sim（Config 键值解析、发端加噪快模式）</td></tr>
 <tr><td class="mono">probe.hpp</td><td class="mono">tx_channel_extract</td><td>链路冲激、峰值定位（缓存）、发端 S21 抽取、drive_rms</td></tr>
 <tr><td class="mono">surrogate.hpp</td><td class="mono">train_surrogates</td><td>WhiteBoxRidge 二阶多项式特征、解析梯度、JSON 权重</td></tr>
-<tr><td class="mono">optimizer.hpp</td><td class="mono">ddps_optimizer</td><td>Stage-2 在线下降（8 维；gain 解析梯度 + 形状 7 维三档 <span class="mono">full/rotate/secant</span>，固定 15 步）；direct 变体 <span class="mono">stage2_descent_direct</span>（目标 = 真实 BER，第 0 步 8 维中心差分 + 全维 Broyden，无代理）</td></tr>
+<tr><td class="mono">optimizer.hpp</td><td class="mono">ddps_optimizer</td><td>Stage-2 在线下降（8 维；gain 解析梯度 + 形状 7 维三种取法 <span class="mono">full/rotate/secant</span>，固定 15 步）；direct 变体 <span class="mono">stage2_descent_direct</span>（目标 = 真实 BER，第 0 步 8 维中心差分 + 全维 Broyden，无代理）</td></tr>
 </table>
 </div>
 
@@ -1421,17 +1421,17 @@ python make_deliverable.py --baseline result/ddps_cpp_<!--MODE_KEY--> --mode <!-
 </div>
 
 <h3>10.3 探针与代理推理</h3>
-<p>发端探针（7 抽头 Tx FIR + drive_rms）与方向代理前向：<span class="mono">drive_rms</span> 相对差 ≤1e-13、<span class="mono">pred_a</span> 相对差 ≤1e-12（两平台 <span class="mono">pred_a = -5.995717769951e+00</span> 同值到第 12 位）。探针是两平台唯一的方向信息来源，探针等价 + 代理前向等价，是四个入口逐档等价的前提（10.4 各表）。</p>
+<p>发端探针（7 抽头 Tx FIR + drive_rms）与方向代理前向：<span class="mono">drive_rms</span> 相对差 ≤1e-13、<span class="mono">pred_a</span> 相对差 ≤1e-12（两平台 <span class="mono">pred_a = -5.995717769951e+00</span> 同值到第 12 位）。探针是两平台唯一的方向信息来源，探针等价 + 代理前向等价，是六格逐格等价的前提（10.4 各表）。</p>
 
 
 <h3>10.4 在线调优等价</h3>
-<p>Python 定原理、C++ 一比一复刻；两者<b>只在 2<sup>18</sup> 小点数低 SNR 口径下比对</b>（单种子 42、无人工噪声、Base_IL10x10 + IL20x20 两个代表用例），逐（用例 × 步 × 数值列）实算最大相对差，判据 &lt; 1e-9。四个入口——三档形状梯度与 direct 参照——逐档比对：</p>
+<p>Python 定原理、C++ 一比一复刻；两者<b>只在 2<sup>18</sup> 小点数低 SNR 口径下比对</b>（单种子 42、无人工噪声、Base_IL10x10 + IL20x20 两个代表用例），逐（用例 × 步 × 数值列）实算最大相对差，判据 &lt; 1e-9。六格——发端代理三格与真实 BER 回传三格——逐格比对（结果目录缺失的格自动不出现在页签里）：</p>
 <div class="tabs">
   <!--EQ_TABS-->
 </div>
 <p>比对命令：<span class="mono">python cpp/compare_traces.py --py &lt;Python 目录&gt; --cpp &lt;C++ 目录&gt;</span>；比对列 <span class="mono">gdc / gdc2 / gain / u_gain / drive_rms / pred_a / real_lb / real_ber / grad_norm</span>。通过比对后，全量规模（2<sup>22</sup> 高 SNR）只用 C++ 跑（见 §6）；Python 结果作为低 SNR 收敛与等价性参照。</p>
-<h3>10.5 评估量对比（三档形状梯度 + direct 参照）</h3>
-<p>同一次优起点、同一 15 步上限、同一物理链路，四个入口每用例真实打到链路上的次数（落地评估三档相同，差别全在梯度估计）：</p>
+<h3>10.5 评估量对比（六格矩阵）</h3>
+<p>同一次优起点、同一 15 步上限、同一物理链路，六格每用例真实打到链路上的次数（落地次数各格相同，差别全在梯度估计）：</p>
 <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
   <!--EVAL_KPI_CARDS-->
 </div>
@@ -1446,7 +1446,7 @@ wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity ./cpp/build/run_ddps cp
     --method proxy --grad-mode full
 
 # 换档：--grad-mode rotate --rotate-k 2 / --grad-mode secant（其余参数不变）
-# direct 参照：--method direct（同样 8 维、同起点、同步数）
+# 真实 BER 回传格：--method direct 配 --grad-mode full|rotate|secant（同样 8 维、同起点、同步数）
 
 # 快速验证：低 SNR 人为噪声 + 少点数（发端 DSP 出口 SNR=23 dB、2^14 符号）
 wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity ./cpp/build/run_ddps cpp/config.txt \
@@ -1719,7 +1719,7 @@ def _rows_target_rms(rms_data, order):
     return '\n'.join(out)
 
 
-# 三档形状梯度 + direct 参照：每用例真实评估次数（落地 = 走的步数，微扰态 = 为估计梯度额外打到链路上的次数）
+# 六格矩阵：每用例真实评估次数（落地 = 走的步数，微扰态 = 为估计梯度额外打到链路上的次数）
 _EVAL_MODES = [
     ('full', '代理 × full（7 维每步全量中心差分）', '7 维每步重算，gain 维解析'),
     ('rotate', '代理 × rotate（每步轮转 2 维）', '其余维沿用上次实测值'),
@@ -1939,7 +1939,7 @@ def _grad_turn_stats(d):
 
 
 def _turn_block(a, order):
-    """「方向会不会拐」实测表：三档 + direct 参照。数据不足时返回空串。"""
+    """「方向会不会拐」实测表：形状维三种取法 + 真实 BER 回传格。数据不足时返回空串。"""
     how = {'full': '每步都重估（14 个 ±ε 微扰态）',
            'rotate': '每步重估 2 个维（4 个 ±ε 微扰态）',
            'secant': '<strong>不会</strong>：秩一修正只沿位移方向 s 叠加，组内横向分量保持不变'}
@@ -1981,7 +1981,7 @@ def _turn_block(a, order):
 
 
 def _eval_mag_txt(ev_d, ev_s):
-    """direct 与现役档每用例真实评估量的量级比较：差不到 3 倍说"同量级"，
+    """direct 与现役格每用例真实评估量的量级比较：差不到 3 倍说"同量级"，
     差得多就直说倍数，避免写死一句话在换档后变成假话。"""
     try:
         r = float(ev_s) / float(ev_d)
@@ -1991,7 +1991,7 @@ def _eval_mag_txt(ev_d, ev_s):
         return ''
     if 0.5 <= r <= 3.0:
         return '，同量级'
-    return ('，现役档约为 direct 的 %.1f 倍' % r) if r > 1 else ('，现役档比 direct 省 %.1f 倍' % (1 / r))
+    return ('，现役格约为 direct 的 %.1f 倍' % r) if r > 1 else ('，现役格比 direct 省 %.1f 倍' % (1 / r))
 
 
 def _ratio_str(r):
@@ -2525,14 +2525,14 @@ def _build_direct_section(a, summary, order, fs=None):
       <p><strong>下降机制与现役一致</strong>（这是对照有效的前提）：同一 8 维搜索空间、同一组归一化步长与组门控、同一固定 15 步上限、同一次优起点。差别只在<strong>目标与梯度来源</strong>：</p>
       <div class="tw">
       <table class="wide" style="margin-bottom:8px">
-        <caption>机制对照：现役（探针代理，三档可选）vs direct</caption>
+        <caption>机制对照：现役（探针代理，三种取法可选）vs direct</caption>
         <tr><th>环节</th><th>现役（Model A 方向代理，无需回传）</th><th>direct（需回传通道）</th></tr>
         <tr><td>下降目标</td><td>Model A 预测 log10(BER)（探针域代理）</td><td>端到端真实 log10(BER)（回传值）</td></tr>
         <tr><td>第 0 步初始化</td><td>形状 7 维中心差分查 A（14 个 ±ε 微扰态）+ gain 维解析梯度（A 的 8 维探针特征严格 ∝ gain，闭式可得，0 微扰）</td><td>全 8 维中心差分实测真实 BER（16 个 ±ε 微扰态）——无代理即无解析 gain 梯度，gain 维也只能实测</td></tr>
         <tr><td>每步梯度维持</td><td>形状 7 维按方式：full 每步全量重算 / rotate 每步轮转 2 维 / secant Broyden 秩一修正（0 微扰）；gain 维每步解析重算</td><td>全 8 维按方式：full 每步全量重测 / rotate 每步轮转 2 维 / secant Broyden 秩一修正真实 Δlog10(BER)（无代理即无解析 gain 梯度，gain 维也随方式走）</td></tr>
         <tr><td>落点安全机制</td><td>无否决层：方向对不对由 15 个环境的落点实测 BER 回答（6.1 / 6.3）</td><td>无（同上；搜索盒与固定步数预算仍在）</td></tr>
         <tr><td>微扰态（真实链路工作点）</td><td>第 0 步 14 个；此后按方式为 14 / 4 / 0 个每步</td><td>第 0 步 16 个；此后按方式为 16 / 4 / 0 个每步</td></tr>
-        <tr><td>在线真实评估（每用例）</td><td>≈{evals_s} 次（现役档实测均值）</td><td>≈{evals_d} 次（实测均值）</td></tr>
+        <tr><td>在线真实评估（每用例）</td><td>≈{evals_s} 次（现役格实测均值）</td><td>≈{evals_d} 次（实测均值）</td></tr>
       </table>
       </div>
       <p><strong>记账口径</strong>：trace 的 <span class="mono">pred_a</span> 列在 direct 下记录当前落点目标值（= real_lb，即回传的 log10 BER），<span class="mono">pred_b / allowed_ber / pred_b_ber</span> 恒 0（无代理），列结构与其余结果目录一致，报表工具统一解析。第 0 步 16 个微扰态的真实 BER 逐一记入 <span class="mono">probes_&lt;用例&gt;.csv</span>（param/sign/坐标/真实 BER），与其余档同 schema。</p>
@@ -2545,15 +2545,17 @@ def _build_direct_section(a, summary, order, fs=None):
 
 
 _EQ_MODE_LABELS = [
-    ('full', 'full（每步 7 维全量微扰，14 个 ±ε 态/步）'),
-    ('rotate', 'rotate（每步轮转 2 维，4 个 ±ε 态/步）'),
-    ('secant', 'secant（第 0 步后割线外推，0 个 ±ε 态/步）'),
-    ('direct', 'direct 参照（真实 BER 直接差分）'),
+    ('full', '代理 × full（7 维每步全量微扰，14 个 ±ε 态/步）'),
+    ('rotate', '代理 × rotate（每步轮转 2 维，4 个 ±ε 态/步）'),
+    ('secant', '代理 × secant（第 0 步后割线外推，0 个 ±ε 态/步）'),
+    ('direct_full', '回传 × full（8 维每步全量微扰，16 个 ±ε 态/步）'),
+    ('direct_rotate', '回传 × rotate（每步轮转 2 维，4 个 ±ε 态/步）'),
+    ('direct_secant', '回传 × secant（第 0 步后割线外推，0 个 ±ε 态/步）'),
 ]
 
 
 def _build_eq_tabs(a):
-    """§10.4 页签组：四个入口（三档形状梯度 + direct）的 2^18 Python vs C++ 逐轨迹实算比对。"""
+    """§10.4 页签组：六格（发端代理三格 + 真实 BER 回传三格）的 2^18 Python vs C++ 逐轨迹实算比对。"""
     bar, panels = [], []
     first = True
     for mode, label in _EQ_MODE_LABELS:
@@ -2621,10 +2623,10 @@ def _build_fig_tabs(a, hard_env):
         panels.append('\n  <div class="tab-panel%s" id="%s">\n    %s\n  </div>'
                       % (' active' if first else '', pid, '\n    '.join(figs)))
         first = False
-    # direct 参照页签
+    # 回传 × secant 页签（回传行的代表格；其余两格页签在数据齐后加入）
     if os.path.isdir(a.direct):
         rd = os.path.join(a.direct, 'report')
-        imgs = [('ddps_conv_grid.png', '图 6 · direct 参照收敛轨迹（实测 BER_MLSE / ±ε 微扰态灰点）'),
+        imgs = [('ddps_conv_grid.png', '图 6 · 回传 × secant 收敛轨迹（实测 BER_MLSE / ±ε 微扰态灰点）'),
                 ('ddps_gain_rms.png', '图 7 · direct：gain 与 drive_rms 轨迹'),
                 ('ddps_case_hard.png', '图 9 · direct 最难用例四联图')]
         figs = []
@@ -2634,7 +2636,7 @@ def _build_fig_tabs(a, hard_env):
                 figs.append('<figure>\n      <div class="fig-scroll"><img src="%s" alt="%s"></div>\n'
                             '      <figcaption>%s</figcaption>\n    </figure>' % (_img_tag(p), cap, cap))
         if figs:
-            bar.append('    <button class="tab-btn" data-tab="tab-fig-direct">direct 参照（有回传通道）</button>')
+            bar.append('    <button class="tab-btn" data-tab="tab-fig-direct">回传 × secant（有回传通道）</button>')
             panels.append('\n  <div class="tab-panel" id="tab-fig-direct">\n    %s\n  </div>'
                           % '\n    '.join(figs))
     if not bar:
@@ -2868,7 +2870,7 @@ def _wt_broyden_svg(W=340, H=200):
 def _build_walkthrough(a, summary, order):
     """§4.6 逐帧走查：用最难用例的真实 trace/probes 把「第一个梯度 → 每步更新 → 收敛」演一遍。
 
-    三档的差异只体现在梯度更新那一帧；数据缺失时返回空串。
+    三种取法的差异只体现在梯度更新那一帧；数据缺失时返回空串。
     """
     env = max(order, key=lambda e: summary[e]['seed_ber'])
     tpath = os.path.join(a.baseline, f'trace_{env}.csv')
@@ -2928,12 +2930,12 @@ def _build_walkthrough(a, summary, order):
         <p>5 个抽头都直接进搜索向量、没有派生关系也没有边界；只有 CTLE 与 gain 有物理量程。进环境后先取一次探针（链路真实处于 x₀），拿到 Model A 的起点读数和 gain 维解析梯度。</p>'''))
 
     F.append((
-        f'帧 2 · 第 0 步：{n_p0} 个 ±ε 微扰态（三档共有的一轮）',
+        f'帧 2 · 第 0 步：{n_p0} 个 ±ε 微扰态（三种取法共有的一轮）',
         _wt_probes_svg(pr0),
         '微扰态的真实 BER（如实记账）；方向侧只用 Model A 的预测差',
         f'''<h5>第一个梯度怎么来</h5>
         <p>形状 7 维各做一次中心差分：+ε 取一次探针查 Model A、−ε 再取一次（取探针时参数真的打上链路，所以这 {n_p0} 个状态的真实 BER 会被逐一记账，上图）。两点一比，斜率就有了。</p>
-        <p>gain 维完全不用微扰——8 维探针特征全部正比于 gain，有解析闭式链式解（§4.2.1）。这三档的第 0 步完全一致，差别从第 1 步开始：{_probe_note[mode]}</p>'''))
+        <p>gain 维完全不用微扰——8 维探针特征全部正比于 gain，有解析闭式链式解（§4.2.1）。这三种取法的第 0 步完全一致，差别从第 1 步开始：{_probe_note[mode]}</p>'''))
 
     F.append((
         '帧 3 · 斜率 → 走哪边、走多远',
@@ -3015,7 +3017,7 @@ def _build_walkthrough(a, summary, order):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--baseline', default='result/ddps_cpp_full', help='主结果目录（现役档，C++ 全量 15 用例）')
+    ap.add_argument('--baseline', default='result/ddps_cpp_full', help='主结果目录（现役格，C++ 全量 15 用例）')
     ap.add_argument('--mode', default='full', choices=['full', 'rotate', 'secant'],
                     help='主结果目录对应的形状梯度档（决定正文口径文字）')
     ap.add_argument('--rotate', default='result/ddps_cpp_rotate', help='rotate 档全量结果目录')
@@ -3117,13 +3119,13 @@ def main():
     cur_ev = mode_series.get(a.mode, {}).get('ev', float('nan'))
 
     headline = '\n'.join([
-        f"<tr><td><strong>在线调优</strong>（只用 Model A 方向代理 + 8 维梯度下降；现役档 {cur_mode_plain}）</td>"
+        f"<tr><td><strong>在线调优</strong>（只用 Model A 方向代理 + 8 维梯度下降；现役格 {cur_mode_plain}）</td>"
         f"<td><strong>{n_pos}/{len(order)} 用例从次优起点（BER {_ber(seed_lo)} ~ {_ber(seed_hi)}）压到环境最优</strong>："
         f"{_floor_txt(fs)}；"
         f"{total_steps} 个落点 {total_worse} 次劣于起点（含 ±ε 微扰态瞬时 {probe_worse_steps} 步超种子，见 6.3）。"
         f"机制逐帧演示见 4.6</td></tr>",
-        f"<tr><td>形状梯度三档（一键切换）</td>"
-        f"<td>{mode_cmp_bits}。三档共用同一起点、同一组归一化步长与门控、同一固定 15 步，"
+        f"<tr><td>形状梯度三种取法（一键切换）</td>"
+        f"<td>{mode_cmp_bits}。三种取法共用同一起点、同一组归一化步长与门控、同一固定 15 步，"
         f"唯一区别是为估计梯度要真实打到链路上多少次（见 4.3 / 6.1）</td></tr>",
         f"<tr><td>方向代理 Model A</td>"
         f"<td>输入 = [7-tap Tx FIR 探针, drive_rms]（8 维物理波形量）→ log10(BER_MLSE)。"
@@ -3138,21 +3140,21 @@ def main():
         f'<div class="kpi"><div class="v">{n_pos} / {len(order)}</div><div class="l">用例改善：次优起点全部压到环境最优附近（{_floor_txt(fs, short=True)}）</div></div>',
         f'<div class="kpi"><div class="v">0 次</div><div class="l">在线决策用到的真实 BER——方向与终止只靠发端探针 + 冻结的 Model A</div></div>',
         f'<div class="kpi"><div class="v">{total_worse} / {total_steps}</div><div class="l">落点劣于起点（含 ±ε 微扰态瞬时 {probe_worse_steps} 步超种子、最坏 {_ratio_str(worst_ratio)}，见 6.3）</div></div>',
-        f'<div class="kpi"><div class="v">{cur_ev:.0f} 次</div><div class="l">每用例真实评估（{cur_mode_plain}；15 次落点 + 其余微扰态），三档代价对比见 4.3</div></div>',
+        f'<div class="kpi"><div class="v">{cur_ev:.0f} 次</div><div class="l">每用例真实评估（{cur_mode_plain}；15 次落点 + 其余微扰态），三种取法代价对比见 4.3</div></div>',
         f'<div class="kpi"><div class="v">8 维</div><div class="l">搜索空间：5 个 FFE 抽头（无边界）+ gDC + gDC2 + driver_gain</div></div>',
     ])
 
     # direct 对比实验：数据存在才渲染（6.5 对比节 + 6.2 图组页签）
     direct_section = _build_direct_section(a, summary, order, fs)
-    # 6.2 图组页签：逐档收敛图（各档 report_ddps.py 产物）+ direct 参照
+    # 6.2 图组页签：逐格收敛图（各格 report_ddps.py 产物）+ 回传 × secant
     fig_tabs = _build_fig_tabs(a, hard_env)
-    # 10.4 等价页签：四个入口（三档形状梯度 + direct）的 2^18 比对，逐档实算
+    # 10.4 等价页签：六格（发端代理三格 + 真实 BER 回传三格）的 2^18 比对，逐格实算
     eq_tabs = _build_eq_tabs(a)
     # 机制可视化素材（§3.1 训练数据 / §4.6 逐帧走查）：数据缺失自动退化
     dataset_card = _build_dataset_card(a)
     walkthrough = _build_walkthrough(a, summary, order)
 
-    # 现役档机制文字（三档的差异只在微扰频率）
+    # 现役格机制文字（三种取法的差异只在微扰频率）
     _mode_name = {'full': '每步 7 维全量中心差分（每步 14 个 ±ε 微扰态）',
                   'rotate': '每步轮转 2 维的中心差分（每步 4 个 ±ε 微扰态，4 步刷新完 7 个维、此后循环）',
                   'secant': '第 0 步一轮 7 维中心差分后、用 Broyden 秩一修正外推（此后 0 个 ±ε 微扰态）'}
