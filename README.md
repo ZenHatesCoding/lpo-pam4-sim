@@ -38,12 +38,12 @@ DEFAULT_MODE = '112G'
 
 | 文档 | 内容 |
 | --- | --- |
-| [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_Deliverable.html) | Python 参照 + C++ 一比一复刻平台（比对只在 2^18 小点数低 SNR、全量规模仿真只用 C++）、Model A 方向代理 + 8 维在线搜索（5 抽头全自由无边界 + gDC + gDC2 + u_gain）、形状 7 维三档梯度（full / rotate / secant）+ gain 解析梯度、direct 参照、四档 2^18 逐轨迹等价（判据 `max_rel < 1e-9`）、单种子（42）2^22 在线调优结果、统一入口 |
+| [📄 **DDPS 交付说明（自包含 HTML）**](deliverables/DDPS_Deliverable.html) | Python 参照 + C++ 一比一复刻平台（比对只在 2^18 小点数低 SNR、全量规模仿真只用 C++）、Model A 方向代理 + 8 维在线搜索（5 抽头全自由无边界 + gDC + gDC2 + u_gain）、梯度获取 3×2 矩阵（3 种形状维取法 full / rotate / secant × 2 种来源：Model A 发端代理 / 真实 BER 回传）+ gain 解析梯度、六格 2^18 逐轨迹等价（判据 `max_rel < 1e-9`）、单种子（42）2^22 在线调优结果、统一入口 |
 | [📝 **DDPS 交付说明（Word 版，按需生成）**](deliverables/DDPS_Deliverable.docx) | 由 HTML 版派生（`make_deliverable_docx.py`），内容逐字一致；页签平铺为顺序小节、走查帧全展开、Word 原生目录域与导航窗格。**默认不生成**：常规交付只出 HTML，用户明确要 Word 时再跑 |
 | [历史交付件与历史实验](archive/) | v2~v7.3 历史交付件 HTML、训练环境对比实验、被取代的历史结果/模型/数据集（本地归档，不入远端） |
 | [01. DSP 架构与核心参数详解](docs/01_DSP_Architecture.md) | 收发机模型、多采样率机制、`config.xlsx` 参数物理含义 |
 | [02. 独立分析与诊断工具集](docs/02_Utility_Scripts.md) | optimizers/ + tools/ 目录 + 核心脚本 |
-| [DDPS 方法](docs/DDPS_Method.md) | Model A 方向代理（唯一在线代理）、8 维在线搜索空间（抽头全自由无边界）、gain 维解析梯度 + 形状 7 维三档（full / rotate / secant）、真实评估代价口径、direct 参照、次优起点 |
+| [DDPS 方法](docs/DDPS_Method.md) | Model A 方向代理（唯一在线代理）、8 维在线搜索空间（抽头全自由无边界）、gain 维解析梯度 + 形状 7 维三种取法（full / rotate / secant）、梯度来源两行（发端代理 / 真实 BER 回传）、真实评估代价口径、次优起点 |
 | [DDPS 要求清单](docs/DDPS_REQUIREMENTS.md) | 架构、物理代价口径、对比实验、交付件的全部要求 |
 | [变更记录](docs/CHANGELOG.md) | 按日期记录每次变更（历史版本号只出现在归档条目） |
 | [LPO MSA 规范核心参数提炼](docs/LPO_MSA_Specification_Summary.md) | 电气/光学/信道参数标准依据 |
@@ -105,7 +105,7 @@ python cpp\export_models.py
 # 全量规模仿真：15 用例 2^22 在线调优（高 SNR 大点数、单种子 42、次优起点；只允许走 C++）
 python cpp\run_all_cases.py --backend wsl --num-symbols 4194304 --n-steps 15 --jobs 4 \
     --method proxy --grad-mode full --out-dir result\ddps_cpp_full
-# 换档：--grad-mode rotate|secant（--rotate-k 2）；direct 参照：--method direct
+# 换取法：--grad-mode rotate|secant（--rotate-k 2）；换梯度来源：--method direct
 
 # 2^18 等价比对（C++ 侧，与 Python 参照同环境、同参数）
 python cpp\run_all_cases.py --backend wsl --only-envs Base_IL10x10,IL20x20 --num-symbols 262144 \
@@ -116,7 +116,7 @@ python cpp\compare_traces.py --py result/ddps_equiv_py_full --cpp result/ddps_eq
 wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity ./cpp/build/run_ddps cpp/config.txt \
     --num-symbols 16384 --tx-noise-snr 23 --seed 42
 ```
-> C++ 与 Python 读同一配置、同一模型转换产物，四档 2^18 逐轨迹比对 `max_rel < 1e-9`（实测 full 1.42e-12 / rotate 1.20e-12 / secant 8.53e-12 / direct 8.89e-13）。开发方式：**Python 定原理，C++ 一比一复刻；两者比对只在 2^18 小点数低 SNR 下做，全量规模仿真（高 SNR 大点数）只用通过比对的 C++ 跑，不允许用 Python 跑高 SNR 大点数**。C++ 环境依赖见 [`cpp/requirements.txt`](cpp/requirements.txt)。
+> C++ 与 Python 读同一配置、同一模型转换产物，六格 2^18 逐轨迹比对 `max_rel < 1e-9`（实测代理 full 1.42e-12 / 代理 rotate 1.20e-12 / 代理 secant 8.53e-12 / 回传 full 8.655e-13 / 回传 rotate 7.964e-13 / 回传 secant 8.894e-13）。开发方式：**Python 定原理，C++ 一比一复刻；两者比对只在 2^18 小点数低 SNR 下做，全量规模仿真（高 SNR 大点数）只用通过比对的 C++ 跑，不允许用 Python 跑高 SNR 大点数**。C++ 环境依赖见 [`cpp/requirements.txt`](cpp/requirements.txt)。
 
 ### 4c. 对比实验 direct（有回传通道时的参照：端到端真实 BER 直接梯度下降，不用代理）
 ```bash
@@ -130,11 +130,11 @@ python cpp\run_all_cases.py --backend wsl --method direct --out-dir result\ddps_
     --only-envs Base_IL10x10,IL20x20 --num-symbols 262144 --n-steps 15 --jobs 2
 python cpp\compare_traces.py --py result/ddps_equiv_py_direct --cpp result/ddps_equiv_cpp_direct
 
-# 3) C++ 全量规模仿真（2^22、15 用例；与代理三档同协议）
+# 3) C++ 全量规模仿真（2^22、15 用例；与代理行三格同协议）
 python cpp\run_all_cases.py --backend wsl --method direct --out-dir result\ddps_cpp_direct \
     --num-symbols 4194304 --n-steps 15 --jobs 4
 ```
-> direct 回答的问题：若收端端到端 BER 可回传，直接对真实目标做梯度下降能达到什么水平。第 0 步全 8 维中心差分（16 个 `±ε 微扰态`，真实 BER 实测），此后全 8 维 Broyden 更新、0 微扰态；无代理，因此没有 gain 解析梯度、没有代理预测。与代理三档共用同一 8 维搜索空间 / 步长调度 / 组门控 / 15 步上限，差别只在目标与梯度来源。
+> direct（真实 BER 回传行）回答的问题：若收端端到端 BER 可回传，直接对真实目标做梯度下降能达到什么水平。第 0 步恒为全 8 维中心差分（16 个 `±ε 微扰态`，真实 BER 实测），此后按 `--grad-mode` 选取法（`full` 每步 16 态 / `rotate` 每步 4 态 / `secant` 0 态）；无代理，因此没有 gain 解析梯度、没有代理预测。与代理行三格共用同一 8 维搜索空间 / 步长调度 / 组门控 / 15 步上限，差别只在目标与梯度来源。
 
 ### 5. 报告与交付件
 ```bash
@@ -158,9 +158,9 @@ python make_deliverable_docx.py
 
 | 目录 | 内容 |
 | --- | --- |
-| `result/ddps_cpp_full/`、`result/ddps_cpp_rotate/`、`result/ddps_cpp_secant/` | C++ 2^22 三档全量（15 用例、单种子 42、固定 15 步） |
-| `result/ddps_cpp_direct/` | C++ 2^22 direct 参照 |
-| `result/ddps_equiv_{py,cpp}_{full,rotate,secant,direct}/` | 2^18 四档等价参照（Python / C++ 两平台，`compare_traces.py` 逐轨迹比对） |
+| `result/ddps_cpp_full/`、`result/ddps_cpp_rotate/`、`result/ddps_cpp_secant/` | C++ 2^22 代理行三格全量（15 用例、单种子 42、固定 15 步） |
+| `result/ddps_cpp_direct_secant/`、`result/ddps_cpp_direct_full/`、`result/ddps_cpp_direct_rotate/` | C++ 2^22 真实 BER 回传三格全量（同上协议） |
+| `result/ddps_equiv_{py,cpp}_<格>/` | 2^18 六格等价参照（Python / C++ 两平台，`compare_traces.py` 逐轨迹比对） |
 
 每个结果目录含 `case_summary.csv/json`、`trace_<用例>.csv`、`probes_<用例>.csv`、`run_config.json`、`report/`。
 
