@@ -16,15 +16,21 @@
   `gDC ∈ [0, 12] dB`、`gDC2 ∈ [0, 4] dB`、`gain/g₀ ∈ [10^−0.52, 10^0.6]`（`u_gain = log10(gain/0.3399)`）。
 - **gain 维（第 8 维）用解析梯度，0 微扰**：8 维探针特征全部正比于 gain，
   `∂A/∂u_gain = ln(10)·Σ_j (∂A/∂feat_j)·feat_j`，每步用当前落点探针重算。
-- **形状 7 维（5 个抽头 + gDC + gDC2）的梯度获取有三档，一键切换**：
-  | 档 | 机制 | 每步 ±ε 微扰态 | 每用例真实评估（2^22 实测） |
+- **在线梯度获取是一张 3×2 矩阵，两个维度各自一键切换**：
+  - **行 = 梯度来自哪里**：`--method proxy`（发端探针 → Model A 代理；不需要回传通道，现役）/
+    `--method direct`（收端真实 BER 直接差分；需要回传通道，作为同协议的对照行）。
+  - **列 = 形状 7 维怎么拿到斜率**：`--grad-mode full|rotate|secant`。
+- 形状 7 维（5 个抽头 + gDC + gDC2）的三种取法：
+  | 取法 | 机制 | 每步 ±ε 微扰态 | 每用例落地评估 |
   | --- | --- | --- | --- |
-  | `full` | 每步对 7 个形状维做中心差分 | 14 | 225（15 落点 + 210 微扰） |
-  | `rotate` | 每步只重算 2 个维（`(step·2+j) mod 7` 轮转），其余沿用上次实测值 | 4 | 85（15 + 70） |
-  | `secant` | 只有第 0 步做一轮中心差分，此后 Broyden 秩一修正（0 微扰） | 0 | 29（15 + 14） |
-  三档的第 0 步完全一致（14 个 ±ε 微扰态），共用同一起点、同一组归一化步长与门控、同一**固定 15 步**。
-- **固定 15 步、代理档不做提前停止**（三档只有在相同步数下比较落点与代价才有意义；上板时间可预算）。
-  direct 参照档保留边际停止（`MIN_GAIN_DEX = 0.01` dex，step > 0 才判）。
+  | `full` | 每步对 7 个形状维做中心差分 | 14 | 15 |
+  | `rotate` | 每步只重算 2 个维（`(step·2+j) mod 7` 轮转），其余沿用上次实测值 | 4 | 15 |
+  | `secant` | 只有第 0 步做一轮中心差分，此后 Broyden 秩一修正（0 微扰） | 0 | 15 |
+  第 0 步三种取法完全一致（14 个 ±ε 微扰态），共用同一起点、同一组归一化步长与门控、同一**固定 15 步**；
+  每用例真实评估次数 = 15 次落地 + 各取法的微扰态（实测见交付件 4.3 / 10.5）。代理行的 gain 维走解析梯度（0 微扰），
+  回传行没有代理可用、gain 维只能实测（第 0 步全 8 维 = 16 个微扰态）。
+- **固定 15 步、代理行不做提前停止**（各格只有在相同步数下比较落点与代价才有意义；上板时间可预算）。
+  回传行保留边际停止（`MIN_GAIN_DEX = 0.01` dex，step > 0 才判）：目标到 0 错误检测限后梯度信号本身消失。
 
 ### 物理层（链路口径）
 PAM4（电平 [-3,-1,1,3]，RMS = √5）→ 5-tap Tx FFE → DAC(ZOH,ENOB 5.5 量化噪声以 AWGN 注入，满量程=DAC 输出信号自身 max−min) → Tx IL(S4P) → +1mV 噪声 → Tx CTLE(gDC,gDC2, peaking) → Driver(gain) → Driver BW(40GHz) → MZM(Vπ=3,bias=2.25,ER=25dB) → 光纤 → PIN → TIA → Rx IL → +1mV 噪声 → Rx CTLE(固定 gDC=6/gDC2=3) → ADC(ENOB 5.5 量化噪声以 AWGN 注入，满量程=ADC 输出信号自身 max−min) → Rx FFE(22-tap,LMS) → Burg → MLSE(memory=1)。**Tx driver 路径无 VGA、无 RMS 归一化；Rx 侧只有 TIA 一层物理 AGC（目标 RMS = √5 ≈ 2.236 V）。** 量化噪声 σ = V_FS/(2^ENOB·√12)，由 SNR_q = 6.02·ENOB+1.76 dB（满量程正弦）推导。BER 为真逐位 Gray 计数。
@@ -52,23 +58,25 @@ PAM4（电平 [-3,-1,1,3]，RMS = √5）→ 5-tap Tx FFE → DAC(ZOH,ENOB 5.5 �
 
 ## 三、对比实验
 
-### 三a、三档形状梯度对比（现役）
-- 同一实现一键切换：`--grad-mode full|rotate|secant`（Python `_stage2_descent_proxy(grad_mode=…)`，
-  C++ `stage2_descent_proxy(…, grad_mode, rotate_k, …)`）。
-- 三档共用同一次优起点、同一 15 用例、同一 2^22 符号 / 单种子 42 协议、同一固定 15 步。
-- 交付件必须并列呈现：三档的落点 BER（几何平均 / 相对 full / 打平数 / 最坏单例倍数）与每用例真实评估次数，
-  由 `_rows_mode_cmp` / `_rows_eval_cost` 从结果目录实算，不手写数字。
+### 三a、矩阵内的横向对比（现役）
+- 同一实现一键切换：`--method proxy|direct` × `--grad-mode full|rotate|secant`
+  （Python `_stage2_descent_proxy(grad_mode=…)` / `_stage2_descent_direct(…, grad_mode)`，
+  C++ `stage2_descent_proxy` / `stage2_descent_direct`）。
+- 六格共用同一次优起点、同一 15 用例、同一 2^22 符号 / 单种子 42 协议、同一固定 15 步。
+- 交付件必须并列呈现：每格落点 BER（几何平均 / 相对参照格 / 打平数 / 最坏单例倍数）与每用例真实评估次数，
+  由 `_rows_mode_cmp` / `_rows_eval_cost` 从结果目录实算，不手写数字；规模不一致的格不得混进对比
+  （生成器默认拒绝，`--allow-mixed-scale` 仅供调试）。
 
-### 三b、direct 参照（有回传通道时的参照，不是替代方案）
+### 三b、真实 BER 回传行（矩阵第二行的定位）
 - 问题：现役方案假设**没有回传通道**；如果端到端 BER 可以回传，直接对真实目标做梯度下降能达到什么水平？
 - 实现：`_grad_direct_chain()`（第 0 步全 8 维中心差分，16 个 ±ε 微扰态，目标 = 真实 log10 BER）
-  + `_stage2_descent_direct()`（此后全 8 维 Broyden，0 微扰）。
-- 与现役的差别只在目标与梯度来源：无代理 → 无解析 gain 梯度（gain 维也实测）、无代理否决层。
+  + `_stage2_descent_direct()`（此后按 `grad_mode`：`full` 每步 16 态 / `rotate` 每步 4 态 / `secant` 0 态）。
+- 与代理行的差别只在目标与梯度来源：无代理 → 无解析 gain 梯度（gain 维也实测）、无代理否决层。
 - 同 8 维搜索空间、同起点、同步长机制、同组门控、同 15 步上限；C++ 一比一复刻
-  （`optimizer.hpp` `grad_direct_chain` / `stage2_descent_direct`，`cpp/main.cpp --method direct`）。
-- 结果目录：`result/ddps_cpp_direct/`（2^22 全量）、`result/ddps_equiv_{py,cpp}_direct/`（2^18 等价参照）。
-- 交付件呈现：6.2 收敛图组页签（三档 + direct）；6.5 对比节（结果对比 + 方案说明两个页签）；
-  10.4 等价页签（四档 2^18 实算最大相对差表）。
+  （`optimizer.hpp` `grad_direct_chain` / `stage2_descent_direct`，`cpp/main.cpp --method direct --grad-mode …`）。
+- 结果目录：`result/ddps_cpp_direct_{secant,full,rotate}/`（2^22 全量）、
+  `result/ddps_equiv_{py,cpp}_direct_<取法>/`（2^18 等价参照）。
+- 交付件呈现：6.2 收敛图组页签（逐格）；6.5 矩阵第二行总览 + 深挖；10.4 等价页签（六格 2^18 实算最大相对差表）。
 - 判读：同协议并列呈现，谁好用谁；真实 BER 到 0 错误检测限后梯度信号消失、边际停止触发属固有属性，不是缺陷。
 
 ### 三c、已归档的历史对比实验
