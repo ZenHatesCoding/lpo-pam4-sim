@@ -25,6 +25,9 @@ dataset/ddps_v4_dataset_2026091[14]_*.csv
 # 根目录交付件已移到 deliverables/ 文件夹，不再在根目录生成
 /DDPS_v*_Deliverable.html
 
+# Word 交付件按需生成，不进版本控制（本地保留；HTML 才是唯一事实来源）
+deliverables/*.docx
+
 # C++ 构建/调试中间产物（exe 由 build.ps1 生成；其余为临时输出）
 cpp/build/*.txt
 cpp/build/*.log
