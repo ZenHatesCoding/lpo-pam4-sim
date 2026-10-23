@@ -1,7 +1,7 @@
 # DDPS 交付件与重做要求清单
 
 > 本文件是所有要求的沉淀。每次重做前必读。不在这里的要求不复提。
-> 现役口径速查（8 维 / 三档 / 解析 gain / 固定 15 步 / 四档等价）：`docs/DDPS_Method.md`；
+> 现役口径速查（8 维 / 形状维三种取法 × 两种梯度来源 / 解析 gain / 固定 15 步 / 六格等价）：`docs/DDPS_Method.md`；
 > 最终以代码为准（`ddps_optimizer.py`、`cpp/src/optimizer.hpp`、`cpp/main.cpp`、`config.xlsx`）。
 
 ## 一、架构要求（不可改）
