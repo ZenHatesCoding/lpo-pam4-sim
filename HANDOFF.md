@@ -25,7 +25,7 @@
 - **2^18 四档等价全部通过**（判据 `max_rel < 1e-9`，`cpp/compare_traces.py` 逐轨迹比对，目录 `result/ddps_equiv_{py,cpp}_{full,rotate,secant,direct}/`）：full 1.42e-12 / rotate 1.20e-12 / secant 8.53e-12 / direct 8.89e-13。
 - **2^22 全量只用 C++、`--jobs 4`**：`python cpp\run_all_cases.py --backend wsl --num-symbols 4194304 --n-steps 15 --jobs 4 --method proxy --grad-mode full --out-dir result\ddps_cpp_full`；三档换 `--grad-mode rotate|secant`（`--rotate-k 2`），direct 用 `--method direct --out-dir result\ddps_cpp_direct`。单次评估实测：2^18 ≈1.86 s、2^22 **≈36.1 s**（2^22 为四档 campaign 首批 4 用例的 `elapsed_sec / n_real_evals` 均值；单进程阶段性峰值 RSS ≈5.6 GB）。
 - **交付件**：`make_deliverable.py --baseline result/ddps_cpp_full --mode full --direct result/ddps_cpp_direct --out deliverables/DDPS_Deliverable.html`（`--mode` 指定主结果目录对应的档）。默认只出 HTML；Word 版只在用户明确要求时跑 `make_deliverable_docx.py`。
-- **一键验收（回答"到底跑完没有"）**：`python tools\verify_ddps.py`（默认验 `result/ddps_cpp_{full,rotate,secant,direct}`）——查结果完整性、逐用例记账恒等式（`n_real_evals = n_landed + n_probe_states`）、刷新维序列与档位语义、微扰态成对、2^18 逐轨迹等价、交付件新鲜度与禁词；exit 0 才算通过。六格齐了用 `--cells full,rotate,secant,direct_full,direct_rotate,direct_secant`。
+- **一键验收（回答"到底跑完没有"）**：`python tools\verify_ddps.py`（默认 **自动发现** `result/ddps_cpp_*` 下已跑完的格）——查结果完整性、逐用例记账恒等式（`n_real_evals = n_landed + n_probe_states`）、刷新维序列与档位语义、微扰态成对、2^18 逐轨迹等价、交付件新鲜度与禁词；exit 0 才算通过。想看"六格是不是跑齐了"就加 `--expect-cells 6`：格数不足直接报 exit 2。
 - **本机 Smart App Control 已转强制模式**：拦 MinGW cc1plus 依赖的 `libisl-23.dll`（Windows 侧 C/C++ 编译不可用）+ 拦既有 `run_ddps.exe`（旧产物也跑不了）；换任何 Windows 侧编译器都无解（产物仍是本地无签名 exe）。**现役编译运行路线 = WSL**：`cpp/build_wsl.sh`（Ubuntu g++ 13.3，源码纯标准 C++17）+ `cpp/run_all_cases.py --backend wsl`，结果/日志仍落 Windows 文件树、受 git 跟踪。
 
 ## 待办（8 维 + 形状三档口径，2^22 四档全量对比）

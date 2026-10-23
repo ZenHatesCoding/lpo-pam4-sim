@@ -216,17 +216,49 @@ def check_deliverable(path, newest_result):
     return bad
 
 
+def discover_cells(prefix):
+    """自动发现现役结果格：<prefix>_<cell>/ 下有 case_summary.csv 才算跑完。
+
+    等价目录（ddps_equiv_*）与中间产物（*_parts）不在 <prefix>_ 前缀命名空间内，天然排除。
+    """
+    root = os.path.dirname(os.path.normpath(prefix)) or '.'
+    base = os.path.basename(os.path.normpath(prefix))
+    out = []
+    if not os.path.isdir(root):
+        return out
+    for name in sorted(os.listdir(root)):
+        if not name.startswith(base + '_'):
+            continue
+        cell = name[len(base) + 1:]
+        if not cell or 'equiv' in cell:
+            continue
+        if os.path.exists(os.path.join(root, name, 'case_summary.csv')):
+            out.append(cell)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description='DDPS 交付验收（只用磁盘结果说话）')
     ap.add_argument('--prefix', default='result/ddps_cpp')
-    ap.add_argument('--cells', default='full,rotate,secant,direct',
-                    help='逗号分隔的档目录后缀（对应 <prefix>_<cell>）')
+    ap.add_argument('--cells', default='auto',
+                    help='逗号分隔的格后缀（对应 <prefix>_<cell>）；auto = 自动发现已跑完的格')
+    ap.add_argument('--expect-cells', type=int, default=0,
+                    help='期望发现/验收的格数（0 = 不检查）；用来回答"是不是真的跑齐了"')
     ap.add_argument('--expect-cases', type=int, default=15)
     ap.add_argument('--expect-symbols', type=int, default=4194304)
     ap.add_argument('--deliverable', default='deliverables/DDPS_Deliverable.html')
     ap.add_argument('--skip-equivalence', action='store_true')
     a = ap.parse_args()
-    cells = [c.strip() for c in a.cells.split(',') if c.strip()]
+
+    if a.cells.strip() == 'auto':
+        cells = discover_cells(a.prefix)
+        print('=== 自动发现的现役结果格 ===')
+        print('  ' + (', '.join(cells) if cells else '（一个都没有）'))
+    else:
+        cells = [c.strip() for c in a.cells.split(',') if c.strip()]
+    if a.expect_cells and len(cells) != a.expect_cells:
+        print(f'  !! 期望 {a.expect_cells} 格，实际发现 {len(cells)} 格 → 结果集不全（exit 2）')
+        return 2
 
     print('=== A/B 每个结果目录的完整性与机制 ===')
     rep = Report()
