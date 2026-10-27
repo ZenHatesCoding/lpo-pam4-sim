@@ -2577,7 +2577,7 @@ def _build_direct_section(a, summary, order, fs=None):
     <ul style="margin-top:6px">
 {bullets}
     </ul>
-    <p style="margin-bottom:0">定位：<strong>回传格不是替代方案，而是「若有回传通道，直接梯度下降能达到什么水平」的参照</strong>——本方案的默认前提是拿不到端到端 BER，此时代理路径是唯一选择（§1）。</p>
+    <p style="margin-bottom:0">定位：<strong>回传格不是替代方案，而是「若有回传通道，直接梯度下降能达到什么水平」的参照</strong>。它与代理行的差别不在算法、也不在评估次数（回传行反而更省，原因见上表），而在每个决策用的数从哪来——回传行要收端先测出端到端 BER 再送回发端（仿真里直接读模拟收端的 BER，相当于假设它能回传），现役方案每一步只用发端自己可测的探针（≈5 ms），不需要链路另一端配合。本方案的默认前提就是拿不到端到端 BER，此时代理路径是唯一选择（§1）；若前提换成有回传，回传 × full 在同取法对照里确实更好，但在个别用例上会因真实梯度抖动落后于现役（逐用例见上表）。</p>
     <figure>
       <div class="fig-scroll"><img src="{img_tag}" alt="direct 与现役方案最优 BER 对比"></div>
       <figcaption>图 13 · 15 用例最优 BER_MLSE 对比（对数横轴；蓝点 = 代理 × full，红菱 = 回传 × secant 这一格；灰线连接同一用例）。三格逐用例数字见下表，逐格评估量与打平情况见上表。</figcaption>
