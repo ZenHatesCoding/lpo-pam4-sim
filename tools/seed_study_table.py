@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """起点鲁棒性实验的独立汇总表（不复用交付件生成器的代码，用来交叉核对交付件里的倍率）。
 
 用法：
@@ -62,6 +62,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--root', default='result/seed_study')
     ap.add_argument('--csv', default=None, help='另存一份长表 CSV')
+    ap.add_argument('--md', action='store_true', help='输出 markdown 表（可直接粘进 docs）')
     a = ap.parse_args()
 
     seeds = [d for d in sorted(os.listdir(a.root))
@@ -73,6 +74,30 @@ def main():
         for label, g, n in rows:
             print('  %-14s %s' % (label, '—' if g is None else '%.3f×  (用例 %d)' % (g, n)))
             flat.append((s, label, '' if g is None else '%.4f' % g, n))
+
+    if a.md:
+        # 行 = 格，列 = 起点（现役在最左）
+        seed_list = seeds
+        print('\n| 格 | ' + ' | '.join(seed_list) + ' |')
+        print('|' + '---|' * (len(seed_list) + 1))
+        for key, label in CELLS:
+            cells = []
+            for sd in seed_list:
+                g = dict((lb, gg) for lb, gg, _n in one_seed(a.root, sd)).get(label)
+                if g is None:
+                    cells.append('—')
+                elif key == 'full':
+                    cells.append('1.000×')
+                else:
+                    cells.append('%.3f×' % g)
+            print('| %s | %s |' % (label, ' | '.join(cells)))
+        print('')
+        for sd in seed_list:
+            p = os.path.join(a.root, sd, 'ddps_cpp_full', 'case_summary.csv')
+            if os.path.exists(p):
+                cur = load(p)
+                gm = math.exp(sum(math.log(v) for v in cur.values()) / len(cur))
+                print('%s：代理 × full 的 15 用例几何均值 %.3e' % (sd, gm))
 
     if a.csv:
         with open(a.csv, 'w', encoding='utf-8-sig', newline='') as f:
