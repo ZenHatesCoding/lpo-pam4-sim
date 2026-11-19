@@ -2172,15 +2172,29 @@ def _study_tab_rows(seed_dirs):
     return chr(10).join(body)
 
 
-def _study_ratio_matrix(tabs):
-    """{格: [各起点的几何均值倍率]} 与起点短名列表（判词与结论条目共用）。"""
+def _study_ratio_matrix(tabs, same_scale_only=True):
+    """{格: [各起点的几何均值倍率]} + 起点短名 + 各自规模。
+
+    `same_scale_only=True` 时只保留「出现次数最多的那个规模」的页签：现役起点是 2^22、
+    三个差起点是 2^20，跨规模比出来的差既可能是起点造成的、也可能是规模（检测底/量化）造成的，
+    不能混在一起当"起点影响"讲。现役页签仍然显示在判据表里，只是不参与稳定性判断。
+    """
     keys = [k for k, _l in _STUDY_CELLS if k != 'full']
-    mat, names = {}, []
-    for _k, label, dirs, _sp, _ns, _sc in tabs:
-        ref = dirs.get('full')
-        if ref is None:
+    rows = []
+    for key, label, dirs, _sp, nsym, _sc in tabs:
+        if dirs.get('full') is None:
             continue
-        names.append(label.split('（')[0].split('：')[0].replace('差起点 ', ''))
+        rows.append((key, label.split('（')[0].split('：')[0].replace('差起点 ', ''), nsym, dirs))
+    if same_scale_only and rows:
+        from collections import Counter
+        # 现役页签的规模是历史口径（2^22），先排除，再在差起点之间取最常见的规模
+        seed_rows = [r for r in rows if r[0] != 'current'] or rows
+        scale = Counter(r[2] for r in seed_rows).most_common(1)[0][0]
+        rows = [r for r in rows if r[2] == scale]
+    mat, names = {}, []
+    for _key, name, _nsym, dirs in rows:
+        ref = dirs.get('full')
+        names.append(name)
         for ck in keys:
             v = dirs.get(ck)
             rr = _study_cell_ratio(v, ref) if v is not None else None
@@ -2202,7 +2216,7 @@ def _study_conclusion_line(a):
             continue
         (stable if max(vals) / min(vals) <= 1.10 else changed).append((ck, vals))
     head = ('<li>结论不依赖起点：把起点换成三个坏法不同的次优工作点（基线用例 BER 都校准到约 1e-3，'
-            '比原起点差约 8 倍）重跑六格，')
+            '比原起点差约 8 倍）在同一规模下重跑六格，')
     if not changed:
         body = ('<strong>%d 格在 %d 个起点下的相对强弱都落在同一档（差异 ≤10%%）</strong>，'
                 '没有哪一格是「在这个起点赢、换个起点就输」（6.6）。' % (len(stable), len(names)))
@@ -2271,8 +2285,10 @@ def _study_verdict(tabs):
             worst_ck, worst_amp = ck, max(vals) - min(vals)
 
     parts = ['<p><strong>判据表怎么读</strong>：倍率是「该格落点 / 同一起点下代理 × full 的落点」，'
-             '逐用例算完再取几何均值；1.00× = 与现役打平，小于 1 是更好。'
-             '四个起点分别是%s。' % ('、'.join(tab_names))]
+             '逐用例算完再取几何均值；1.00× = 与同一起点下的代理 × full 打平，小于 1 是更好。'
+             '参与判词的是同规模（%s）的起点：%s——现役起点是另一规模，只作锚点看绝对落点，'
+             '不参与「起点换了结论变不变」的判断（跨规模的差分不清是起点还是检测底/量化造成的）。'
+             % (_study_scale_txt(tabs[-1][4]), '、'.join(tab_names))]
     if not mixed:
         parts.append('实测：<strong>各格在全部 %d 个起点下都落在同一档（差异 ≤10%%）</strong>——'
                      '没有哪一格是「在这个起点赢、换个起点就输」，说明强弱排序不是现役起点凑出来的。'
