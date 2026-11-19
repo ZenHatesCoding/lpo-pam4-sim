@@ -65,7 +65,7 @@
 本轮（2026-10-12 · direct 对比实验 + SAC→WSL 编译路线）：
 
 1. ✅ direct 方案实现（Python 参照）：`ddps_optimizer._grad_direct_chain` + `_stage2_descent_direct`（目标 = 真实 log10 BER；第 0 步 7 维中心差分 14 试探、此后全维 Broyden 割线零试探；无 A/B 即无红线/否决/轨迹信任域）+ `test_generalization.py --method direct` + `tools/run_parallel_envs.py --method` 透传。
-2. ✅ Python 2^18 全 15 用例验证 → `result/ddps_direct_py/`。
+2. ✅ Python 2^18 全 15 用例验证 → 已归档 `archive/20261119_superseded_result_dirs/result_ddps_direct_py/`（被六格等价目录取代）。
 3. ✅ C++ 一比一复刻：`cpp/src/optimizer.hpp` `grad_direct_chain` + `stage2_descent_direct`、`cpp/main.cpp --method direct`（pa_seed=目标初值、pb_seed=0，trace schema 与其余结果目录一致）。
 4. ✅ SAC 强制模式确诊与绕行：CodeIntegrity 事件 3077/3033 定位 libisl-23.dll 拦截；WSL(Ubuntu) g++ 13.3 构建路线（`cpp/build_wsl.sh`）+ `cpp/run_all_cases.py --backend wsl`（路径转 posix 相对、`--cd` 锚定仓库根、产物/日志仍落 Windows 文件树受 git 跟踪）。
 5. ✅ 2^18 等价比对（Base_IL10x10 + IL20x20 → `result/ddps_cpp_direct_equiv/`）：trace 逐步最大相对差 9.05e-13（历史 secant 基线 4.6e-13 同量级）→ PASS。比对工具固化为 `cpp/compare_traces.py`（默认比两侧交集，`--envs` 可指定）。
@@ -88,7 +88,7 @@
 ## 未提交变更（当前 working tree）
 
 - 现役代码：`ddps_optimizer.py`（`_analytic_gain_grad` + `_stage2_descent_secant` 重写）、`test_generalization.py`、`cpp/src/optimizer.hpp`、`cpp/build.ps1`。
-- 结果：`result/ddps_cpp_secant/`（新 secant 结果，已就位）、`result/ddps_secant_analytic_py/`（低SNR Python 参照）、`result/ddps_cpp_secant_analytic_equiv/`（低SNR C++ 等价）。
+- 结果：`result/ddps_cpp_secant/`（新 secant 结果，已就位）、低SNR 参照与 C++ 等价分别见 `result/ddps_equiv_py_secant/`、`result/ddps_equiv_cpp_secant/`；早期那批低SNR 旁证已归档 `archive/20261119_superseded_result_dirs/result_ddps_secant_analytic_py/`。
 - 归档：`archive/20260930_ddps_v7.3_2to22/`、`archive/20260930_ddps_secant_k3_scratch/`（旧 K=3 scratch）。
 
 1. **交付件 HTML 交互化**：6.2 图改 tab 切换（A+B / A-only）；第 9 节复现命令、4.3 复杂度、4.4 可靠性、2.3 参数表、2.4 用例表、5 块长表、5 采样口径、6.3 核验表共 8 处 details 折叠；全文 h2/h3/h4 标题级折叠（点击标题收起下属内容，打印时自动展开、打印后恢复）。

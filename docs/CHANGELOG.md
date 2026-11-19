@@ -53,7 +53,7 @@
 - **交付件 §1–§10 与新口径对齐**：8 维搜索空间、三档形状梯度、解析 gain、Model B 离线、direct 参照、四档 2^18 等价页签；复现命令与 §4.3 目录路径随现役档动态生成（不再写死 full）。
 - **交付件规模口径改为数据驱动**：凡描述"本次交付数据"的符号数（§1 头条、§4.3 表头、§6 引言、§6.5 公平性、§8 检测底、§9 产物清单、§6.5 对比图纵轴）一律由结果目录的 `num_symbols` 生成（`<!--SCALE_LABEL-->` / `<!--SCALE_LABEL_PLAIN-->`），只有设计口径与复现命令里的 `4194304` 保持写死；此前任何非 2^22 规模的渲染都会谎报数据规模。顺带修掉两处 f-string 内的 token（组装时机晚于 token 替换，永远替不掉）与对比图纵轴标签的作用域错误。
 - **报告种子文案改为读数据**：`report_ddps.py` 的"在线调优从次优起点（gain ×…）"原先用模块默认常量算，恒为 ×1.000；现改为读 `case_summary.csv` 的 `seed_gain_ratio`（读不到才回落常量），本次交付渲染为 ×0.325，与种子配置 `result/seed_config_bad_1e4.json` 一致。
-- **Python 参照侧复现核验**：用当前代码在 2^18 重跑 15 步 `full` 档（Base_IL10x10 + IL20x20，`result/_integrity_py`），与既有 Python 等价目录 `result/ddps_equiv_py_full` 逐列比对：`case_summary` 39 列、`trace` 21 列、`probes` 24 列（含 `x`/`taps`/`grad`/`refreshed` 文本列）**最大相对差 0.000e+00**（`scratch/compare_py_integrity.py`）。
+- **Python 参照侧复现核验**：用当前代码在 2^18 重跑 15 步 `full` 档（Base_IL10x10 + IL20x20，复现目录 `result/_integrity_py`，已归档到 `archive/20261119_superseded_result_dirs/`），与既有 Python 等价目录 `result/ddps_equiv_py_full` 逐列比对：`case_summary` 39 列、`trace` 21 列、`probes` 24 列（含 `x`/`taps`/`grad`/`refreshed` 文本列）**最大相对差 0.000e+00**（`scratch/compare_py_integrity.py`）。
 - **2^22 四档全量完成 + 逐用例机制体检**：15 用例 × 4 档全部落地（`result/ddps_cpp_{full,rotate,secant,direct}/`，各档顶层 `case_summary.csv` + `run_config.json` 已汇总），体检 0 异常——落点数、微扰态数、记账恒等式 `n_real_evals = n_landed + n_probe_states`、每步刷新维序列（full 全 7 维 / rotate `(2k+j) mod 7` / secant 与 direct 仅第 0 步）、微扰态 ± 成对、无 NaN 与非正 BER（`scratch/check_first_batch.py`、`scratch/verify_22.py`）。15 用例几何均值：full 2.013e-07、rotate 2.063e-07、secant 1.861e-07；full 档 11/15 打到 2^22 零错误检测底（5.975e-08）。
 - **现役档定为 `full`**：裁定规则＝以 `full` 为参照，逐用例 ≤5% 且最坏单例 ≤1.05 才算同水平，同水平者取更省评估的档。rotate 几何比 1.025、最坏单例 1.21；secant 几何比 0.924、最坏单例 2.71——两档都因最坏用例明显退步被否，取最忠实的每步全量微扰（每用例 225 次真实评估）。交付件主结果目录 = `result/ddps_cpp_full`，其余三档作为同预算对照页签（`scratch/mode_verdict.py`）。
 - **文档口径按 2^22 实测刷新**：`docs/DDPS_Method.md` §4 单次评估＝full 36.63 s / rotate 35.93 s / secant 37.49 s / direct 37.25 s（各 15 用例 `elapsed_sec / n_real_evals` 均值），full 档 15 用例 4 路并行 ≈8.6 h；§3.3 转角表换为 2^22 实测四档：full 10.0°/33.3°、rotate 8.7°/27.0°、secant **0.0°/0.0°**、direct **0.0°/0.0°**——即"每步全量微扰"与"轮流微扰"两档的下降方向确实在转，而"第 0 步后不再微扰"的两档组内方向严格冻结（`scratch/patch_docs_22.py`）。
@@ -91,7 +91,7 @@
 - WSL2 内存上限 = 物理 50%（本机 15.8 GB）；2^22 单 worker 阶段性峰值 RSS ~5 GB → jobs=2 稳妥上限；Linux 单线程单 eval ~30 s（Windows 拥塞态 ~105 s 的 1/4）。
 
 ### 验证（按双后端规则三步走）
-- Python 2^18 全 15 用例（`result/ddps_direct_py/`）：与 secant 同协议，几何平均 ×1997 vs ×2052，13/15 同到 2^18 检测底 9.92e-7。
+- Python 2^18 全 15 用例（复现目录 `result/ddps_direct_py/`，已归档到 `archive/20261119_superseded_result_dirs/`）：与 secant 同协议，几何平均 ×1997 vs ×2052，13/15 同到 2^18 检测底 9.92e-7。
 - C++ 2^18 等价比对（Base_IL10x10 + IL20x20，`result/ddps_cpp_direct_equiv/`）：trace 逐步最大相对差 9.05e-13 → PASS（secant 历史基线 4.6e-13 同量级）；比对工具固化为 `cpp/compare_traces.py`。
 - C++ 2^22 全量 15 用例（`result/ddps_cpp_direct/`，`--backend wsl --jobs 2`，墙钟 5073.1s）。
 

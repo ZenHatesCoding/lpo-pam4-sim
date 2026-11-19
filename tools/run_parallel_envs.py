@@ -22,7 +22,7 @@ pickle 问题），每个环境用 `--only-envs <env>` 让 test_generalization �
 
     # direct（有回传通道时的参照，不用 Model A）：
     python tools/run_parallel_envs.py --model-dir models/ddps \
-        --out-dir result/ddps_direct_py --method direct \
+        --out-dir result/ddps_equiv_py_direct_secant --method direct --grad-mode secant \
         --seed-config result/seed_config_bad_1e4.json --n-steps 15 \
         --num-symbols 262144 --sim-seeds 42 --jobs 12
 
@@ -89,7 +89,7 @@ def main():
     ap = argparse.ArgumentParser(
         description='多进程并行跑 test_generalization 的 15 环境并合并结果')
     ap.add_argument('--model-dir', default='models/ddps')
-    ap.add_argument('--out-dir', default='result/ddps_secant_analytic_py')
+    ap.add_argument('--out-dir', default='result/ddps_equiv_py_full')
     ap.add_argument('--n-steps', type=int, default=15)
     ap.add_argument('--num-symbols', type=int, default=262144,
                     help='每环境符号数；只允许小点数低 SNR 验证（2^18 及以下，AGENTS.md 开发方式）')

@@ -38,6 +38,7 @@
 | `archive/20261022_ddps_ab_secant_2to22/` | 重构前的 A+B 割线 2^22 secant / direct 结果 |
 | `archive/20261022_retire_stale_tools/` | 退役的旧工具脚本（如 `run_py_cases_parallel.py`） |
 | `archive/20261023_superseded_secant_direct_equiv/` | 被六格等价目录取代的旧等价结果（direct、secant 解析梯度各一套） |
+| `archive/20261119_superseded_result_dirs/` | 被六格现役目录取代的 `result/` 旁证目录：`_integrity_py`、`_integrity_rebuild`、`ddps_chain_sanity`、`ddps_direct_py`、`ddps_secant_analytic_py` |
 | `archive/ddps_v6_2_*`、`archive/_buggy_v6_2_*` | v6.2 时期的 goodseed 结果与问题版结果 |
 
 ## 版本变更记录
