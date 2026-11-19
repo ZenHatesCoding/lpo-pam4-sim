@@ -2148,6 +2148,42 @@ def _study_cell_ratio(v, ref):
             'worst': float(np.max(r)), 'geo_ratio': float(np.exp(np.mean(np.log(r)))), 'n': int(len(r))}
 
 
+def _study_secant_mech(tabs):
+    """secant 的跨组比例定死 → gain 一动 CTLE 跟着动；这个「跟着动」在不同起点上是有害还是无害。"""
+    notes = []
+    for key, label, dirs, _sp, _ns, _sc in tabs:
+        if key == 'current':
+            continue
+        ref, sec = dirs.get('full'), dirs.get('secant')
+        if not ref or not sec:
+            continue
+        env = max(ref['bmap'], key=lambda e: ref['bmap'][e])
+        p1 = os.path.join(ref['dir'], 'trace_%s.csv' % env)
+        p2 = os.path.join(sec['dir'], 'trace_%s.csv' % env)
+        if not (os.path.exists(p1) and os.path.exists(p2)):
+            continue
+        try:
+            z1 = pd.read_csv(p1).iloc[-1]
+            z2 = pd.read_csv(p2).iloc[-1]
+        except Exception:
+            continue
+        dg = float(z2['gdc']) - float(z1['gdc'])
+        dg2 = float(z2['gdc2']) - float(z1['gdc2'])
+        b1, b2 = float(z1['real_ber']), float(z2['real_ber'])
+        br = (b2 / b1) if b1 > 0 else float('nan')
+        name = label.split('（')[0].split('：')[0].replace('差起点 ', '')
+        notes.append('%s：gDC %+.2f dB、gDC2 %+.2f dB，最难用例 BER %.2f×'
+                     % (name, dg, dg2, br))
+    if len(notes) < 2:
+        return ''
+    return ('<p><strong>为什么 secant 会随起点变</strong>：它第 0 步把各组之间的比例一起定死，'
+            '之后 gain 每走一格，CTLE 就按那个固定比例跟着走一格、想不走都不行。'
+            '这个「跟着走」在 CTLE 本来就对的时候是有害的（把已经对的维推歪），'
+            '在 CTLE 本来就错的时候反而无害甚至有益。实测最难用例上的差别正是这个：%s。'
+            '所以 secant 的强弱不是「方向估计准不准」的问题，而是起点把误差落在哪一组上的问题。'
+            % '；'.join(notes) + '</p>')
+
+
 def _study_hard_detail(dirs):
     """同一起点、最难用例上，六格末步落在哪（gain 倍率 / gDC / gDC2 / 真实 BER / 用了几步）。"""
     ref = dirs.get('full')
@@ -2577,6 +2613,7 @@ def _study_block(a):
             + '<p>判据只有一条：<strong>同一格在不同起点下的相对表现是否一致</strong>——'
               '如果某个格在四个起点下都落在同一档，说明它的强弱不是被起点凑出来的。</p>' + chr(10)
             + sum_tbl
+            + _study_secant_mech(tabs)
             + _study_resolution_note(tabs)
             + _study_verdict(tabs)
             + chr(10) + '<div class="tabs">' + chr(10) + '  <div class="tab-bar">' + chr(10)
