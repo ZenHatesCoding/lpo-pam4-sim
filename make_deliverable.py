@@ -1180,6 +1180,7 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
   <p><strong>在线调优做 8 维梯度下降</strong>：方向来源与形状维获取方式构成一张可选矩阵（3 × 2，机制见 4.2、每格在线代价见 4.3），所有格共用同一起点、同一组归一化步长与门控、同一固定 15 步。从该次优点出发，各用例的真实 BER 数步内降到该环境的最优工作点附近。</p>
   <p style="margin-bottom:0">本节的曲线与逐用例表都取自<strong>现役格 <!--MODE_NAME_TEXT-->（方向来自 Model A 代理，不需要回传通道）</strong>；有回传通道时直接对真实 BER 做梯度下降的对照见 6.5。</p>
 </div>
+<!--SEED_SPECTRUM-->
 
 <h3>6.1 泛化：只用 10 dB 基线训练 → 跨 15 个环境</h3>
 <p>训练集只含 Base_IL10x10 邻域 <!--N_ROWS--> 行。方向代理冻结后，对 15 个用例环境逐个执行 Stage-2 在线调优，不重训、不重新标定；下表是<strong>现役格 <!--MODE_LABEL--></strong>的逐用例结果，最后一列是每个用例为此付出的真实评估次数（落地 + 微扰态），六格矩阵横向对比见本节末表。</p>
@@ -2170,6 +2171,70 @@ def _study_tab_rows(seed_dirs):
     return chr(10).join(body)
 
 
+def _study_verdict(tabs):
+    """从判据表实算一段判词：跨起点方向是否一致 + 倍率波动区间 + 退化点名。"""
+    keys = [k for k, _l in _STUDY_CELLS if k != 'full']
+    mat = {}
+    tab_names = []
+    for _k, label, dirs, _sp, _ns, _sc in tabs:
+        ref = dirs.get('full')
+        if ref is None:
+            continue
+        tab_names.append(label.split('（')[0].split('：')[0].replace('差起点 ', ''))
+        for ck in keys:
+            v = dirs.get(ck)
+            rr = _study_cell_ratio(v, ref) if v is not None else None
+            if rr:
+                mat.setdefault(ck, []).append(rr['geo_ratio'])
+    if len(tab_names) < 2 or not mat:
+        return ''
+
+    label_of = dict(_STUDY_CELLS)
+    # 1) 方向一致性：全部起点下都比现役差/都比现役好/参差
+    same = []
+    mixed = []
+    for ck, vals in mat.items():
+        if len(vals) < 2:
+            continue
+        if all(v > 1.0 for v in vals) or all(v <= 1.0 for v in vals):
+            same.append(ck)
+        else:
+            mixed.append(ck)
+    # 2) 波动区间
+    span_txt = []
+    for ck in keys:
+        vals = mat.get(ck) or []
+        if len(vals) >= 2:
+            span_txt.append('%s %.2f~%.2f×' % (label_of[ck].replace(' ', ''), min(vals), max(vals)))
+    # 3) 退化点名：跨起点波动最大的那一格
+    worst_ck, worst_amp = None, 0.0
+    for ck, vals in mat.items():
+        if len(vals) >= 2 and max(vals) - min(vals) > worst_amp:
+            worst_ck, worst_amp = ck, max(vals) - min(vals)
+
+    parts = ['<p><strong>判据表怎么读</strong>：倍率是「该格落点 / 同一起点下代理 × full 的落点」，'
+             '逐用例算完再取几何均值；1.00× = 与现役打平，小于 1 是更好。'
+             '四个起点分别是%s。' % ('、'.join(tab_names))]
+    if not mixed:
+        parts.append('实测：<strong>六格在全部 %d 个起点下的好坏方向完全一致</strong>——'
+                     '没有哪一格是"在这个起点赢、换个起点就输"，说明强弱排序不是现役起点凑出来的。'
+                     % len(tab_names))
+    else:
+        parts.append('实测：<strong>%d 格方向一致，%d 格随起点变向</strong>（%s）。'
+                     '变向的那几格就是"起点一换结论就变"的部分，不能只看单一起点下结论。'
+                     % (len(same), len(mixed), '、'.join(label_of[c].replace(' ', '') for c in mixed)))
+    if span_txt:
+        parts.append('跨起点的倍率波动：%s。' % '；'.join(span_txt))
+    if worst_ck and worst_amp > 0.2:
+        vals = mat[worst_ck]
+        parts.append('<strong>波动最大的是 %s</strong>（%.2f~%.2f×，跨度 %.2f×）——'
+                     '起点越偏离"形状基本对"，这一格的亏空越大；'
+                     '它靠的是每步重测斜率，起点方向本身错得离谱时，重测也救不回多少，但至少不会更差。'
+                     % (label_of[worst_ck].replace(' ', ''), min(vals), max(vals), worst_amp))
+    parts.append('</p>')
+    return ''.join(parts)
+
+
 def _study_hard_png(d):
     rd = os.path.join(d, 'report')
     if not os.path.isdir(rd):
@@ -2234,17 +2299,17 @@ def _study_block(a):
     """§6.6 整块：跨起点汇总表 + 每个起点一个大 tab（内含六格小 tab）。"""
     tabs = []   # (key, label, dirs, spath, num_sym, note)
 
+    # 现役六格的目录（直接来自交付件生成参数，不猜）
+    cur_dirs = {'full': a.dirs.get('full'), 'rotate': a.dirs.get('rotate'),
+                'secant': a.dirs.get('secant'), 'direct_full': a.direct_full,
+                'direct_rotate': a.direct_rotate, 'direct_secant': a.direct}
     cur = {}
     for key, _label in _STUDY_CELLS:
-        d = a.dirs.get(key) or a.dirs.get('direct' if key.startswith('direct') else key)
-        if key == 'direct_full':
-            d = a.direct_full
-        elif key == 'direct_rotate':
-            d = a.direct_rotate
-        elif key == 'direct_secant':
-            d = a.direct
+        d = cur_dirs.get(key)
         if d and os.path.isdir(d):
-            cur[key] = _study_cell_metrics(d)
+            v = _study_cell_metrics(d)
+            if v is not None:
+                cur[key] = v
     if cur:
         tabs.append(('current', '现役起点（gain ×0.325）', cur, 'result/seed_config_bad_1e4.json',
                      _study_num_sym(a.dirs.get('full', '')), _study_scale_txt(
@@ -2257,7 +2322,7 @@ def _study_block(a):
                  if os.path.isdir(os.path.join(_STUDY_ROOT, d)) and d not in meta_names]
     plan = [(n, l, t) for n, l, t in _STUDY_SEED_META]
     plan += [(d, '差起点（%s）' % d, '') for d in extra]
-    for name, label, note in plan:
+    for name, label, _note in plan:
         dirs = {}
         for key, _label in _STUDY_CELLS:
             d = os.path.join(_STUDY_ROOT, name, 'ddps_cpp_%s' % key)
@@ -2273,7 +2338,8 @@ def _study_block(a):
         return ''
 
     # ---- 跨起点汇总：每一格在四个起点下「相对该起点现役格」的几何均值倍率 ----
-    head = ''.join('<th class="n">%s</th>' % t[1].split('（')[0].replace('差起点 ', '') for t in tabs)
+    head = ''.join('<th class="n">%s</th>'
+                   % t[1].split('（')[0].split('：')[0].replace('差起点 ', '') for t in tabs)
     rows = []
     for key, label in _STUDY_CELLS:
         cells = []
@@ -2370,12 +2436,28 @@ def _study_block(a):
             + '<p>判据只有一条：<strong>同一格在不同起点下的相对表现是否一致</strong>——'
               '如果某个格在四个起点下都落在同一档，说明它的强弱不是被起点凑出来的。</p>' + chr(10)
             + sum_tbl
+            + _study_verdict(tabs)
             + chr(10) + '<div class="tabs">' + chr(10) + '  <div class="tab-bar">' + chr(10)
             + chr(10).join(bar) + chr(10) + '  </div>' + ''.join(panels) + chr(10) + '</div>' + chr(10)
-            + '<p class="note">复现：<code>python tools\\run_seed_study.py --jobs 6 --num-symbols 2097152 '
+            + '<p class="note">复现：<code>python tools\\run_seed_study.py --jobs 15 --num-symbols 1048576 '
               '--seeds s1_gain-2.6dB,s2_ctle_g3.0_1.5,s3_shape3.0</code>；起点文件在 <code>seeds/</code>，'
               '起点 BER 由链路真实评估得到（选点脚本 <code>tools/probe_start_point.py</code>）。</p>')
 
+
+
+def _seed_spectrum_block(a):
+    """§6.0 的起点 → 最优三件套图（基线用例）：抽头形状、Tx CTLE |H(f)|、发端频谱对比。"""
+    d = (a.dirs or {}).get(a.mode) or (a.dirs or {}).get('full')
+    if not d:
+        return ''
+    p = os.path.join(d, 'report', 'ddps_spectrum_Base_IL10x10.png')
+    if not os.path.exists(p):
+        return ''
+    cap = ('起点 → 最优的三件套（基线用例 Base_IL10x10）：5 抽头形状、Tx CTLE |H(f)|、'
+           '<strong>发端频谱对比</strong>（FFE ⊗ DAC 零阶保持 ⊗ Tx CTLE ⊗ 驱动增益，'
+           '载波按白谱处理，两条曲线的差即这三个线性环节造成的频谱改变）')
+    return ('<figure>\n  <div class="fig-scroll"><img src="%s" alt="起点与最优的发端频谱对比"></div>\n'
+            '  <figcaption>%s</figcaption>\n</figure>' % (_img_tag(p), cap))
 
 
 def _eval_mag_txt(ev_d, ev_s):
@@ -3071,7 +3153,7 @@ def _build_fig_tabs(a, hard_env):
         imgs = [('ddps_convergence.png', f'图 6 · {label} 收敛轨迹（Model A 预测 / 实测 BER_MLSE / ±ε 微扰态灰点，对数纵轴；虚线为起点）'),
                 ('ddps_gain_rms.png', '图 7 · gain 维（第 8 维）与 drive_rms 轨迹（虚线为起点 gain 倍率 ×0.325）'),
                 ('ddps_tracking.png', '图 8 · 左 Δ预测 vs Δ实测散点（逐用例逐步）；右逐用例相关系数'),
-                (f'ddps_case_{hard_env}.png', f'图 9 · 最难用例（{hard_env}）四联图：收敛轨迹、Tx FFE 抽头（起点 vs 最优）、Tx CTLE |H(f)| 频响、Tx 探针 7-tap FIR')]
+                (f'ddps_case_{hard_env}.png', f'图 9 · 最难用例（{hard_env}）六联图：收敛轨迹、Tx FFE 抽头（起点 vs 最优）、Tx CTLE |H(f)| 频响、Tx 探针 7-tap FIR、发端频谱对比（起点 vs 最优）、频谱改变量 ΔdB')]
         figs = []
         for fn, cap in imgs:
             p = os.path.join(rd, fn)
@@ -3091,7 +3173,7 @@ def _build_fig_tabs(a, hard_env):
         rd = os.path.join(_mdir, 'report')
         imgs = [('ddps_conv_grid.png', f'图 6 · 回传 × {_cell} 收敛轨迹（实测 BER_MLSE / ±ε 微扰态灰点）'),
                 ('ddps_gain_rms.png', f'图 7 · 回传 × {_cell}：gain 与 drive_rms 轨迹'),
-                ('ddps_case_hard.png', f'图 9 · 回传 × {_cell} 最难用例四联图')]
+                ('ddps_case_hard.png', f'图 9 · 回传 × {_cell} 最难用例六联图（含发端频谱对比与频谱改变量）')]
         figs = []
         for fn, cap in imgs:
             p = os.path.join(rd, fn)
@@ -3706,6 +3788,7 @@ def main():
         '{{IMG_CASE_HARD}}': _img_tag(hard_png) if os.path.exists(hard_png) else '',
         '<!--DIRECT_SECTION-->': direct_section,
         '<!--SEED_STUDY-->': _study_block(a),
+        '<!--SEED_SPECTRUM-->': _seed_spectrum_block(a),
         '<!--FIG_TABS-->': fig_tabs,
         '<!--MODE_NAME_TEXT-->': mode_name_text,
         '<!--MODE_KEY-->': a.mode,

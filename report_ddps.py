@@ -510,6 +510,74 @@ def figure_hardcase(test_dir, report_dir, envs, direct=False):
     return out
 
 
+def figure_spectrum_pair(test_dir, report_dir, env='Base_IL10x10'):
+    """起点 vs 最优的三件套：Tx FFE 抽头形状、Tx CTLE |H(f)|、发端频谱（相对电平）。
+
+    发端频谱 = FFE 频响 ⊗ DAC 零阶保持 ⊗ Tx CTLE ⊗ 驱动增益；载波按白谱处理，
+    所以两条曲线的差就是这三个线性环节共同造成的频谱改变。
+    """
+    tr = _trace(test_dir, env)
+    if tr is None or tr.empty:
+        return None
+    os.makedirs(report_dir, exist_ok=True)
+    sp = _seed_point(_run_meta(test_dir))
+    seed_taps = np.array(sp['taps'], dtype=float)
+    best_row = tr.iloc[int(tr['real_ber'].values.argmin())]
+    try:
+        best_taps = np.array(json.loads(best_row['taps']) if isinstance(best_row['taps'], str)
+                             else best_row['taps'], float)
+    except Exception:
+        best_taps = seed_taps
+    best_gdc, best_gdc2 = float(best_row['gdc']), float(best_row['gdc2'])
+    try:
+        best_gain = float(10.0 ** float(best_row['u_gain'])) * D.DRIVER_GAIN_NOMINAL
+    except Exception:
+        best_gain = sp['gain']
+
+    f = np.linspace(0, 2.0 * BAUD, 800)
+    fig, axes = plt.subplots(1, 3, figsize=(19.5, 4.6))
+    ax = axes[0]
+    x = np.arange(len(seed_taps))
+    w = 0.32
+    ax.bar(x - w / 2, seed_taps, w, color='#0b63ce', alpha=0.75, label='起点')
+    ax.bar(x + w / 2, best_taps, w, color='#0f8a4a', alpha=0.75, label='最优')
+    ax.axvline(D.FFE_PRE - 0.5, color='k', lw=0.5, ls=':')
+    ax.set_xticks(x); ax.set_xticklabels(['t%d' % i for i in x], fontsize=9)
+    ax.set_ylabel('抽头值', fontsize=9); ax.legend(fontsize=8)
+    ax.set_title('5-tap Tx FFE 抽头形状（起点 vs 最优）', fontsize=10)
+    ax.grid(True, ls='--', alpha=0.3, axis='y')
+
+    ax = axes[1]
+    ax.plot(f / 1e9, _ctle_response_db(f, sp['gdc'], sp['gdc2']),
+            color='#0b63ce', lw=1.6,
+            label='起点 (gDC=%.1f, gDC2=%.1f)' % (sp['gdc'], sp['gdc2']))
+    ax.plot(f / 1e9, _ctle_response_db(f, best_gdc, best_gdc2), ls='--', color='#0f8a4a', lw=1.6,
+            label='最优 (gDC=%+.1f, gDC2=%+.1f)' % (best_gdc, best_gdc2))
+    ax.axvline(BAUD / 2 / 1e9, color='k', ls=':', lw=1, label='Nyquist')
+    ax.set_xlabel('GHz', fontsize=9); ax.set_ylabel('dB', fontsize=9)
+    ax.set_title('Tx CTLE |H(f)| 频响', fontsize=10)
+    ax.legend(fontsize=8); ax.grid(alpha=0.3)
+
+    ax = axes[2]
+    psd_seed = _tx_psd_db(f, seed_taps, sp['gdc'], sp['gdc2'], sp['gain'])
+    psd_best = _tx_psd_db(f, best_taps, best_gdc, best_gdc2, best_gain)
+    ref = float(np.max(psd_seed))
+    ax.plot(f / 1e9, psd_seed - ref, color='#0b63ce', lw=1.8, label='起点')
+    ax.plot(f / 1e9, psd_best - ref, ls='--', color='#0f8a4a', lw=1.8, label='最优')
+    ax.axvline(BAUD / 2 / 1e9, color='k', ls=':', lw=1, label='Nyquist')
+    ax.set_xlabel('GHz', fontsize=9); ax.set_ylabel('相对电平 (dB)', fontsize=9)
+    ax.set_title('发端频谱对比（起点 vs 最优）', fontsize=10)
+    ax.set_ylim(-40, 5); ax.legend(fontsize=8); ax.grid(alpha=0.3)
+
+    fig.suptitle('起点 → 最优：抽头形状、Tx CTLE、发端频谱（%s）' % env,
+                 fontsize=12, fontweight='bold')
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    out = os.path.join(report_dir, 'ddps_spectrum_%s.png' % env)
+    fig.savefig(out, dpi=125)
+    plt.close(fig)
+    return out
+
+
 def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
                  summary_out=None):
     os.makedirs(report_dir, exist_ok=True)
@@ -534,6 +602,10 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
     fig_gain = figure_gain_rms(test_dir, report_dir, envs)
     fig_track = figure_tracking(test_dir, report_dir, envs)
     fig_hard = figure_hardcase(test_dir, report_dir, envs)
+    try:
+        figure_spectrum_pair(test_dir, report_dir, 'Base_IL10x10')
+    except Exception as _e:
+        print('[report] 频谱三件套图跳过：%s' % _e)
 
     L = []
     L.append('# DDPS 在线调优报告\n')

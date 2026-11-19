@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
-"""构造「更差的起点」：给候选 seed 配置，用 C++ 在 2^18 下实测其真实 BER。
+"""起点探针：给候选起点（seed 配置 JSON），用 C++ 链路在 2^18 下实测它的真实 BER。
 
-每个候选只跑 1 步（--n-steps 1），读 case_summary 里的 seed_ber —— 这是链路真实评估出来的，
-不是模型预测。用于把起点校准到指定量级（约 1e-3）。
+每个候选只跑 1 步（`--n-steps 1`），读 `case_summary` 里的 `seed_ber`——这是链路真实评估出来的数，
+不是模型预测，也不是从别的点外推的。挑起点（对准目标量级，如 1e-3）靠它，不靠猜。
 
 用法：
-  python scratch/probe_seed_ber.py                 # 评估 seeds/ 下所有候选
-  python scratch/probe_seed_ber.py --pattern s2    # 只评文件名含 s2 的
+  python tools\\probe_start_point.py                          # 评估 seeds/ 下全部起点文件
+  python tools\\probe_start_point.py --pattern s2              # 只评文件名含 s2 的
+  python tools\\probe_start_point.py --cases Base_IL10x10      # 只测指定用例（逗号分隔，省时间）
+
+起点文件字段见 `ddps_optimizer.apply_seed_config`：`best_taps` / `best_gdc` / `best_gdc2` /
+`best_u_gain`（或 `best_gain`）。中间产物（cfg、临时 json）落在 `scratch/`，不进 result/。
 """
 import argparse
 import glob
@@ -26,8 +30,10 @@ def wsl_path(p):
 
 
 def probe(seed_path, env):
-    out = tempfile.mktemp(suffix='.json', dir=os.path.join(ROOT, 'scratch'))
-    cfg = os.path.join(ROOT, 'scratch', 'seedcfg_probe.txt')
+    tmp_dir = os.path.join(ROOT, 'scratch', 'probe')
+    os.makedirs(tmp_dir, exist_ok=True)
+    out = tempfile.mktemp(suffix='.json', dir=tmp_dir)
+    cfg = os.path.join(tmp_dir, 'seedcfg_probe.txt')
     # 用 run_all_cases 的 dump_config 保证与正式跑批同一配置口径
     import sys
     sys.path.insert(0, os.path.join(ROOT, 'cpp'))

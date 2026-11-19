@@ -144,8 +144,8 @@ python cpp\run_all_cases.py --backend wsl --method direct --out-dir result\ddps_
 # 1) 先挑起点：给定候选 seed 配置，用链路真实评估报出起点 BER（每个候选 1 步、2^18）
 python tools\probe_start_point.py --pattern s1 --cases Base_IL10x10,IL14x14,IL20x20
 
-# 2) 三个差起点 × 六格全跑（起点 ≈1e-3；2^21 符号/点、15 用例、单种子 42、固定 15 步）
-python tools\run_seed_study.py --jobs 6 --num-symbols 2097152 \
+# 2) 三个差起点 × 六格全跑（起点 ≈1e-3；2^20 符号/点、15 用例、单种子 42、固定 15 步）
+python tools\run_seed_study.py --jobs 15 --num-symbols 1048576 \
     --seeds s1_gain-2.6dB,s2_ctle_g3.0_1.5,s3_shape3.0
 
 # 3) 每格出图（结果目录在 result/seed_study/<起点>/ddps_cpp_<格>）
