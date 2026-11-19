@@ -1256,6 +1256,7 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
     <li>在线方案能在"拿不到收端误码"的前提下工作：方向只来自发端可测探针驱动的冻结代理，探针随信道条件变化，因此同一个模型跨插损/色散/群时延复用，不按环境重训。</li>
     <li>梯度获取被摊成一张可选的矩阵（3 种形状维获取方式 × 2 种梯度来源，见 4.2），现役格的选取有数据依据、代价逐条公开（4.3 / 6.5）——用哪一格是工程取舍，不是能力边界。</li>
     <li>搜索空间 8 维、抽头维无边界（只有 CTLE 与 gain 保留器件可实现量程），边界不替代理做决定；每步位移由步长与梯度决定并逐步衰减（0.97<sup>k</sup>），方向错了会立刻反映在下一步实测 BER 上（6.3 逐条记账）。</li>
+    <!--STUDY_LI-->
   </ol>
 </div>
 
@@ -2171,6 +2172,50 @@ def _study_tab_rows(seed_dirs):
     return chr(10).join(body)
 
 
+def _study_ratio_matrix(tabs):
+    """{格: [各起点的几何均值倍率]} 与起点短名列表（判词与结论条目共用）。"""
+    keys = [k for k, _l in _STUDY_CELLS if k != 'full']
+    mat, names = {}, []
+    for _k, label, dirs, _sp, _ns, _sc in tabs:
+        ref = dirs.get('full')
+        if ref is None:
+            continue
+        names.append(label.split('（')[0].split('：')[0].replace('差起点 ', ''))
+        for ck in keys:
+            v = dirs.get(ck)
+            rr = _study_cell_ratio(v, ref) if v is not None else None
+            if rr:
+                mat.setdefault(ck, []).append(rr['geo_ratio'])
+    return mat, names
+
+
+def _study_conclusion_line(a):
+    """§7 里的第 5 条：换起点之后，六格的相对强弱还成不成立（没数据就不出这一条）。"""
+    tabs = _study_tabs(a)
+    if len(tabs) < 2:
+        return ''
+    mat, names = _study_ratio_matrix(tabs)
+    label_of = dict(_STUDY_CELLS)
+    stable, changed = [], []
+    for ck, vals in mat.items():
+        if len(vals) < 2:
+            continue
+        (stable if max(vals) / min(vals) <= 1.10 else changed).append((ck, vals))
+    head = ('<li>结论不依赖起点：把起点换成三个坏法不同的次优工作点（基线用例 BER 都校准到约 1e-3，'
+            '比原起点差约 8 倍）重跑六格，')
+    if not changed:
+        body = ('<strong>%d 格在 %d 个起点下的相对强弱都落在同一档（差异 ≤10%%）</strong>，'
+                '没有哪一格是「在这个起点赢、换个起点就输」（6.6）。' % (len(stable), len(names)))
+    else:
+        bits = []
+        for ck, vals in sorted(changed, key=lambda x: -(max(x[1]) / min(x[1]))):
+            bits.append('%s %.2f~%.2f×' % (label_of[ck].replace(' ', ''), min(vals), max(vals)))
+        body = ('<strong>%d 格跨起点稳定、%d 格随起点明显变化</strong>（%s）——'
+                '变化的那几格不能只按现役起点下结论（6.6）。'
+                % (len(stable), len(changed), '、'.join(bits)))
+    return head + body + '</li>'
+
+
 def _study_resolution_note(tabs):
     """判据表底下补一句：每个起点下「现役格（代理 × full）还有几个用例在检测底之上」。"""
     bits = []
@@ -2195,19 +2240,7 @@ def _study_resolution_note(tabs):
 
 def _study_verdict(tabs):
     """从判据表实算一段判词：跨起点方向是否一致 + 倍率波动区间 + 退化点名。"""
-    keys = [k for k, _l in _STUDY_CELLS if k != 'full']
-    mat = {}
-    tab_names = []
-    for _k, label, dirs, _sp, _ns, _sc in tabs:
-        ref = dirs.get('full')
-        if ref is None:
-            continue
-        tab_names.append(label.split('（')[0].split('：')[0].replace('差起点 ', ''))
-        for ck in keys:
-            v = dirs.get(ck)
-            rr = _study_cell_ratio(v, ref) if v is not None else None
-            if rr:
-                mat.setdefault(ck, []).append(rr['geo_ratio'])
+    mat, tab_names = _study_ratio_matrix(tabs)
     if len(tab_names) < 2 or not mat:
         return ''
 
@@ -2225,7 +2258,9 @@ def _study_verdict(tabs):
             mixed.append(ck)
     # 2) 波动区间
     span_txt = []
-    for ck in keys:
+    for ck, _label in _STUDY_CELLS:
+        if ck == 'full':
+            continue
         vals = mat.get(ck) or []
         if len(vals) >= 2:
             span_txt.append('%s %.2f~%.2f×' % (label_of[ck].replace(' ', ''), min(vals), max(vals)))
@@ -2324,8 +2359,12 @@ def _study_seed_params(spath):
                src_txt))
 
 
-def _study_block(a):
-    """§6.6 整块：跨起点汇总表 + 每个起点一个大 tab（内含六格小 tab）。"""
+def _study_tabs(a):
+    """现役 + 各差起点各一个大 tab 的数据：(key, label, dirs, spath, num_sym, note)。
+
+    dirs 是 {格: 指标 dict}，只有目录里真有 case_summary.csv 的格才在里头——
+    跑批还没到的格自然缺席，表格里显示 —，不会拿半成品充数。
+    """
     tabs = []   # (key, label, dirs, spath, num_sym, note)
 
     # 现役六格的目录（直接来自交付件生成参数，不猜）
@@ -2363,6 +2402,12 @@ def _study_block(a):
             tabs.append((name, '差起点 %s：%s' % (label, name), dirs,
                          os.path.join('seeds', 'seed_%s.json' % name), nsym,
                          _study_scale_txt(nsym)))
+    return tabs
+
+
+def _study_block(a):
+    """§6.6 整块：跨起点汇总表 + 每个起点一个大 tab（内含六格小 tab）。"""
+    tabs = _study_tabs(a)
     if len(tabs) < 2:
         return ''
 
@@ -3819,6 +3864,7 @@ def main():
         '<!--DIRECT_SECTION-->': direct_section,
         '<!--SEED_STUDY-->': _study_block(a),
         '<!--SEED_SPECTRUM-->': _seed_spectrum_block(a),
+        '<!--STUDY_LI-->': _study_conclusion_line(a),
         '<!--FIG_TABS-->': fig_tabs,
         '<!--MODE_NAME_TEXT-->': mode_name_text,
         '<!--MODE_KEY-->': a.mode,
