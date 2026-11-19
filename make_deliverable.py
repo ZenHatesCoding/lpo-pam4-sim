@@ -2131,6 +2131,17 @@ def _study_cell_metrics(d):
     }
 
 
+def _ratio_txt(x):
+    """倍率文本：小倍率多给有效数字，别把 0.001× 打成 0.00×。"""
+    if x is None:
+        return '—'
+    if x < 0.01:
+        return '%.4f×' % x
+    if x < 0.1:
+        return '%.3f×' % x
+    return '%.2f×' % x
+
+
 def _study_cell_ratio(v, ref):
     """逐用例 best/ref 的倍率统计。"""
     if v is None or ref is None:
@@ -2294,9 +2305,9 @@ def _study_tab_rows(seed_dirs):
             worse_txt = '—'
             worst_txt = '—'
         else:
-            cmp_txt = '%.2f×' % rr['geo_ratio'] if rr else '—'
+            cmp_txt = _ratio_txt(rr['geo_ratio']) if rr else '—'
             worse_txt = '%d/%d' % (rr['worse'], rr['n']) if rr else '—'
-            worst_txt = '%.2f×' % rr['worst'] if rr else '—'
+            worst_txt = _ratio_txt(rr['worst']) if rr else '—'
         body.append(
             '  <tr><td><strong>%s</strong></td><td class="n">%.3e</td><td class="n">%s</td>'
             '<td class="n">%s</td><td class="n">%s</td><td class="n">%.1f</td><td class="n">%d/%d</td></tr>'
@@ -2384,13 +2395,62 @@ def _study_conclusion_line(a):
             '比原起点差约 8 倍）在同一规模下重跑六格，')
     if st['identical']:
         body = ('<strong>%d 个起点下六格相对强弱的排序完全相同</strong>（%d 格参与比较）；'
-                '幅度上最多的是 %s，跨起点 %.2f~%.2f×，但它在哪儿都是同一档（6.6）。'
-                % (len(st['names']), len(st['cells']), label_of[worst].replace(' ', ''), lo, hi))
+                '幅度上最多的是 %s，跨起点 %s~%s，但它在哪儿都是同一档（6.6）。'
+                % (len(st['names']), len(st['cells']), label_of[worst].replace(' ', ''),
+                   _ratio_txt(lo).rstrip('×'), _ratio_txt(hi)))
     else:
         body = ('<strong>排序随起点变化</strong>（最差的两两 Kendall τ = %.2f）；'
-                '幅度跨度最大的是 %s（%.2f~%.2f×）——这类格不能只按一个起点下结论（6.6）。'
-                % (st['min_tau'], label_of[worst].replace(' ', ''), lo, hi))
+                '幅度跨度最大的是 %s（%s~%s）——这类格不能只按一个起点下结论（6.6）。'
+                % (st['min_tau'], label_of[worst].replace(' ', ''),
+                   _ratio_txt(lo).rstrip('×'), _ratio_txt(hi)))
     return head + body + '</li>'
+
+
+def _study_out_of_domain_note(tabs):
+    """起点离代理训练邻域太远时：代理三格原地不动、回传格还能动。"""
+    hits = []
+    for key, label, dirs, _sp, _ns, _sc in tabs:
+        if key == 'current':
+            continue
+        ref = dirs.get('full')
+        if not ref:
+            continue
+        n_best0 = n_tot = 0
+        for k in ('full', 'rotate', 'secant'):
+            v = dirs.get(k)
+            if not v:
+                continue
+            p = os.path.join(v['dir'], 'case_summary.csv')
+            if not os.path.exists(p):
+                continue
+            try:
+                df = pd.read_csv(p)
+            except Exception:
+                continue
+            if 'best_step' in df:
+                n_best0 += int((df['best_step'] == 0).sum())
+                n_tot += len(df)
+        if not n_tot or n_best0 * 2 < n_tot:
+            continue
+        df_dir = dirs.get('direct_full')
+        rr = _study_cell_ratio(df_dir, ref) if df_dir else None
+        name = label.split('（')[0].split('：')[0].replace('差起点 ', '')
+        hits.append((name, n_best0, n_tot, rr['geo_ratio'] if rr else None))
+    if not hits:
+        return ''
+    bits = []
+    for name, n0, nt, ratio in hits:
+        if ratio:
+            bits.append('%s：代理三格 %d/%d 个用例的最好落点停在第 0 步（一步没走对），'
+                        '而回传 × full 把 15 用例几何均值压到代理 × full 的 %.3f×'
+                        % (name, n0, nt, ratio))
+        else:
+            bits.append('%s：代理三格 %d/%d 个用例的最好落点停在第 0 步' % (name, n0, nt))
+    return ('<p><strong>一个必须单独说的结果：%s</strong>。'
+            '这不是"哪一种取法更强"的差别，而是代理在这一带已经不可信——代理预测变好、实测变差，'
+            '但代理格拿不到真实反馈，只能一路走到底。换句话说，代理指方向这件事有它的有效范围，'
+            '起点落在范围外时只有回传格还能把落点压下来。这一条决定的是「代理能不能用」，'
+            '不是「六格谁第一」。</p>' % '；'.join(bits))
 
 
 def _study_resolution_note(tabs):
@@ -2423,7 +2483,8 @@ def _study_verdict(tabs):
         return ''
     mat, tab_names = _study_ratio_matrix(tabs)
     label_of = dict(_STUDY_CELLS)
-    span_txt = ['%s %.2f~%.2f×' % (label_of[ck].replace(' ', ''), st['span'][ck][0], st['span'][ck][1])
+    span_txt = ['%s %s~%s' % (label_of[ck].replace(' ', ''),
+                              _ratio_txt(st['span'][ck][0]).rstrip('×'), _ratio_txt(st['span'][ck][1]))
                 for ck in st['cells'] if ck != 'full']
     worst_ck = max(st['span'], key=lambda ck: st['span'][ck][1] / st['span'][ck][0])
     worst_amp = st['span'][worst_ck][1] / st['span'][worst_ck][0] - 1.0
@@ -2445,7 +2506,7 @@ def _study_verdict(tabs):
                      % (st['min_tau'], st['names'][0], order_txt))
     if span_txt:
         parts.append('跨起点的倍率波动：%s。' % '；'.join(span_txt))
-    if worst_ck and worst_amp > 0.2:
+    if worst_ck and worst_amp > 0.2 and not worst_ck.startswith('direct'):
         vals = mat[worst_ck]
         why = {
             'secant': '它第 0 步把方向定死、之后每步不再重测斜率，起点方向不对就没有纠偏能力',
@@ -2455,8 +2516,9 @@ def _study_verdict(tabs):
             'direct_rotate': '它每步只重测随机 k 个维度的真实斜率',
             'direct_secant': '它第 0 步之后不再重测真实斜率',
         }.get(worst_ck, '')
-        parts.append('<strong>波动最大的是 %s</strong>（%.2f~%.2f×，跨度 %.2f×）——%s。'
-                     % (label_of[worst_ck].replace(' ', ''), min(vals), max(vals), worst_amp, why))
+        parts.append('<strong>波动最大的是 %s</strong>（%s~%s）——%s。'
+                     % (label_of[worst_ck].replace(' ', ''),
+                        _ratio_txt(min(vals)).rstrip('×'), _ratio_txt(max(vals)), why))
     parts.append('</p>')
     return ''.join(parts)
 
@@ -2675,6 +2737,7 @@ def _study_block(a):
               '如果某个格在四个起点下都落在同一档，说明它的强弱不是被起点凑出来的。</p>' + chr(10)
             + sum_tbl
             + _study_secant_mech(tabs)
+            + _study_out_of_domain_note(tabs)
             + _study_resolution_note(tabs)
             + _study_verdict(tabs)
             + chr(10) + '<div class="tabs">' + chr(10) + '  <div class="tab-bar">' + chr(10)
