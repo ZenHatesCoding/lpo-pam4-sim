@@ -1988,7 +1988,89 @@ def _turn_block(a, order):
               '秩一修正项沿位移方向 s 加入，s 在组内又与初始梯度同向，'
               '于是组内梯度的横向分量永远不变，方向被锁在初始射线上——secant 的改向能力全被挤到 CTLE 二维上'
             + '（代理行 %.1f°、回传行 %.1f°）。' % (st['secant'][3], st['direct_secant'][3])
-            + '这就是「每步全量微扰 / 轮流微扰」替代纯割线外推的直接理由。</p>')
+            + '这就是「每步全量微扰 / 轮流微扰」替代纯割线外推的直接理由。</p>'
+            + _path_block(a, cells))
+
+
+def _path_stats(d):
+    """路径形态：总位移沿「第 0 步方向」的分量占比（整体 / 抽头 5 维），span 归一化坐标下算。
+
+    返回 (整体共线度, 抽头共线度, CTLE 贴界步占比)；读不到轨迹返回 None。
+    """
+    if not d or not os.path.isdir(d):
+        return None
+    import glob
+    import json as _json
+    span = np.array([0.20] * 5 + [6.0, 6.0, 0.60])
+    proj, tproj, n_bound, n_tot = [], [], 0, 0
+    for f in sorted(glob.glob(os.path.join(d, 'trace_*.csv'))):
+        try:
+            tr = pd.read_csv(f)
+            X = np.array([_json.loads(v) for v in tr['x'].astype(str)], dtype=float) * span
+        except Exception:
+            continue
+        n_tot += len(tr)
+        n_bound += int(((tr['gdc'] <= 1e-9) | (tr['gdc'] >= 12 - 1e-9)).sum())
+        n_bound += int(((tr['gdc2'] <= 1e-9) | (tr['gdc2'] >= 4 - 1e-9)).sum())
+        if len(X) < 3:
+            continue
+        U = np.diff(X, axis=0)
+        U = U[np.linalg.norm(U, axis=1) > 1e-9]
+        if len(U) < 2:
+            continue
+        u0 = U[0] / np.linalg.norm(U[0])
+        D = X[-1] - X[0]
+        nD = np.linalg.norm(D)
+        if nD < 1e-9:
+            continue
+        proj.append(abs(float(np.dot(D, u0))) / nD)
+        Dt, u0t = D[:5], u0[:5]
+        if np.linalg.norm(Dt) > 1e-12 and np.linalg.norm(u0t) > 1e-12:
+            tproj.append(abs(float(np.dot(Dt, u0t))) / (np.linalg.norm(Dt) * np.linalg.norm(u0t)))
+    if not proj:
+        return None
+    return (float(np.nanmean(proj)), float(np.nanmean(tproj)) if tproj else float('nan'),
+            (float(n_bound) / (2.0 * n_tot)) if n_tot else float('nan'))
+
+
+def _path_block(a, cells):
+    """「走过的路到底是直线还是弯的」实测表：回答「方向真的在变吗」。数据不足返回空串。"""
+    st = {}
+    for key, d, _label, _h in cells:
+        v = _path_stats(d)
+        if v is not None:
+            st[key] = v
+    if len(st) < 6:
+        return ''
+    rows = []
+    for key, d, label, _h in cells:
+        v = st[key]
+        rows.append('  <tr><td><strong>%s</strong></td><td class="n">%.3f</td>'
+                    '<td class="n">%.3f</td><td class="n">%.1f%%</td></tr>'
+                    % (label, v[0], v[1], 100.0 * v[2]))
+    body = chr(10).join(rows)
+    return (chr(10) + '<div class="tw">' + chr(10) + '<table>' + chr(10)
+            + '  <caption>走过的路是直线还是弯的：总位移里沿第 0 步方向的分量占比'
+              '（步长尺度归一化后计算；1.000 = 一条直线走到底）</caption>' + chr(10)
+            + '  <tr><th>格</th><th class="n">整体共线度</th><th class="n">抽头 5 维共线度</th>'
+              '<th class="n">CTLE 贴物理量程的落地步占比</th></tr>' + chr(10) + body + chr(10)
+            + '</table>' + chr(10) + '</div>' + chr(10)
+            + '<p>上表回答「方向真的有在变吗」：<strong>抽头 5 维</strong>——两格 secant 都是 '
+            + '%.3f（一步都没转过），full / rotate 是 %.3f / %.3f，<strong>确实在转</strong>，'
+              '但整条轨迹只有 %.0f%%~%.0f%% 的位移沿第 0 步方向，换句话说最优路本身接近一条沟，'
+              '不是一片需要绕的盆地。'
+            % (st['secant'][1], st['full'][1], st['rotate'][1],
+               100 * min(st['full'][0], st['rotate'][0], st['direct_full'][0], st['direct_rotate'][0]),
+               100 * max(st['full'][0], st['rotate'][0], st['direct_full'][0], st['direct_rotate'][0]))
+            + '<strong>两格 secant 的差别值得单说</strong>：回传 × secant 的整体共线度 %.3f（标准直线），'
+              '代理 × secant 只有 %.3f——不是它在转向，而是代理行的 CTLE 有 %.0f%% 的落地步贴在物理量程上，'
+              '被 clip 掉的那部分位移让它的 CTLE 看起来在摆；回传行一次都没贴界（0%%）。'
+            % (st['direct_secant'][0], st['secant'][0], 100 * st['secant'][2])
+            + '<strong>所以 secant 能用的原因不是它够聪明，而是这个问题的起点在「正确的沟」上</strong>：'
+              '起点是刻意选的次优工作点（幅度错了、结构没错），第 0 步的全维差分已经指对了方向；'
+              '6.1 里三种取法结果只差 5%（除 1 例），说明在这里「方向」这个自由度几乎不产生收益——'
+              '真正决定落点的是第 0 步的方向准不准、以及每组走多远。secant 输了 2.71 倍的那一例'
+              '（HighNoise_IL10x10）正是初始方向不对、又没机会纠正的例子。</p>')
 
 
 def _eval_mag_txt(ev_d, ev_s):

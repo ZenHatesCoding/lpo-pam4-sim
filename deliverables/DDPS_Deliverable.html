@@ -1010,6 +1010,19 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
 </table>
 </div>
 <p>上表把「方向能不能拐」量化了：每步重新施加微扰的四格方向都会拐——代理行抽头方向相对第 0 步平均偏离 10.0° / 8.7°（full / rotate）、相邻步 1.6° / 2.2°，回传行 17.1° / 14.5°、相邻步 11.2° / 8.2°；回传行拐得更厉害，因为真实 BER 的差分梯度幅值更大也更抖。而两格 <strong>secant</strong> 的抽头方向与第 0 步<strong>始终共线（0.0°）</strong>：秩一修正项沿位移方向 s 加入，s 在组内又与初始梯度同向，于是组内梯度的横向分量永远不变，方向被锁在初始射线上——secant 的改向能力全被挤到 CTLE 二维上（代理行 49.9°、回传行 52.0°）。这就是「每步全量微扰 / 轮流微扰」替代纯割线外推的直接理由。</p>
+<div class="tw">
+<table>
+  <caption>走过的路是直线还是弯的：总位移里沿第 0 步方向的分量占比（步长尺度归一化后计算；1.000 = 一条直线走到底）</caption>
+  <tr><th>格</th><th class="n">整体共线度</th><th class="n">抽头 5 维共线度</th><th class="n">CTLE 贴物理量程的落地步占比</th></tr>
+  <tr><td><strong>代理 × full</strong></td><td class="n">0.924</td><td class="n">0.988</td><td class="n">40.2%</td></tr>
+  <tr><td><strong>代理 × rotate</strong></td><td class="n">0.936</td><td class="n">0.992</td><td class="n">39.8%</td></tr>
+  <tr><td><strong>代理 × secant</strong></td><td class="n">0.343</td><td class="n">1.000</td><td class="n">37.6%</td></tr>
+  <tr><td><strong>回传 × full</strong></td><td class="n">0.947</td><td class="n">0.979</td><td class="n">0.0%</td></tr>
+  <tr><td><strong>回传 × rotate</strong></td><td class="n">0.951</td><td class="n">0.979</td><td class="n">0.0%</td></tr>
+  <tr><td><strong>回传 × secant</strong></td><td class="n">0.999</td><td class="n">1.000</td><td class="n">0.0%</td></tr>
+</table>
+</div>
+<p>上表回答「方向真的有在变吗」：<strong>抽头 5 维</strong>——两格 secant 都是 1.000（一步都没转过），full / rotate 是 0.988 / 0.992，<strong>确实在转</strong>，但整条轨迹只有 92%~95% 的位移沿第 0 步方向，换句话说最优路本身接近一条沟，不是一片需要绕的盆地。<strong>两格 secant 的差别值得单说</strong>：回传 × secant 的整体共线度 0.999（标准直线），代理 × secant 只有 0.343——不是它在转向，而是代理行的 CTLE 有 38% 的落地步贴在物理量程上，被 clip 掉的那部分位移让它的 CTLE 看起来在摆；回传行一次都没贴界（0%）。<strong>所以 secant 能用的原因不是它够聪明，而是这个问题的起点在「正确的沟」上</strong>：起点是刻意选的次优工作点（幅度错了、结构没错），第 0 步的全维差分已经指对了方向；6.1 里三种取法结果只差 5%（除 1 例），说明在这里「方向」这个自由度几乎不产生收益——真正决定落点的是第 0 步的方向准不准、以及每组走多远。secant 输了 2.71 倍的那一例（HighNoise_IL10x10）正是初始方向不对、又没机会纠正的例子。</p>
 
 <h4>4.2.3 方向、步长与终止</h4>
 <pre><code>组内归一化   d_组 = (g·span)_组 / ‖(g·span)_组‖₂ ，‖(g·span)_组‖ &lt; GROUP_GATE=1e-3 时 d_组 = 0
