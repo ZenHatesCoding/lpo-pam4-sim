@@ -2148,6 +2148,42 @@ def _study_cell_ratio(v, ref):
             'worst': float(np.max(r)), 'geo_ratio': float(np.exp(np.mean(np.log(r)))), 'n': int(len(r))}
 
 
+def _study_hard_detail(dirs):
+    """同一起点、最难用例上，六格末步落在哪（gain 倍率 / gDC / gDC2 / 真实 BER / 用了几步）。"""
+    ref = dirs.get('full')
+    if not ref:
+        return ''
+    env = max(ref['bmap'], key=lambda e: ref['bmap'][e])
+    rows = []
+    for key, label in _STUDY_CELLS:
+        v = dirs.get(key)
+        if v is None:
+            continue
+        p = os.path.join(v['dir'], 'trace_%s.csv' % env)
+        if not os.path.exists(p):
+            continue
+        try:
+            t = pd.read_csv(p)
+            z = t.iloc[-1]
+        except Exception:
+            continue
+        rows.append('  <tr><td><strong>%s</strong></td><td class="n">%d</td>'
+                    '<td class="n">%.3f</td><td class="n">%+.2f</td><td class="n">%+.2f</td>'
+                    '<td class="n">%.2e</td></tr>'
+                    % (label, len(t), float(z['gain_ratio']), float(z['gdc']),
+                       float(z['gdc2']), float(z['real_ber'])))
+    if not rows:
+        return ''
+    return (chr(10) + '<div class="tw">' + chr(10) + '<table>' + chr(10)
+            + '  <caption>同一起点、最难用例（<code>%s</code>）上六格各自落在哪：'
+              '末步的 gain 倍率与两个 CTLE 维、以及该点的真实 BER'
+              '<span class="sh">· 可左右滑动</span></caption>' % env + chr(10)
+            + '  <tr><th>格</th><th class="n">用了几步</th><th class="n">gain 倍率</th>'
+              '<th class="n">gDC (dB)</th><th class="n">gDC2 (dB)</th>'
+              '<th class="n">真实 BER</th></tr>' + chr(10)
+            + chr(10).join(rows) + chr(10) + '</table>' + chr(10) + '</div>' + chr(10))
+
+
 def _study_tab_rows(seed_dirs):
     """一个起点内：六格对比表行。"""
     ref = seed_dirs.get('full')
@@ -2480,6 +2516,7 @@ def _study_block(a):
                        '<th class="n">差 >5% 用例</th><th class="n">最坏单例</th>'
                        '<th class="n">真实评估/用例</th><th class="n">到检测底</th></tr>' + chr(10)
                      + _study_tab_rows(dirs) + chr(10) + '</table>' + chr(10) + '</div>' + chr(10))
+        parts.append(_study_hard_detail(dirs))
         # 小 tab：六格逐用例明细（纯表格，避免重复内联收敛图把 HTML 撑大）
         sbar, span = [], []
         ref = dirs.get('full')
