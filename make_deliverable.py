@@ -2171,6 +2171,28 @@ def _study_tab_rows(seed_dirs):
     return chr(10).join(body)
 
 
+def _study_resolution_note(tabs):
+    """判据表底下补一句：每个起点下「现役格（代理 × full）还有几个用例在检测底之上」。"""
+    bits = []
+    for _k, label, dirs, _sp, _ns, _sc in tabs:
+        ref = dirs.get('full')
+        if not ref:
+            continue
+        floor = ref.get('floor') or 0.0
+        n_above = sum(1 for v in ref['best'] if floor and v > floor * 1.5)
+        name = label.split('（')[0].split('：')[0].replace('差起点 ', '')
+        bits.append('%s %d/%d' % (name, n_above, ref['n']))
+    if not bits:
+        return ''
+    floors = sorted({(int(round(np.log2(t[4]))), float(t[2]['full']['floor'] or 0.0))
+                     for t in tabs if t[2].get('full') and t[4]})
+    fl_txt = '、'.join('2^%d 的 %.2e' % (a, b) for a, b in floors)
+    return ('<p class="note">分辨率：检测底取「零错」对应的 0.5/(2·符号数)，各起点按自己的规模算（%s）。'
+            '代理 × full 落在检测底之上的用例数分别是 —— %s。低于检测底的用例各格一律打平，'
+            '倍率只由剩下的用例决定；逐用例明细在各起点页签里。</p>'
+            % (fl_txt, '、'.join(bits)))
+
+
 def _study_verdict(tabs):
     """从判据表实算一段判词：跨起点方向是否一致 + 倍率波动区间 + 退化点名。"""
     keys = [k for k, _l in _STUDY_CELLS if k != 'full']
@@ -2196,7 +2218,8 @@ def _study_verdict(tabs):
     for ck, vals in mat.items():
         if len(vals) < 2:
             continue
-        if all(v > 1.0 for v in vals) or all(v <= 1.0 for v in vals):
+        # 容差 10%：1.000 与 1.025 这种是噪声级差异，不算"换个起点就变向"
+        if max(vals) / min(vals) <= 1.10:
             same.append(ck)
         else:
             mixed.append(ck)
@@ -2216,21 +2239,27 @@ def _study_verdict(tabs):
              '逐用例算完再取几何均值；1.00× = 与现役打平，小于 1 是更好。'
              '四个起点分别是%s。' % ('、'.join(tab_names))]
     if not mixed:
-        parts.append('实测：<strong>六格在全部 %d 个起点下的好坏方向完全一致</strong>——'
-                     '没有哪一格是"在这个起点赢、换个起点就输"，说明强弱排序不是现役起点凑出来的。'
+        parts.append('实测：<strong>各格在全部 %d 个起点下都落在同一档（差异 ≤10%%）</strong>——'
+                     '没有哪一格是「在这个起点赢、换个起点就输」，说明强弱排序不是现役起点凑出来的。'
                      % len(tab_names))
     else:
-        parts.append('实测：<strong>%d 格方向一致，%d 格随起点变向</strong>（%s）。'
-                     '变向的那几格就是"起点一换结论就变"的部分，不能只看单一起点下结论。'
+        parts.append('实测：<strong>%d 格跨起点稳定，%d 格随起点明显变化</strong>（%s）。'
+                     '变化的那几格就是「起点一换结论就变」的部分，不能只看单一起点下的结论。'
                      % (len(same), len(mixed), '、'.join(label_of[c].replace(' ', '') for c in mixed)))
     if span_txt:
         parts.append('跨起点的倍率波动：%s。' % '；'.join(span_txt))
     if worst_ck and worst_amp > 0.2:
         vals = mat[worst_ck]
-        parts.append('<strong>波动最大的是 %s</strong>（%.2f~%.2f×，跨度 %.2f×）——'
-                     '起点越偏离"形状基本对"，这一格的亏空越大；'
-                     '它靠的是每步重测斜率，起点方向本身错得离谱时，重测也救不回多少，但至少不会更差。'
-                     % (label_of[worst_ck].replace(' ', ''), min(vals), max(vals), worst_amp))
+        why = {
+            'secant': '它第 0 步把方向定死、之后每步不再重测斜率，起点方向不对就没有纠偏能力',
+            'rotate': '它每步只重测随机 k 个维度的斜率，方向估计噪声大，起点一变结果就跟着飘',
+            'full': '它每步重测全部维度的斜率',
+            'direct_full': '它直接对真实 BER 做中心差分，每步都要 16 个微扰态',
+            'direct_rotate': '它每步只重测随机 k 个维度的真实斜率',
+            'direct_secant': '它第 0 步之后不再重测真实斜率',
+        }.get(worst_ck, '')
+        parts.append('<strong>波动最大的是 %s</strong>（%.2f~%.2f×，跨度 %.2f×）——%s。'
+                     % (label_of[worst_ck].replace(' ', ''), min(vals), max(vals), worst_amp, why))
     parts.append('</p>')
     return ''.join(parts)
 
@@ -2436,6 +2465,7 @@ def _study_block(a):
             + '<p>判据只有一条：<strong>同一格在不同起点下的相对表现是否一致</strong>——'
               '如果某个格在四个起点下都落在同一档，说明它的强弱不是被起点凑出来的。</p>' + chr(10)
             + sum_tbl
+            + _study_resolution_note(tabs)
             + _study_verdict(tabs)
             + chr(10) + '<div class="tabs">' + chr(10) + '  <div class="tab-bar">' + chr(10)
             + chr(10).join(bar) + chr(10) + '  </div>' + ''.join(panels) + chr(10) + '</div>' + chr(10)

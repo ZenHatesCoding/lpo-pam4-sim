@@ -1,5 +1,19 @@
 # DDPS 版本变更记录
 
+### 坑：起点静默失效（已修）
+第一批跑批出来的 best_ber 全部等于检测底（2^20 下 2.4e-7），看着像算法神了，实际是**起点根本没生效**：
+`cpp/run_all_cases.py` 的 WSL 分支用 `_posix()` 转路径，只把反斜杠换正斜杠，绝对路径
+`C:\...\seeds\seed_s1.json` 变成 `C:/...`，WSL 里 `std::ifstream` 打不开，C++ **静默**退回内置
+SEED 常量——那是一个近似标称的好点，于是所有用例起手就零误码。
+
+修法三层：
+- WSL 分支四处路径统一 `_wsl_arg()`（绝对路径 → `/mnt/c/...`），并加 pre-flight：
+  cfg / seed-config / model-dir 在 WSL 里看不到就直接报错，不让 C++ 兜底；
+- `cpp/main.cpp` 把实际生效的起点打到 stderr（`[seed] src=… taps=… gdc=… gdc2=… u_gain=…`），
+  `run.log` 里一眼可核对；
+- 顺带发现日志抓取也有坑：`stdout=file, stderr=STDOUT` 会被 wsl.exe 自己的 UTF-16 警告吞掉开头的
+  `[run]`/`[seed]` 行，改成合并成一根管子、`read1` 逐块落盘。
+
 ## 起点鲁棒性：三个差起点 × 六格 + 交付件发端频谱与大 tab（2026-11-19）
 
 ### 为什么做
