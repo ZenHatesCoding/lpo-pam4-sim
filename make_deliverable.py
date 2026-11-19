@@ -2239,30 +2239,61 @@ def _study_ratio_matrix(tabs, same_scale_only=True):
     return mat, names
 
 
+def _study_rank_stats(tabs):
+    """同规模页签之间，六格相对强弱的排序是否一致（Kendall τ），以及每格的幅度跨度。"""
+    mat, names = _study_ratio_matrix(tabs)
+    common = [ck for ck, v in mat.items() if len(v) == len(names)]
+    if len(names) < 2 or len(common) < 2:
+        return None
+    # 每个起点内部按倍率排序（1 = 最好）
+    ranks = []
+    for i in range(len(names)):
+        order = sorted(common, key=lambda ck: mat[ck][i])
+        ranks.append({ck: r + 1 for r, ck in enumerate(order)})
+
+    def _tau(a, b):
+        con = dis = 0
+        ks = list(a)
+        for i in range(len(ks)):
+            for j in range(i + 1, len(ks)):
+                da, db = a[ks[i]] - a[ks[j]], b[ks[i]] - b[ks[j]]
+                if da * db > 0:
+                    con += 1
+                elif da * db < 0:
+                    dis += 1
+        return (con - dis) / (con + dis) if (con + dis) else 1.0
+
+    taus = []
+    for i in range(len(ranks)):
+        for j in range(i + 1, len(ranks)):
+            taus.append(_tau(ranks[i], ranks[j]))
+    span = {ck: (min(mat[ck]), max(mat[ck])) for ck in common}
+    return {'names': names, 'cells': common, 'ranks': ranks, 'taus': taus,
+            'min_tau': min(taus) if taus else 1.0, 'span': span,
+            'identical': all(r == ranks[0] for r in ranks)}
+
+
 def _study_conclusion_line(a):
     """§7 里的第 5 条：换起点之后，六格的相对强弱还成不成立（没数据就不出这一条）。"""
     tabs = _study_tabs(a)
     if len(tabs) < 2:
         return ''
-    mat, names = _study_ratio_matrix(tabs)
+    st = _study_rank_stats(tabs)
+    if not st:
+        return ''
     label_of = dict(_STUDY_CELLS)
-    stable, changed = [], []
-    for ck, vals in mat.items():
-        if len(vals) < 2:
-            continue
-        (stable if max(vals) / min(vals) <= 1.10 else changed).append((ck, vals))
+    worst = max(st['span'], key=lambda ck: st['span'][ck][1] / st['span'][ck][0])
+    lo, hi = st['span'][worst]
     head = ('<li>结论不依赖起点：把起点换成三个坏法不同的次优工作点（基线用例 BER 都校准到约 1e-3，'
             '比原起点差约 8 倍）在同一规模下重跑六格，')
-    if not changed:
-        body = ('<strong>%d 格在 %d 个起点下的相对强弱都落在同一档（差异 ≤10%%）</strong>，'
-                '没有哪一格是「在这个起点赢、换个起点就输」（6.6）。' % (len(stable), len(names)))
+    if st['identical']:
+        body = ('<strong>%d 个起点下六格相对强弱的排序完全相同</strong>（%d 格参与比较）；'
+                '幅度上最多的是 %s，跨起点 %.2f~%.2f×，但它在哪儿都是同一档（6.6）。'
+                % (len(st['names']), len(st['cells']), label_of[worst].replace(' ', ''), lo, hi))
     else:
-        bits = []
-        for ck, vals in sorted(changed, key=lambda x: -(max(x[1]) / min(x[1]))):
-            bits.append('%s %.2f~%.2f×' % (label_of[ck].replace(' ', ''), min(vals), max(vals)))
-        body = ('<strong>%d 格跨起点稳定、%d 格随起点明显变化</strong>（%s）——'
-                '变化的那几格不能只按现役起点下结论（6.6）。'
-                % (len(stable), len(changed), '、'.join(bits)))
+        body = ('<strong>排序随起点变化</strong>（最差的两两 Kendall τ = %.2f）；'
+                '幅度跨度最大的是 %s（%.2f~%.2f×）——这类格不能只按一个起点下结论（6.6）。'
+                % (st['min_tau'], label_of[worst].replace(' ', ''), lo, hi))
     return head + body + '</li>'
 
 
@@ -2291,49 +2322,31 @@ def _study_resolution_note(tabs):
 
 def _study_verdict(tabs):
     """从判据表实算一段判词：跨起点方向是否一致 + 倍率波动区间 + 退化点名。"""
-    mat, tab_names = _study_ratio_matrix(tabs)
-    if len(tab_names) < 2 or not mat:
+    st = _study_rank_stats(tabs)
+    if not st:
         return ''
-
+    mat, tab_names = _study_ratio_matrix(tabs)
     label_of = dict(_STUDY_CELLS)
-    # 1) 方向一致性：全部起点下都比现役差/都比现役好/参差
-    same = []
-    mixed = []
-    for ck, vals in mat.items():
-        if len(vals) < 2:
-            continue
-        # 容差 10%：1.000 与 1.025 这种是噪声级差异，不算"换个起点就变向"
-        if max(vals) / min(vals) <= 1.10:
-            same.append(ck)
-        else:
-            mixed.append(ck)
-    # 2) 波动区间
-    span_txt = []
-    for ck, _label in _STUDY_CELLS:
-        if ck == 'full':
-            continue
-        vals = mat.get(ck) or []
-        if len(vals) >= 2:
-            span_txt.append('%s %.2f~%.2f×' % (label_of[ck].replace(' ', ''), min(vals), max(vals)))
-    # 3) 退化点名：跨起点波动最大的那一格
-    worst_ck, worst_amp = None, 0.0
-    for ck, vals in mat.items():
-        if len(vals) >= 2 and max(vals) - min(vals) > worst_amp:
-            worst_ck, worst_amp = ck, max(vals) - min(vals)
+    span_txt = ['%s %.2f~%.2f×' % (label_of[ck].replace(' ', ''), st['span'][ck][0], st['span'][ck][1])
+                for ck in st['cells'] if ck != 'full']
+    worst_ck = max(st['span'], key=lambda ck: st['span'][ck][1] / st['span'][ck][0])
+    worst_amp = st['span'][worst_ck][1] / st['span'][worst_ck][0] - 1.0
 
     parts = ['<p><strong>判据表怎么读</strong>：倍率是「该格落点 / 同一起点下代理 × full 的落点」，'
              '逐用例算完再取几何均值；1.00× = 与同一起点下的代理 × full 打平，小于 1 是更好。'
-             '参与判词的是同规模（%s）的起点：%s——现役起点是另一规模，只作锚点看绝对落点，'
+             '参与判词的是同规模（%s 符号/点）的起点：%s——现役起点是另一规模，只作锚点看绝对落点，'
              '不参与「起点换了结论变不变」的判断（跨规模的差分不清是起点还是检测底/量化造成的）。'
-             % (_study_scale_txt(tabs[-1][4]), '、'.join(tab_names))]
-    if not mixed:
-        parts.append('实测：<strong>各格在全部 %d 个起点下都落在同一档（差异 ≤10%%）</strong>——'
-                     '没有哪一格是「在这个起点赢、换个起点就输」，说明强弱排序不是现役起点凑出来的。'
-                     % len(tab_names))
+             % ('2^%d' % round(np.log2(tabs[-1][4])), '、'.join(tab_names))]
+    order_txt = ' ＞ '.join(label_of[ck].replace(' ', '') for ck in
+                            sorted(st['cells'], key=lambda ck: st['ranks'][0][ck]))
+    if st['identical']:
+        parts.append('实测：<strong>%d 个起点下六格的强弱排序完全相同</strong>（%s，从好到差）；'
+                     '没有哪一格是「在这个起点赢、换个起点就输」，说明这个排序不是现役起点凑出来的。'
+                     % (len(st['names']), order_txt))
     else:
-        parts.append('实测：<strong>%d 格跨起点稳定，%d 格随起点明显变化</strong>（%s）。'
-                     '变化的那几格就是「起点一换结论就变」的部分，不能只看单一起点下的结论。'
-                     % (len(same), len(mixed), '、'.join(label_of[c].replace(' ', '') for c in mixed)))
+        parts.append('实测：<strong>排序随起点变化</strong>（最差的两两 Kendall τ = %.2f）。'
+                     '第 1 个起点（%s）的顺序是 %s；别处不同——这类格不能只按一个起点下结论。'
+                     % (st['min_tau'], st['names'][0], order_txt))
     if span_txt:
         parts.append('跨起点的倍率波动：%s。' % '；'.join(span_txt))
     if worst_ck and worst_amp > 0.2:
