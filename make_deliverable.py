@@ -2148,6 +2148,66 @@ def _study_cell_ratio(v, ref):
             'worst': float(np.max(r)), 'geo_ratio': float(np.exp(np.mean(np.log(r)))), 'n': int(len(r))}
 
 
+def _study_tab_selfcheck(dirs):
+    """代理三格在本起点上「越走越好」还是「原地不动/越走越差」——用 best_step 与预测/实测同向性说。"""
+    n_best0 = n_tot = 0
+    steps = []
+    for key in ('full', 'rotate', 'secant'):
+        v = dirs.get(key)
+        if v is None:
+            continue
+        p = os.path.join(v['dir'], 'case_summary.csv')
+        if not os.path.exists(p):
+            continue
+        try:
+            df = pd.read_csv(p)
+        except Exception:
+            continue
+        if 'best_step' not in df:
+            continue
+        n_best0 += int((df['best_step'] == 0).sum())
+        n_tot += len(df)
+        steps.append(float(df['best_step'].median()))
+    if not n_tot:
+        return ''
+    # 最难用例上，代理预测与实测是否同向
+    trend = ''
+    ref = dirs.get('full')
+    if ref:
+        env = max(ref['bmap'], key=lambda e: ref['bmap'][e])
+        p = os.path.join(ref['dir'], 'trace_%s.csv' % env)
+        if os.path.exists(p):
+            try:
+                t = pd.read_csv(p)
+                p0, p1 = float(t['pred_a'].iloc[0]), float(t['pred_a'].iloc[-1])
+                r0, r1 = float(t['real_ber'].iloc[0]), float(t['real_ber'].iloc[-1])
+                if r0 > 0 and r1 > 0:
+                    trend = ('以最难用例（<code>%s</code>）为例：代理预测 %.2f×，实测 %.2f×'
+                             % (env, 10 ** (p0 - p1), r0 / r1))
+            except Exception:
+                trend = ''
+    med = max(steps) if steps else 0.0
+    if n_best0 * 2 >= n_tot:
+        head = ('<strong>本起点上代理三格基本没走动</strong>：%d/%d 个用例的最好落点就是第 0 步'
+                '（15 步全走完，没有一步比第 0 步更好）' % (n_best0, n_tot))
+    else:
+        head = ('代理三格的最好落点中位数在第 %.0f 步（%d/%d 个用例停在第 0 步）'
+                % (med, n_best0, n_tot))
+    tail = ('；%s。代理与实测反向时，说明这一带已经出了代理的训练邻域，'
+            'agent 按代理走只会更差——把这条读成「这一格的落点不可信」而不是「这一格收敛了」。'
+            % trend) if trend and '×' in trend and _worse(trend) else '。'
+    return '<p class="note">自检：' + head + tail + '</p>'
+
+
+def _worse(trend):
+    """trend 里「代理预测 a×、实测 b×」——预测变好（a>1）但实测变差（b<1）就算反向。"""
+    import re as _re
+    m = _re.search(r'代理预测 ([\d.]+)×，实测 ([\d.]+)×', trend)
+    if not m:
+        return False
+    return float(m.group(1)) > 1.0 and float(m.group(2)) < 1.0
+
+
 def _study_secant_mech(tabs):
     """secant 的跨组比例定死 → gain 一动 CTLE 跟着动；这个「跟着动」在不同起点上是有害还是无害。"""
     notes = []
@@ -2566,6 +2626,7 @@ def _study_block(a):
                        '<th class="n">真实评估/用例</th><th class="n">到检测底</th></tr>' + chr(10)
                      + _study_tab_rows(dirs) + chr(10) + '</table>' + chr(10) + '</div>' + chr(10))
         parts.append(_study_hard_detail(dirs))
+        parts.append(_study_tab_selfcheck(dirs))
         # 小 tab：六格逐用例明细（纯表格，避免重复内联收敛图把 HTML 撑大）
         sbar, span = [], []
         ref = dirs.get('full')
