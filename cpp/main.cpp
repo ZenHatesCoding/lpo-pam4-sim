@@ -152,6 +152,10 @@ int main(int argc, char** argv) {
     fprintf(stderr, "[run] env=%s config=%s num_symbols=%d tx_noise=%.1f n_steps=%d method=%s grad_mode=%s\n",
             env_name.c_str(), config_path.c_str(), (int)cfg.d("system.num_symbols", 0),
             cfg.d("system.tx_noise_snr_db", 0.0), n_steps, method.c_str(), grad_mode.c_str());
+    // 实际生效的起点（seed-config 打不开时这里会显示内置默认值，便于核对）
+    fprintf(stderr, "[seed] src=%s taps=[%.4f,%.4f,%.4f,%.4f,%.4f] gdc=%.3f gdc2=%.3f u_gain=%.4f gain=%.5f\n",
+            seed_config_path.empty() ? "(builtin)" : seed_config_path.c_str(),
+            taps0[0], taps0[1], taps0[2], taps0[3], taps0[4], gdc0, gdc20, x0[N_TAP + 2], gain0);
 
     auto t0 = std::chrono::high_resolution_clock::now();
     std::vector<Stage2Step> trace;

@@ -44,8 +44,8 @@
     "best_u_gain": -0.412072004929,
     "stop_reason": "",
     "early_stop": false,
-    "elapsed_sec": 58.459605,
-    "wall_sec": 60.75676989555359
+    "elapsed_sec": 48.461182,
+    "wall_sec": 49.61488389968872
   },
   {
     "env": "IL20x20",
@@ -92,7 +92,7 @@
     "best_u_gain": -0.1807586944009,
     "stop_reason": "",
     "early_stop": false,
-    "elapsed_sec": 57.974225,
-    "wall_sec": 60.16129755973816
+    "elapsed_sec": 48.438741,
+    "wall_sec": 49.53443145751953
   }
 ]

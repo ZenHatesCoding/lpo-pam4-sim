@@ -44,8 +44,8 @@
     "best_u_gain": -0.4284075052641,
     "stop_reason": "marginal_gain",
     "early_stop": true,
-    "elapsed_sec": 111.854729,
-    "wall_sec": 116.89326548576355
+    "elapsed_sec": 71.815735,
+    "wall_sec": 73.65068292617798
   },
   {
     "env": "IL20x20",
@@ -92,7 +92,7 @@
     "best_u_gain": -0.2242679504448,
     "stop_reason": "marginal_gain",
     "early_stop": true,
-    "elapsed_sec": 499.165097,
-    "wall_sec": 504.19772934913635
+    "elapsed_sec": 315.212353,
+    "wall_sec": 317.1332595348358
   }
 ]

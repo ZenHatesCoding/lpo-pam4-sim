@@ -40,9 +40,11 @@
    `s3_shape3.0` 形状+幅度都错（旁瓣 ×3 + 增益 −0.8 dB）。起点 BER 全部由链路真实评估得出，
    选点工具 `tools/probe_start_point.py`（原先散在 scratch 的临时脚本）。
    起点文件 `seeds/seed_s1_gain-2.6dB.json` / `seed_s2_ctle_g3.0_1.5.json` / `seed_shape3.0.json`。
-2. ⏳ **跑批**：`python tools/run_seed_study.py --jobs 6 --num-symbols 2097152 --seeds s1_gain-2.6dB,s2_ctle_g3.0_1.5,s3_shape3.0`
-   —— 3 起点 × 6 格 = 18 次跑批，2^21 符号/点（起点更差，最优 BER 抬到 1e-6 量级，2^21 的检测底 1.24e-7 够分辨；
-   2^22 要 4 倍时间）。结果落 `result/seed_study/<起点>/ddps_cpp_<格>/`，**故意不放 `result/` 顶层**，
+2. ⏳ **跑批**：`python tools/run_seed_study.py --jobs 15 --num-symbols 1048576 --seeds s1_gain-2.6dB,s2_ctle_g3.0_1.5,s3_shape3.0`
+   —— 3 起点 × 6 格 = 18 次跑批，2^20 符号/点（检测底 2.4e-7；起点更差、落点抬到 1e-6 量级，
+   够分辨六格差别；2^21 实测 25.7 s/次评估、全程要 34 小时，2^20 只要约 1/4）。
+   2^20 单进程 RSS ≈0.9 GB，所以一次开满 15 路并行（15 用例各一路），内存峰值 13 GB / 28 GB。
+   结果落 `result/seed_study/<起点>/ddps_cpp_<格>/`，**故意不放 `result/` 顶层**，
    否则会被 `verify_ddps.py` 的自动发现当成现役格、`--expect-cells 6` 直接失败。
 3. ⏳ **入口**：`cpp/run_all_cases.py` 新增 `--seed-config`（原来写死 `result/seed_config_bad_1e4.json`，
    换起点必须改代码）；`tools/run_seed_study.py`（新，18 次跑批的串联队列，带「已有不同 num_symbols 就拒绝覆盖」的防呆，

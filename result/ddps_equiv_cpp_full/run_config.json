@@ -14,7 +14,7 @@
     "IL20x20"
   ],
   "jobs": 2,
-  "total_wall_sec": 429.82402634620667,
+  "total_wall_sec": 353.36226654052734,
   "method": "proxy",
   "grad_mode": "full",
   "rotate_k": 2

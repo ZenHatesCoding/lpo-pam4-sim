@@ -103,13 +103,17 @@ def run_one(args):
     if backend == 'wsl':
         # WSL：Linux 进程不受 Windows 代码完整性策略管辖；所有路径转 posix 相对形式，
         # 由 --cd 锚定仓库根。产物/日志仍落 Windows 文件树（/mnt/c），git 照常跟踪。
+        for _p in (cfg_path, seed_cfg, MODEL_DIR):
+            if not _wsl_exists(distro, _wsl_arg(_p)):
+                return {'env': name, 'ok': False, 'rc': -2,
+                        'err': 'WSL 侧看不到这个路径，拒绝跑（否则 C++ 会静默用默认起点）: %s' % _p}
         cmd = ['wsl', '-d', distro, '--cd', root_linux, './' + EXE_LINUX,
-               _posix(cfg_path), '--num-symbols', str(num_sym), '--tx-noise-snr', '0',
+               _wsl_arg(cfg_path), '--num-symbols', str(num_sym), '--tx-noise-snr', '0',
                '--seed', str(SEED), '--n-steps', str(n_steps),
-               '--seed-config', _posix(seed_cfg), '--env-name', name,
-               '--model-dir', _posix(MODEL_DIR), '--method', method,
+               '--seed-config', _wsl_arg(seed_cfg), '--env-name', name,
+               '--model-dir', _wsl_arg(MODEL_DIR), '--method', method,
                '--grad-mode', grad_mode, '--rotate-k', str(rotate_k),
-               '--out', _posix(out_json)]
+               '--out', _wsl_arg(out_json)]
     else:
         cmd = [EXE, cfg_path, '--num-symbols', str(num_sym), '--tx-noise-snr', '0',
                '--seed', str(SEED), '--n-steps', str(n_steps),
@@ -117,8 +121,17 @@ def run_one(args):
                '--model-dir', MODEL_DIR, '--method', method,
                '--grad-mode', grad_mode, '--rotate-k', str(rotate_k), '--out', out_json]
     t0 = time.time()
-    with open(log, 'w', encoding='utf-8') as lf:
-        rc = subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT).returncode
+    # 两个流都先接住再落盘：wsl.exe 自己会往 fd 写 UTF-16 警告，和 Linux 进程的 stderr 抢同一个
+    # 文件位置，直接把句柄交给子进程会吞掉开头的 [run] / [seed] 行（实测）。
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    with open(log, 'wb') as lf:
+        while True:
+            chunk = p.stdout.read1(4096)   # read1：有多少返回多少，别等凑满
+            if not chunk:
+                break
+            lf.write(chunk)
+            lf.flush()
+    rc = p.wait()
     wall = time.time() - t0
     if rc != 0 or not os.path.exists(out_json):
         return {'env': name, 'ok': False, 'rc': rc, 'wall_sec': wall}
@@ -144,6 +157,22 @@ def run_one(args):
 
 def _posix(p):
     return p.replace('\\', '/')
+
+
+def _wsl_arg(p):
+    """WSL 侧可用的绝对路径：C:\\x -> /mnt/c/x。
+
+    不要用 `_posix` 处理**绝对**路径：`C:/...` 在 WSL 里不是合法路径，C++ 打不开文件时会
+    静默退回内置默认起点（近似标称的好点），结果看起来"零误码"，实际起点根本没生效。
+    """
+    return _wsl_path(os.path.abspath(p))
+
+
+def _wsl_exists(distro, path):
+    """pre-flight：确认这个路径在 WSL 里真的能打开。"""
+    rc = subprocess.run(['wsl', '-d', distro, 'test', '-e', path],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+    return rc == 0
 
 
 def _wsl_path(win_abs):
