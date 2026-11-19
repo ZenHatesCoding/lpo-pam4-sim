@@ -16,4 +16,5 @@
 # 产物：cpp/build/run_ddps（Linux ELF）
 set -e
 g++ -O2 -std=c++17 cpp/main.cpp -o cpp/build/run_ddps
-echo "built cpp/build/run_ddps (Linux ELF, g++ $(g++ -dumpversion))"
+g++ -O2 -std=c++17 cpp/eval_point.cpp -o cpp/build/eval_point
+echo "built cpp/build/run_ddps + cpp/build/eval_point (Linux ELF, g++ $(g++ -dumpversion))"

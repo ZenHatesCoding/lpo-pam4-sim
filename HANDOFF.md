@@ -29,6 +29,31 @@
 - **一键验收（回答"到底跑完没有"）**：`python tools\verify_ddps.py`（默认 **自动发现** `result/ddps_cpp_*` 下已跑完的格）——查结果完整性、逐用例记账恒等式（`n_real_evals = n_landed + n_probe_states`）、刷新维序列与档位语义、微扰态成对、2^18 逐轨迹等价、交付件新鲜度与禁词；exit 0 才算通过。想看"六格是不是跑齐了"就加 `--expect-cells 6`：格数不足直接报 exit 2。
 - **本机 Smart App Control 已转强制模式**：拦 MinGW cc1plus 依赖的 `libisl-23.dll`（Windows 侧 C/C++ 编译不可用）+ 拦既有 `run_ddps.exe`（旧产物也跑不了）；换任何 Windows 侧编译器都无解（产物仍是本地无签名 exe）。**现役编译运行路线 = WSL**：`cpp/build_wsl.sh`（Ubuntu g++ 13.3，源码纯标准 C++17）+ `cpp/run_all_cases.py --backend wsl`，结果/日志仍落 Windows 文件树、受 git 跟踪。
 
+## 本轮（2026-11-19 · 起点鲁棒性：换三个差起点 × 六格 + 交付件发端频谱与大 tab）
+
+用户诉求：换起点、多换几个差起点（基线约 1e-3），六种取法全做，看不同起点下效果是否一致；
+交付件写起点与最优结果时，除 CTLE 响应、抽头形状，还要给**发端频谱对比**；
+**不同起点做成不同的大 tab，大 tab 内用现有小 tab 对比算法效果**。
+
+1. ⏳ **起点选点**（已完成）：三个差起点，基线用例起点 BER 都落在 8.5e-4~9.4e-4（原起点 1.27e-4，差约 7~8 倍），
+   坏法各不相同——`s1_gain-2.6dB` 纯幅度错（增益再降 2.6 dB）、`s2_ctle_g3.0_1.5` 纯均衡错（CTLE peaking/shelf 拉偏）、
+   `s3_shape3.0` 形状+幅度都错（旁瓣 ×3 + 增益 −0.8 dB）。起点 BER 全部由链路真实评估得出，
+   选点工具 `tools/probe_start_point.py`（原先散在 scratch 的临时脚本）。
+   起点文件 `seeds/seed_s1_gain-2.6dB.json` / `seed_s2_ctle_g3.0_1.5.json` / `seed_shape3.0.json`。
+2. ⏳ **跑批**：`python tools/run_seed_study.py --jobs 6 --num-symbols 2097152 --seeds s1_gain-2.6dB,s2_ctle_g3.0_1.5,s3_shape3.0`
+   —— 3 起点 × 6 格 = 18 次跑批，2^21 符号/点（起点更差，最优 BER 抬到 1e-6 量级，2^21 的检测底 1.24e-7 够分辨；
+   2^22 要 4 倍时间）。结果落 `result/seed_study/<起点>/ddps_cpp_<格>/`，**故意不放 `result/` 顶层**，
+   否则会被 `verify_ddps.py` 的自动发现当成现役格、`--expect-cells 6` 直接失败。
+3. ⏳ **入口**：`cpp/run_all_cases.py` 新增 `--seed-config`（原来写死 `result/seed_config_bad_1e4.json`，
+   换起点必须改代码）；`tools/run_seed_study.py`（新，18 次跑批的串联队列，带「已有不同 num_symbols 就拒绝覆盖」的防呆，
+   以及 `--out-root` 供小点数版式探针另开目录）。**踩过的坑**：小点数探针一开始指到正式目录，两个规模互相覆盖，已清空重跑。
+4. ⏳ **发端频谱**：`report_ddps.py` 的最难用例六联图原来是「收敛 / 抽头 / CTLE / 探针 FIR」，现补两个面板——
+   **发端频谱对比**（FFE ⊗ DAC 零阶保持 ⊗ Tx CTLE ⊗ 驱动增益）与**频谱改变量 ΔdB**；
+   同时「起点」不再读模块级 `D.SEED_*`，改为按 `run_config.json` 的 `seed_config` 读（换起点时全局量是旧的，会画错起点）。
+5. ⏳ **交付件 §6.6**：大 tab = 起点（现役 2^22 + 三个差起点 2^21），大 tab 内小 tab = 六格；判据表「同一格在四个起点下
+   相对现役格的倍率」直接回答"结论稳不稳"。小 tab 里放逐用例明细表而非重复贴收敛图（重复内联图会把 HTML 撑大 5.7 MB）。
+6. ⏳ 跑完后：18 个目录逐格出 `report/`、生成交付件、`verify_ddps.py --expect-cells 6`、commit + push、present。
+
 ## 待办（8 维 + 形状维三种取法口径，2^22 六格全量对比）
 
 > 路径提示：`result/ddps_cpp_{full,rotate,secant}/` 是代理行三格、`result/ddps_cpp_direct_{secant,full,rotate}/` 是回传行三格的**现役结果目录**；`result/ddps_cpp_direct_secant/` 沿用最早那批 direct 全量数据（已用新代码 2^18 逐位核对一致）。

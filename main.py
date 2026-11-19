@@ -192,6 +192,7 @@ def run_sim(config, custom_tx_taps=None, plot_eyes=None, output_dir="diagnostic_
             'tx_pam4': tx_pam4, 'tx_symbols': tx_symbols,
             'phase_offset': phase_offset, 'sync_delay': sync_delay,
             'train_len': train_len, 'noise_var': noise_var,
+            'mlse_a1': float(pr_taps[1]) if ar_order > 0 else 0.0,  # MLSE 白化抽头 a1（诊断）
         }
         return ffe_ber, mlse_ber, nodes
 

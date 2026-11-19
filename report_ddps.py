@@ -351,6 +351,50 @@ def figure_tracking(test_dir, report_dir, envs):
     return out
 
 
+def _seed_point(meta):
+    """起点的 5 抽头 / gDC / gDC2 / gain：优先读 run_config.json 里的 seed_config 文件。
+
+    换起点做对照实验时，模块级 D.SEED_* 还是默认值，必须按这次跑批实际用的起点读。
+    """
+    taps = np.array(D.SEED_TAPS, dtype=float)
+    gdc, gdc2, gain = D.SEED_GDC, D.SEED_GDC2, D.SEED_GAIN
+    p = (meta or {}).get('seed_config')
+    if p and os.path.exists(p):
+        try:
+            with open(p, encoding='utf-8') as f:
+                sc = json.load(f)
+            if 'best_taps' in sc:
+                taps = np.asarray(sc['best_taps'], dtype=float)
+            elif 'best_pre_post' in sc:
+                taps = D.construct_taps(np.asarray(sc['best_pre_post'], dtype=float), D.FFE_PRE)
+            gdc = float(sc.get('best_gdc', gdc))
+            gdc2 = float(sc.get('best_gdc2', gdc2))
+            if 'best_u_gain' in sc:
+                gain = float(D.gain_from_u(float(sc['best_u_gain'])))
+            elif 'best_gain' in sc:
+                gain = float(sc['best_gain'])
+        except Exception:
+            pass
+    return {'taps': taps, 'gdc': gdc, 'gdc2': gdc2, 'gain': gain}
+
+
+def _tx_psd_db(f, taps, gdc_db, gdc2_db, gain):
+    """发端频谱的相对电平（dB）：Tx FFE 频响 ⊗ DAC 零阶保持 ⊗ Tx CTLE ⊗ 驱动增益。
+
+    只比较形状与相对电平，因此载波（PAM4 数据）按白谱处理——同一批数据下两点的差别
+    全部来自这三个线性环节，这正是「起点 vs 最优」想看的。
+    """
+    f = np.maximum(f, 1e-9)
+    t = 1.0 / BAUD
+    h = np.zeros_like(f, dtype=complex)
+    for k, a in enumerate(taps):
+        h += a * np.exp(-1j * 2 * np.pi * f * k * t)
+    mag = np.abs(h) + 1e-12
+    zoh = np.abs(np.sinc(f / (2.0 * BAUD))) + 1e-12      # DAC 零阶保持在 2 sps
+    ctle = 10 ** (_ctle_response_db(f, gdc_db, gdc2_db) / 20.0)
+    return 20 * np.log10(mag * zoh * ctle * max(gain, 1e-12))
+
+
 def figure_hardcase(test_dir, report_dir, envs, direct=False):
     """最难用例四联图：收敛曲线 + FFE 抽头 + CTLE 频响 + 探针 FIR。"""
     os.makedirs(report_dir, exist_ok=True)
@@ -364,7 +408,9 @@ def figure_hardcase(test_dir, report_dir, envs, direct=False):
 
     best_idx = int(tr['real_ber'].values.argmin())
     best_row = tr.iloc[best_idx]
-    seed_taps = D.SEED_TAPS.copy()
+    _sp = _seed_point(_run_meta(test_dir))
+    seed_taps = np.array(_sp['taps'], dtype=float).copy()
+    seed_gdc, seed_gdc2, seed_gain = _sp['gdc'], _sp['gdc2'], _sp['gain']
     try:
         best_taps = np.array(json.loads(best_row['taps']) if isinstance(best_row['taps'], str)
                              else best_row['taps'], float)
@@ -381,10 +427,10 @@ def figure_hardcase(test_dir, report_dir, envs, direct=False):
 
     # CTLE 频响
     f = np.linspace(0, 2.0 * BAUD, 800)
-    ctle_seed = _ctle_response_db(f, D.SEED_GDC, D.SEED_GDC2)
+    ctle_seed = _ctle_response_db(f, seed_gdc, seed_gdc2)
     ctle_best = _ctle_response_db(f, best_gdc, best_gdc2)
 
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig, axes = plt.subplots(2, 3, figsize=(19.5, 10))
     _plot_convergence(axes[0, 0], tr, summ[summ['env'] == hard_env].iloc[0],
                       title=f'{hard_env} 收敛轨迹', pr=_probes(test_dir, hard_env),
                       direct=direct)
@@ -422,6 +468,33 @@ def figure_hardcase(test_dir, report_dir, envs, direct=False):
     ax.set_title('Tx 物理探针 7-tap FIR（发端波形特征）' if direct
                  else 'Tx 物理探针 7-tap FIR（Model A 输入特征）', fontsize=10)
     ax.grid(True, ls='--', alpha=0.3, axis='y')
+    # (5)(6) 发端频谱：起点 vs 最优，以及逐频点差值
+    best_gain = None
+    try:
+        import math as _m
+        best_gain = float(_m.pow(10.0, float(best_row['u_gain']))) * D.DRIVER_GAIN_NOMINAL
+    except Exception:
+        best_gain = seed_gain
+    psd_seed = _tx_psd_db(f, seed_taps, seed_gdc, seed_gdc2, seed_gain)
+    psd_best = _tx_psd_db(f, best_taps, best_gdc, best_gdc2, best_gain)
+    ref = float(np.max(psd_seed))
+    psd_seed -= ref
+    psd_best -= ref
+    ax = axes[1, 1]
+    ax.plot(f / 1e9, psd_seed, color='#0b63ce', lw=1.6, label='起点')
+    ax.plot(f / 1e9, psd_best, ls='--', color='#0f8a4a', lw=1.6, label='最优')
+    ax.axvline(BAUD / 2 / 1e9, color='k', ls=':', lw=1, label='Nyquist')
+    ax.set_xlabel('GHz', fontsize=9); ax.set_ylabel('相对电平 (dB)', fontsize=9)
+    ax.set_title('发端频谱对比（FFE ⊗ DAC ZOH ⊗ Tx CTLE ⊗ 增益）', fontsize=10)
+    ax.legend(fontsize=8); ax.grid(alpha=0.3); ax.set_ylim(-40, 5)
+    ax = axes[1, 2]
+    ax.plot(f / 1e9, psd_best - psd_seed, color='#b8860b', lw=1.6)
+    ax.axhline(0, color='k', lw=0.6)
+    ax.axvline(BAUD / 2 / 1e9, color='k', ls=':', lw=1)
+    ax.fill_between(f / 1e9, 0, psd_best - psd_seed, color='#b8860b', alpha=0.18)
+    ax.set_xlabel('GHz', fontsize=9); ax.set_ylabel('ΔdB（最优 − 起点）', fontsize=9)
+    ax.set_title('频谱改变量：正=最优在高频抬得更多', fontsize=10)
+    ax.grid(alpha=0.3)
     if direct:
         label = 'direct（端到端 BER 直接梯度下降）'
         out_name = 'ddps_case_hard.png'

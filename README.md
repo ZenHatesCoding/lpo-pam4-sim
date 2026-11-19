@@ -139,6 +139,24 @@ python cpp\run_all_cases.py --backend wsl --method direct --out-dir result\ddps_
 ```
 > direct（真实 BER 回传行）回答的问题：若收端端到端 BER 可回传，直接对真实目标做梯度下降能达到什么水平。第 0 步恒为全 8 维中心差分（16 个 `±ε 微扰态`，真实 BER 实测），此后按 `--grad-mode` 选取法（`full` 每步 16 态 / `rotate` 每步 4 态 / `secant` 0 态）；无代理，因此没有 gain 解析梯度、没有代理预测。与代理行三格共用同一 8 维搜索空间 / 步长调度 / 组门控 / 15 步上限，差别只在目标与梯度来源。
 
+### 4d. 起点鲁棒性（换多个差起点，六格全跑，看结论是否只在某个起点成立）
+```bash
+# 1) 先挑起点：给定候选 seed 配置，用链路真实评估报出起点 BER（每个候选 1 步、2^18）
+python tools\probe_start_point.py --pattern s1 --cases Base_IL10x10,IL14x14,IL20x20
+
+# 2) 三个差起点 × 六格全跑（起点 ≈1e-3；2^21 符号/点、15 用例、单种子 42、固定 15 步）
+python tools\run_seed_study.py --jobs 6 --num-symbols 2097152 \
+    --seeds s1_gain-2.6dB,s2_ctle_g3.0_1.5,s3_shape3.0
+
+# 3) 每格出图（结果目录在 result/seed_study/<起点>/ddps_cpp_<格>）
+python report_ddps.py --test-dir result/seed_study/s1_gain-2.6dB/ddps_cpp_full --model-dir models/ddps \
+    --seed-config seeds/seed_s1_gain-2.6dB.json
+```
+> 起点文件在 `seeds/`（`best_taps` / `best_gdc` / `best_gdc2` / `best_u_gain` 四个字段，`_source` 说明这个起点坏在哪）。
+> `cpp\run_all_cases.py` 与 `tools\run_parallel_envs.py` 都接受 `--seed-config`，换起点不改代码。
+> 结果写进 `result/seed_study/<起点>/`，**故意不放在 `result/` 顶层**——否则会被 `tools\verify_ddps.py` 的
+> `result/ddps_cpp_*` 自动发现当成现役格，`--expect-cells 6` 会直接失败。
+
 ### 5. 报告与交付件
 ```bash
 # 可视化报告（逐格出图：--test-dir result/ddps_cpp_<格>）
@@ -167,6 +185,7 @@ python make_deliverable_docx.py
 | `result/ddps_cpp_full/`、`result/ddps_cpp_rotate/`、`result/ddps_cpp_secant/` | C++ 2^22 代理行三格全量（15 用例、单种子 42、固定 15 步） |
 | `result/ddps_cpp_direct_secant/`、`result/ddps_cpp_direct_full/`、`result/ddps_cpp_direct_rotate/` | C++ 2^22 真实 BER 回传三格全量（同上协议） |
 | `result/ddps_equiv_{py,cpp}_<格>/` | 2^18 六格等价参照（Python / C++ 两平台，`compare_traces.py` 逐轨迹比对） |
+| `result/seed_study/<起点>/ddps_cpp_<格>/` | 起点鲁棒性对照：三个差起点 × 六格（2^21），结构同现役格 |
 
 每个结果目录含 `case_summary.csv/json`、`trace_<用例>.csv`、`probes_<用例>.csv`、`run_config.json`、`report/`。
 

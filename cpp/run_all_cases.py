@@ -91,7 +91,7 @@ def _safe(name):
 
 
 def run_one(args):
-    env, num_sym, n_steps, out_root, method, grad_mode, rotate_k, backend, distro, root_linux = args
+    env, num_sym, n_steps, out_root, method, grad_mode, rotate_k, backend, distro, root_linux, seed_cfg = args
     name = env['name']
     safe = _safe(name)
     out_dir = os.path.join(out_root, '_parts', safe)
@@ -106,14 +106,14 @@ def run_one(args):
         cmd = ['wsl', '-d', distro, '--cd', root_linux, './' + EXE_LINUX,
                _posix(cfg_path), '--num-symbols', str(num_sym), '--tx-noise-snr', '0',
                '--seed', str(SEED), '--n-steps', str(n_steps),
-               '--seed-config', _posix(SEED_CONFIG), '--env-name', name,
+               '--seed-config', _posix(seed_cfg), '--env-name', name,
                '--model-dir', _posix(MODEL_DIR), '--method', method,
                '--grad-mode', grad_mode, '--rotate-k', str(rotate_k),
                '--out', _posix(out_json)]
     else:
         cmd = [EXE, cfg_path, '--num-symbols', str(num_sym), '--tx-noise-snr', '0',
                '--seed', str(SEED), '--n-steps', str(n_steps),
-               '--seed-config', SEED_CONFIG, '--env-name', name,
+               '--seed-config', seed_cfg, '--env-name', name,
                '--model-dir', MODEL_DIR, '--method', method,
                '--grad-mode', grad_mode, '--rotate-k', str(rotate_k), '--out', out_json]
     t0 = time.time()
@@ -166,6 +166,8 @@ def main():
                          'secant 只第 0 步测一次')
     ap.add_argument('--rotate-k', type=int, default=2, help='rotate 模式每步刷新的形状维个数')
     ap.add_argument('--out-dir', type=str, default=OUT_DIR)
+    ap.add_argument('--seed-config', type=str, default=SEED_CONFIG,
+                    help='次优起点配置（默认 result/seed_config_bad_1e4.json）；换起点做鲁棒性对照时指别的文件')
     ap.add_argument('--backend', type=str, default='win', choices=['win', 'wsl'],
                     help='win = 直接调 cpp/build/run_ddps.exe；wsl = WSL 内 g++ 编译的 '
                          'cpp/build/run_ddps（Smart App Control 强制模式下的可用路线）')
@@ -191,7 +193,7 @@ def main():
     t0 = time.time()
     with Pool(jobs) as pool:
         results = pool.map(run_one, [(e, num_sym, n_steps, OUT_DIR, METHOD, GRAD_MODE, ROTATE_K,
-                                      backend, distro, root_linux) for e in cases])
+                                      backend, distro, root_linux, a.seed_config) for e in cases])
     total_wall = time.time() - t0
 
     oks = [r for r in results if r.get('ok')]
@@ -237,7 +239,7 @@ def main():
         'backend': 'cpp' if backend == 'win' else 'cpp-wsl',
         'exe': EXE if backend == 'win' else 'wsl -d %s %s' % (distro, EXE_LINUX),
         'model_dir': MODEL_DIR, 'n_steps': n_steps,
-        'num_symbols': num_sym, 'sim_seeds': [SEED], 'seed_config': SEED_CONFIG,
+        'num_symbols': num_sym, 'sim_seeds': [SEED], 'seed_config': a.seed_config,
         'tx_noise_snr_db': 0.0, 'envs': [e['name'] for e in cases],
         'jobs': jobs, 'total_wall_sec': total_wall, 'method': METHOD,
         'grad_mode': GRAD_MODE, 'rotate_k': ROTATE_K,

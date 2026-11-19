@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """make_deliverable.py — 由产物自动生成 DDPS 交付件（自包含 HTML）。
 
@@ -1244,6 +1244,8 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
 <h3>6.5 另一条梯度来源：真实 BER 回传（三格）</h3>
 <!--DIRECT_SECTION-->
 
+<!--SEED_STUDY-->
+
 <h2 id="s7"><span class="num">7</span>结论</h2>
 
 <div class="card">
@@ -2071,6 +2073,309 @@ def _path_block(a, cells):
               '6.1 里三种取法结果只差 5%（除 1 例），说明在这里「方向」这个自由度几乎不产生收益——'
               '真正决定落点的是第 0 步的方向准不准、以及每组走多远。secant 输了 2.71 倍的那一例'
               '（HighNoise_IL10x10）正是初始方向不对、又没机会纠正的例子。</p>')
+
+
+# ---------------------------------------------------------------------------
+# §6.6 起点鲁棒性：换多个差起点，六格全跑，看结论是否随起点变化
+# ---------------------------------------------------------------------------
+_STUDY_ROOT = (os.environ.get('DDPS_STUDY_ROOT') or 'result/seed_study')  # 版式探针可用该环境变量指到 scratch/，绝不动正式跑批目录
+_STUDY_SEED_META = [
+    ('s1_gain-2.6dB', '纯幅度错',
+     '形状与 CTLE 一点不动，只把驱动增益再压低 2.6 dB——起点错在“驱动幅度”，不是错在“均衡形状”'),
+    ('s2_ctle_g3.0_1.5', '纯均衡错',
+     '增益一点不动，把 Tx CTLE 的 peaking 拉到 3.0 dB、低频 shelf 抬到 1.5 dB——起点错在“频响形状”'),
+    ('s3_shape3.0', '形状+幅度都错',
+     '4 个 FFE 旁瓣放大 3 倍（形状坏），同时增益再降 0.8 dB（幅度也坏）'),
+]
+_STUDY_CELLS = [('full', '代理 × full'), ('rotate', '代理 × rotate'), ('secant', '代理 × secant'),
+                ('direct_full', '回传 × full'), ('direct_rotate', '回传 × rotate'),
+                ('direct_secant', '回传 × secant')]
+
+
+def _study_num_sym(d):
+    try:
+        with open(os.path.join(d, 'run_config.json'), encoding='utf-8') as f:
+            return int(json.load(f).get('num_symbols') or 0)
+    except Exception:
+        return 0
+
+
+def _study_cell_metrics(d):
+    """一格 × 一个起点的落点指标；目录缺 case_summary.csv 返回 None。"""
+    p = os.path.join(d, 'case_summary.csv')
+    if not os.path.exists(p):
+        return None
+    try:
+        s = pd.read_csv(p)
+        best = pd.to_numeric(s['best_ber'], errors='coerce').astype(float)
+        seed = pd.to_numeric(s['seed_ber'], errors='coerce').astype(float)
+        ev = pd.to_numeric(s['n_real_evals'], errors='coerce').astype(float)
+    except Exception:
+        return None
+    ok = best > 0
+    if not ok.any():
+        return None
+    nsym = _study_num_sym(d)
+    floor = 0.5 / (2.0 * nsym) if nsym else 0.0
+    return {
+        'dir': d, 'envs': list(s['env']), 'bmap': dict(zip(list(s['env']), best.values)),
+        'bmap_seed': dict(zip(list(s['env']), seed.values)),
+        'best': best.values, 'seed': seed.values,
+        'geo': float(np.exp(np.mean(np.log(best[ok].values)))),
+        'geo_seed': float(np.exp(np.mean(np.log(seed[seed > 0].values)))) if (seed > 0).any() else float('nan'),
+        'evals': float(np.nanmean(ev)),
+        'n_floor': int((best <= floor * 1.05).sum()) if floor else 0,
+        'nsym': nsym, 'floor': floor, 'n': int(len(s)),
+    }
+
+
+def _study_cell_ratio(v, ref):
+    """逐用例 best/ref 的倍率统计。"""
+    if v is None or ref is None:
+        return None
+    r = []
+    for env, b in v['bmap'].items():
+        rb = ref['bmap'].get(env)
+        if rb and rb > 0 and b == b:
+            r.append(b / rb)
+    r = np.array(r, dtype=float)
+    r = r[np.isfinite(r)]
+    if not len(r):
+        return None
+    return {'tie': int((r <= 1.05).sum()), 'worse': int((r > 1.05).sum()),
+            'worst': float(np.max(r)), 'geo_ratio': float(np.exp(np.mean(np.log(r)))), 'n': int(len(r))}
+
+
+def _study_tab_rows(seed_dirs):
+    """一个起点内：六格对比表行。"""
+    ref = seed_dirs.get('full')
+    body = []
+    for key, label in _STUDY_CELLS:
+        v = seed_dirs.get(key)
+        if v is None:
+            continue
+        rr = _study_cell_ratio(v, ref) if key != 'full' else None
+        if key == 'full':
+            cmp_txt = '—'
+            worse_txt = '—'
+            worst_txt = '—'
+        else:
+            cmp_txt = '%.2f×' % rr['geo_ratio'] if rr else '—'
+            worse_txt = '%d/%d' % (rr['worse'], rr['n']) if rr else '—'
+            worst_txt = '%.2f×' % rr['worst'] if rr else '—'
+        body.append(
+            '  <tr><td><strong>%s</strong></td><td class="n">%.3e</td><td class="n">%s</td>'
+            '<td class="n">%s</td><td class="n">%s</td><td class="n">%.1f</td><td class="n">%d/%d</td></tr>'
+            % (label, v['geo'], cmp_txt, worse_txt, worst_txt, v['evals'], v['n_floor'], v['n']))
+    return chr(10).join(body)
+
+
+def _study_hard_png(d):
+    rd = os.path.join(d, 'report')
+    if not os.path.isdir(rd):
+        return None
+    import glob as _g
+    cand = sorted(_g.glob(os.path.join(rd, 'ddps_case_*.png')))
+    return cand[0] if cand else None
+
+
+def _study_scale_txt(nsym):
+    """把符号数写成「2^21（210 万）」这种一眼能对照协议的形状。"""
+    if not nsym:
+        return '—'
+    e = {262144: 18, 524288: 19, 1048576: 20, 2097152: 21, 4194304: 22}.get(int(nsym))
+    head = '2^%d' % e if e else '%.0f' % nsym
+    return '%s（%d 万）' % (head, round(nsym / 10000))
+
+
+def _study_seed_brief(seed_dirs):
+    """起点本身：几何均值 / 最难用例 / 基线用例。"""
+    v = seed_dirs.get('full')
+    if v is None:
+        return ''
+    seed = v['seed']
+    base = None
+    hard = None
+    try:
+        base = float(v['bmap_seed']['Base_IL10x10'])
+    except Exception:
+        pass
+    try:
+        hard = float(np.nanmax(seed))
+    except Exception:
+        pass
+    return base, hard, v['geo_seed']
+
+
+def _study_seed_params(spath):
+    import ddps_optimizer as _DOP
+    try:
+        with open(spath, encoding='utf-8') as f:
+            sc = json.load(f)
+    except Exception:
+        return ''
+    taps = sc.get('best_taps') or []
+    gain = None
+    if 'best_u_gain' in sc:
+        gain = float(_DOP.gain_from_u(float(sc['best_u_gain'])))
+    elif 'best_gain' in sc:
+        gain = float(sc['best_gain'])
+    t = ', '.join('%+.3f' % x for x in taps)
+    src_txt = sc.get('_source')
+    src_txt = ('起点的问题——%s。' % src_txt) if isinstance(src_txt, str) else ''
+    return ('<p class="note">起点参数：5 抽头 [%s]，gDC = %.2f dB，gDC2 = %.2f dB，增益 = %.4f'
+            '（标称 %.4f，比值 %.3f）。%s</p>'
+            % (t, float(sc.get('best_gdc', 0)), float(sc.get('best_gdc2', 0)),
+               gain or 0.0, _DOP.DRIVER_GAIN_NOMINAL, (gain or 0.0) / _DOP.DRIVER_GAIN_NOMINAL,
+               src_txt))
+
+
+def _study_block(a):
+    """§6.6 整块：跨起点汇总表 + 每个起点一个大 tab（内含六格小 tab）。"""
+    tabs = []   # (key, label, dirs, spath, num_sym, note)
+
+    cur = {}
+    for key, _label in _STUDY_CELLS:
+        d = a.dirs.get(key) or a.dirs.get('direct' if key.startswith('direct') else key)
+        if key == 'direct_full':
+            d = a.direct_full
+        elif key == 'direct_rotate':
+            d = a.direct_rotate
+        elif key == 'direct_secant':
+            d = a.direct
+        if d and os.path.isdir(d):
+            cur[key] = _study_cell_metrics(d)
+    if cur:
+        tabs.append(('current', '现役起点（gain ×0.325）', cur, 'result/seed_config_bad_1e4.json',
+                     _study_num_sym(a.dirs.get('full', '')), _study_scale_txt(
+                         _study_num_sym(a.dirs.get('full', '')))))
+
+    meta_names = [m[0] for m in _STUDY_SEED_META]
+    extra = []
+    if os.path.isdir(_STUDY_ROOT):
+        extra = [d for d in sorted(os.listdir(_STUDY_ROOT))
+                 if os.path.isdir(os.path.join(_STUDY_ROOT, d)) and d not in meta_names]
+    plan = [(n, l, t) for n, l, t in _STUDY_SEED_META]
+    plan += [(d, '差起点（%s）' % d, '') for d in extra]
+    for name, label, note in plan:
+        dirs = {}
+        for key, _label in _STUDY_CELLS:
+            d = os.path.join(_STUDY_ROOT, name, 'ddps_cpp_%s' % key)
+            v = _study_cell_metrics(d)
+            if v is not None:
+                dirs[key] = v
+        if dirs:
+            nsym = next(iter(dirs.values()))['nsym']
+            tabs.append((name, '差起点 %s：%s' % (label, name), dirs,
+                         os.path.join('seeds', 'seed_%s.json' % name), nsym,
+                         _study_scale_txt(nsym)))
+    if len(tabs) < 2:
+        return ''
+
+    # ---- 跨起点汇总：每一格在四个起点下「相对该起点现役格」的几何均值倍率 ----
+    head = ''.join('<th class="n">%s</th>' % t[1].split('（')[0].replace('差起点 ', '') for t in tabs)
+    rows = []
+    for key, label in _STUDY_CELLS:
+        cells = []
+        for _k, _l, dirs, _sp, _ns, _sc in tabs:
+            v = dirs.get(key)
+            ref = dirs.get('full')
+            if v is None:
+                cells.append('<td class="n">—</td>')
+                continue
+            if key == 'full':
+                cells.append('<td class="n">1.00×</td>')
+                continue
+            rr = _study_cell_ratio(v, ref)
+            cells.append('<td class="n">%s</td>' % ('%.2f×' % rr['geo_ratio'] if rr else '—'))
+        rows.append('  <tr><td><strong>%s</strong></td>%s</tr>' % (label, ''.join(cells)))
+
+    sum_tbl = (chr(10) + '<div class="tw">' + chr(10) + '<table>' + chr(10)
+               + '  <caption>结论稳不稳：每一格相对「同一起点下的现役格（代理 × full）」的几何均值倍率'
+                 '<span class="sh">· 可左右滑动</span></caption>' + chr(10)
+               + '  <tr><th>格</th>' + head + '</tr>' + chr(10)
+               + chr(10).join(rows) + chr(10) + '</table>' + chr(10) + '</div>' + chr(10))
+
+    # ---- 大 tab：一个起点一个 ----
+    bar, panels = [], []
+    for idx, (key, label, dirs, spath, nsym, scale) in enumerate(tabs):
+        pid = 'tab-seed-%s' % key
+        bar.append('    <button class="tab-btn%s" data-tab="%s">%s</button>'
+                   % (' active' if idx == 0 else '', pid, label))
+        parts = []
+        brief = _study_seed_brief(dirs)
+        if brief:
+            parts.append('<p>起点自身：基线用例 <strong>%.2e</strong>，最难用例 <strong>%.2e</strong>，'
+                         '15 用例几何均值 <strong>%.2e</strong>；评估规模 %s 符号/点，检测底 %.2e。</p>'
+                         % (brief[0] or float('nan'), brief[1] or float('nan'), brief[2], scale,
+                            dirs['full']['floor']))
+        parts.append(_study_seed_params(spath) if spath and os.path.exists(spath) else '')
+        hard_png = _study_hard_png(dirs['full']['dir'])
+        if hard_png:
+            cap = ('发端看到的差别（代理 × full，最难用例）：收敛轨迹、5 抽头形状、Tx CTLE |H(f)|、'
+                   '探针 FIR、<strong>发端频谱对比</strong>（FFE ⊗ DAC 零阶保持 ⊗ Tx CTLE ⊗ 增益）与频谱改变量')
+            parts.append('<figure>\n  <div class="fig-scroll"><img src="%s" alt="%s"></div>\n'
+                         '  <figcaption>%s</figcaption>\n</figure>' % (_img_tag(hard_png), cap, cap))
+        parts.append(chr(10) + '<div class="tw">' + chr(10) + '<table>' + chr(10)
+                     + '  <caption>同一起点下六格对照（相对倍率 = 逐用例 / 代理 × full，再取几何均值）'
+                       '<span class="sh">· 可左右滑动</span></caption>' + chr(10)
+                     + '  <tr><th>格</th><th class="n">15 用例落点几何均值</th><th class="n">相对现役倍率</th>'
+                       '<th class="n">差 >5% 用例</th><th class="n">最坏单例</th>'
+                       '<th class="n">真实评估/用例</th><th class="n">到检测底</th></tr>' + chr(10)
+                     + _study_tab_rows(dirs) + chr(10) + '</table>' + chr(10) + '</div>' + chr(10))
+        # 小 tab：六格逐用例明细（纯表格，避免重复内联收敛图把 HTML 撑大）
+        sbar, span = [], []
+        ref = dirs.get('full')
+        for ck, clabel in _STUDY_CELLS:
+            v = dirs.get(ck)
+            if v is None:
+                continue
+            rows_td = []
+            for idx_e, env in enumerate(v['envs']):
+                sd = v['seed'][idx_e]
+                bs = v['best'][idx_e]
+                rat = '—'
+                if ref is not None and ck != 'full':
+                    rb = ref['bmap'].get(env)
+                    if rb and rb > 0:
+                        rat = '%.2f×' % (bs / rb)
+                rows_td.append('      <tr><td>%s</td><td class="n">%.2e</td><td class="n">%.2e</td>'
+                               '<td class="n">%s</td></tr>' % (env, sd, bs, rat))
+            spid = 'tab-seed-%s-%s' % (key, ck)
+            sbar.append('    <button class="tab-btn%s" data-tab="%s">%s</button>'
+                        % (' active' if not sbar else '', spid, clabel))
+            span.append('\n  <div class="tab-panel%s" id="%s">\n'
+                        '    <div class="tw">\n    <table>\n'
+                        '      <caption>%s · %s：逐用例落点（起点 BER 为链路真实评估）</caption>\n'
+                        '      <tr><th>用例</th><th class="n">起点 BER</th><th class="n">落点 BER</th>'
+                        '<th class="n">相对现役</th></tr>\n%s\n    </table>\n    </div>\n  </div>'
+                        % (' active' if len(span) == 0 else '', spid, label, clabel,
+                           chr(10).join(rows_td)))
+        if sbar:
+            parts.append(chr(10) + '<div class="tabs">' + chr(10) + '  <div class="tab-bar">' + chr(10)
+                         + chr(10).join(sbar) + chr(10) + '  </div>' + ''.join(span) + chr(10) + '</div>')
+        panels.append('\n  <div class="tab-panel%s" id="%s">\n    %s\n  </div>'
+                      % (' active' if idx == 0 else '', pid, '\n    '.join(parts)))
+
+    return (chr(10) + '<h3>6.6 起点换了，结论还成立吗（三个差起点 × 六格）</h3>' + chr(10)
+            + '<p>前面所有结果的起点都是一个固定的次优工作点（形状基本对、增益只有 0.325 倍）。'
+              '如果结论只在那个起点成立，这套算法就不算能用。这里换三个方向不同的差起点，'
+              '把起点 BER 都校准到基线用例 <strong>约 1e-3</strong>（比原起点差 8 倍），'
+              '每个起点把六格全部重跑一遍：</p>' + chr(10)
+            + '<ul>'
+            + '<li><strong>纯幅度错</strong>：形状与 CTLE 不动，只把驱动增益再压低 2.6 dB。</li>'
+            + '<li><strong>纯均衡错</strong>：增益不动，把 Tx CTLE 的 peaking 与低频 shelf 拉偏。</li>'
+            + '<li><strong>形状 + 幅度都错</strong>：4 个 FFE 旁瓣放大 3 倍，同时增益再降 0.8 dB。</li>'
+            + '</ul>' + chr(10)
+            + '<p>判据只有一条：<strong>同一格在不同起点下的相对表现是否一致</strong>——'
+              '如果某个格在四个起点下都落在同一档，说明它的强弱不是被起点凑出来的。</p>' + chr(10)
+            + sum_tbl
+            + chr(10) + '<div class="tabs">' + chr(10) + '  <div class="tab-bar">' + chr(10)
+            + chr(10).join(bar) + chr(10) + '  </div>' + ''.join(panels) + chr(10) + '</div>' + chr(10)
+            + '<p class="note">复现：<code>python tools\\run_seed_study.py --jobs 6 --num-symbols 2097152 '
+              '--seeds s1_gain-2.6dB,s2_ctle_g3.0_1.5,s3_shape3.0</code>；起点文件在 <code>seeds/</code>，'
+              '起点 BER 由链路真实评估得到（选点脚本 <code>tools/probe_start_point.py</code>）。</p>')
+
 
 
 def _eval_mag_txt(ev_d, ev_s):
@@ -3400,6 +3705,7 @@ def main():
         '{{IMG_TRACK}}': _img_tag(img_track) if os.path.exists(img_track) else '',
         '{{IMG_CASE_HARD}}': _img_tag(hard_png) if os.path.exists(hard_png) else '',
         '<!--DIRECT_SECTION-->': direct_section,
+        '<!--SEED_STUDY-->': _study_block(a),
         '<!--FIG_TABS-->': fig_tabs,
         '<!--MODE_NAME_TEXT-->': mode_name_text,
         '<!--MODE_KEY-->': a.mode,

@@ -643,6 +643,9 @@ struct SimResult {
     double ffe_ber, mlse_ber; double ffe_ser, mlse_ser;
     // 逐节点校验和（sum |x|），用于 C++/Python 等价性逐节点比对
     double chk_tx_out_nonoise, chk_tx_out_noisy, chk_tx_analog, chk_rx_analog, chk_rx_adc, chk_rx_eq, chk_white;
+    // MLSE 的 AR(1) 白化抽头 a1（pr_taps=[1,a1]）：Burg 从判决误差里估出的
+    // 残余噪声一阶相关系数的负值，诊断量，不参与判决。
+    double alpha1;
     int sync_delay, phase_offset, n_valid;
 };
 
@@ -729,11 +732,13 @@ inline SimResult run_sim(const Config& cfg, const std::vector<double>& custom_ta
 
     int ar_order = mlse_memory;
     std::vector<double> pr_taps;
+    double alpha1 = 0.0;
     if (ar_order > 0) {
         std::vector<double> err_ss(ffe.error_seq.begin() + train_len, ffe.error_seq.begin() + n_valid);
         auto ar = burg_ar(err_ss, ar_order);
         pr_taps.push_back(1.0);
         pr_taps.insert(pr_taps.end(), ar.begin(), ar.end());
+        if (pr_taps.size() > 1) alpha1 = pr_taps[1];
     } else {
         pr_taps.push_back(1.0);
     }
@@ -772,6 +777,7 @@ inline SimResult run_sim(const Config& cfg, const std::vector<double>& custom_ta
     r.chk_tx_out_nonoise = chk_tx_nonoise; r.chk_tx_out_noisy = chk_tx_noisy;
     r.chk_tx_analog = chk_tx_analog; r.chk_rx_analog = chk_rx_analog;
     r.chk_rx_adc = chk_rx_adc; r.chk_rx_eq = chk_rx_eq; r.chk_white = chk_white;
+    r.alpha1 = alpha1;
     r.sync_delay = sync_delay; r.phase_offset = phase_offset; r.n_valid = n_valid;
     return r;
 }
