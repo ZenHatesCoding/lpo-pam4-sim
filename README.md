@@ -156,6 +156,7 @@ python report_ddps.py --test-dir result/seed_study/s1_gain-2.6dB/ddps_cpp_full -
 > `cpp\run_all_cases.py` 与 `tools\run_parallel_envs.py` 都接受 `--seed-config`，换起点不改代码。
 > 结果写进 `result/seed_study/<起点>/`，**故意不放在 `result/` 顶层**——否则会被 `tools\verify_ddps.py` 的
 > `result/ddps_cpp_*` 自动发现当成现役格，`--expect-cells 6` 会直接失败。
+> 倍率可独立复算：`python tools\seed_study_table.py --root result/seed_study --md`（按用例名对齐，不按行序）。
 
 ### 5. 报告与交付件
 ```bash
@@ -185,7 +186,7 @@ python make_deliverable_docx.py
 | `result/ddps_cpp_full/`、`result/ddps_cpp_rotate/`、`result/ddps_cpp_secant/` | C++ 2^22 代理行三格全量（15 用例、单种子 42、固定 15 步） |
 | `result/ddps_cpp_direct_secant/`、`result/ddps_cpp_direct_full/`、`result/ddps_cpp_direct_rotate/` | C++ 2^22 真实 BER 回传三格全量（同上协议） |
 | `result/ddps_equiv_{py,cpp}_<格>/` | 2^18 六格等价参照（Python / C++ 两平台，`compare_traces.py` 逐轨迹比对） |
-| `result/seed_study/<起点>/ddps_cpp_<格>/` | 起点鲁棒性对照：三个差起点 × 六格（2^21），结构同现役格 |
+| `result/seed_study/<起点>/ddps_cpp_<格>/` | 起点鲁棒性对照：三个差起点 × 六格（2^20），结构同现役格 |
 
 每个结果目录含 `case_summary.csv/json`、`trace_<用例>.csv`、`probes_<用例>.csv`、`run_config.json`、`report/`。
 

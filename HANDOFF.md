@@ -29,34 +29,56 @@
 - **一键验收（回答"到底跑完没有"）**：`python tools\verify_ddps.py`（默认 **自动发现** `result/ddps_cpp_*` 下已跑完的格）——查结果完整性、逐用例记账恒等式（`n_real_evals = n_landed + n_probe_states`）、刷新维序列与档位语义、微扰态成对、2^18 逐轨迹等价、交付件新鲜度与禁词；exit 0 才算通过。想看"六格是不是跑齐了"就加 `--expect-cells 6`：格数不足直接报 exit 2。
 - **本机 Smart App Control 已转强制模式**：拦 MinGW cc1plus 依赖的 `libisl-23.dll`（Windows 侧 C/C++ 编译不可用）+ 拦既有 `run_ddps.exe`（旧产物也跑不了）；换任何 Windows 侧编译器都无解（产物仍是本地无签名 exe）。**现役编译运行路线 = WSL**：`cpp/build_wsl.sh`（Ubuntu g++ 13.3，源码纯标准 C++17）+ `cpp/run_all_cases.py --backend wsl`，结果/日志仍落 Windows 文件树、受 git 跟踪。
 
-## 本轮（2026-11-19 · 起点鲁棒性：换三个差起点 × 六格 + 交付件发端频谱与大 tab）
+## 本轮（2026-11-20 · 起点鲁棒性：18/18 跑完 + 交付件 6.6 两层结论）
 
 用户诉求：换起点、多换几个差起点（基线约 1e-3），六种取法全做，看不同起点下效果是否一致；
 交付件写起点与最优结果时，除 CTLE 响应、抽头形状，还要给**发端频谱对比**；
 **不同起点做成不同的大 tab，大 tab 内用现有小 tab 对比算法效果**。
 
-1. ⏳ **起点选点**（已完成）：三个差起点，基线用例起点 BER 都落在 8.5e-4~9.4e-4（原起点 1.27e-4，差约 7~8 倍），
+1. ✅ **起点选点**：三个差起点，基线用例起点 BER 都落在 8.5e-4~9.4e-4（原起点 1.27e-4，差约 7~8 倍），
    坏法各不相同——`s1_gain-2.6dB` 纯幅度错（增益再降 2.6 dB）、`s2_ctle_g3.0_1.5` 纯均衡错（CTLE peaking/shelf 拉偏）、
    `s3_shape3.0` 形状+幅度都错（旁瓣 ×3 + 增益 −0.8 dB）。起点 BER 全部由链路真实评估得出，
-   选点工具 `tools/probe_start_point.py`（原先散在 scratch 的临时脚本）。
-   起点文件 `seeds/seed_s1_gain-2.6dB.json` / `seed_s2_ctle_g3.0_1.5.json` / `seed_shape3.0.json`。
-2. ⏳ **跑批**：`python tools/run_seed_study.py --jobs 15 --num-symbols 1048576 --seeds s1_gain-2.6dB,s2_ctle_g3.0_1.5,s3_shape3.0`
-   —— 3 起点 × 6 格 = 18 次跑批，2^20 符号/点（检测底 2.4e-7；起点更差、落点抬到 1e-6 量级，
-   够分辨六格差别；2^21 实测 25.7 s/次评估、全程要 34 小时，2^20 只要约 1/4）。
-   2^20 单进程 RSS ≈0.9 GB，所以一次开满 15 路并行（15 用例各一路），内存峰值 13 GB / 28 GB。
-   结果落 `result/seed_study/<起点>/ddps_cpp_<格>/`，**故意不放 `result/` 顶层**，
+   选点工具 `tools/probe_start_point.py`；起点文件在 `seeds/`。
+2. ✅ **跑批**：`python tools\run_seed_study.py --jobs 15 --num-symbols 1048576 --seeds s1_gain-2.6dB,s2_ctle_g3.0_1.5,s3_shape3.0`
+   —— 3 起点 × 6 格 = 18 格，**18/18 `rc=0`、`fails=none`、总墙钟 47401 s**。
+   规模 2^20 符号/点（检测底 2.38e-07）：差起点的落点抬到 1e-6~1e-5，这个分辨率够分辨三格之间的差别；
+   现役六格仍是 2^22，两者只比绝对落点、不比强弱。2^20 单进程 RSS ≈0.9 GB，一次开满 15 路并行（15 用例各一路），
+   内存峰值 13 GB / 28 GB。结果落 `result/seed_study/<起点>/ddps_cpp_<格>/`，**故意不放 `result/` 顶层**，
    否则会被 `verify_ddps.py` 的自动发现当成现役格、`--expect-cells 6` 直接失败。
-3. ⏳ **入口**：`cpp/run_all_cases.py` 新增 `--seed-config`（原来写死 `result/seed_config_bad_1e4.json`，
-   换起点必须改代码）；`tools/run_seed_study.py`（新，18 次跑批的串联队列，带「已有不同 num_symbols 就拒绝覆盖」的防呆，
-   以及 `--out-root` 供小点数版式探针另开目录）。**踩过的坑**：小点数探针一开始指到正式目录，两个规模互相覆盖，已清空重跑。
-4. ⏳ **发端频谱**：`report_ddps.py` 的最难用例六联图原来是「收敛 / 抽头 / CTLE / 探针 FIR」，现补两个面板——
-   **发端频谱对比**（FFE ⊗ DAC 零阶保持 ⊗ Tx CTLE ⊗ 驱动增益）与**频谱改变量 ΔdB**；
-   同时「起点」不再读模块级 `D.SEED_*`，改为按 `run_config.json` 的 `seed_config` 读（换起点时全局量是旧的，会画错起点）。
-5. ⏳ **交付件 §6.6**：大 tab = 起点（现役 2^22 + 三个差起点 2^21），大 tab 内小 tab = 六格；判据表「同一格在四个起点下
-   相对现役格的倍率」直接回答"结论稳不稳"。小 tab 里放逐用例明细表而非重复贴收敛图（重复内联图会把 HTML 撑大 5.7 MB）。
-6. ⏳ 跑完后：18 个目录逐格出 `report/`、生成交付件、`verify_ddps.py --expect-cells 6`、commit + push、present。
+3. ✅ **入口**：`cpp/run_all_cases.py` 新增 `--seed-config`；`tools/run_seed_study.py`（18 格串联队列，
+   带「已有不同 num_symbols 就拒绝覆盖」防呆 + `--out-root`）。起点路径静默失效那个坑见 `docs/CHANGELOG.md`。
+4. ✅ **发端频谱**：`report_ddps.py` 最难用例六联图补两个面板——**发端频谱对比**（FFE ⊗ DAC 零阶保持 ⊗
+   Tx CTLE ⊗ 驱动增益）与**频谱改变量 ΔdB**；「起点」改为按 `run_config.json` 的 `seed_config` 读。
+5. ✅ **交付件 §6.6**：大 tab = 起点（现役 2^22 + 三个差起点 2^20），大 tab 内小 tab = 六格逐用例明细；
+   判词分**族内 / 族间**两层（混在一起算一个排序指标会把两件事搅在一起）；每个起点页签另有三条数据驱动旁证：
+   最难用例上六格末步落点、代理三格「最好落点在第几步 + 代理预测 vs 实测是否同向」自检、发端频谱图。
+6. ✅ **验收**：`verify_ddps.py --expect-cells 6` exit 0（现役六格完整性 / 记账恒等式 / 2^18 等价 / 交付件新鲜且无禁词）；
+   18 格另用 `--prefix result/seed_study/<起点>/ddps_cpp --skip-equivalence --expect-cells 6 --expect-symbols 1048576` 逐批验过，异常 0 条。
+
+**跑出来的结果（相对倍率 = 该格 / 同起点代理 × full，15 用例几何均值）**
+
+| 格 | 现役 2^22 | 纯幅度错 | 纯均衡错 | 形状+幅度都错 |
+|---|---|---|---|---|
+| 代理 × full | 1.000× | 1.000× | 1.000× | 1.000× |
+| 代理 × rotate | 1.025× | 1.000× | 0.999× | 1.000× |
+| 代理 × secant | 0.924× | 1.581× | 0.989× | 1.000× |
+| 回传 × full | 0.546× | 0.704× | 0.565× | 0.0013× |
+| 回传 × rotate | 1.634× | 1.158× | 1.584× | 0.0044× |
+| 回传 × secant | 2.991× | 1.942× | 3.466× | 0.0098× |
+
+- **族内顺序不随起点变**：回传三格四个起点下都是 `full` ＞ `rotate` ＞ `secant`；代理三格互差 ≤3%
+  （例外：`代理 × secant` 在纯幅度错起点 1.581×，机制是它的跨组比例被第 0 步定死，gain 一动 CTLE 跟着动）。
+- **族间强弱随起点翻**：`回传 × full` / `代理 × full` 从 0.70× 掉到 0.0013×（跨 532 倍）。原因是形状+幅度都错
+  那个起点上代理已出训练邻域：三格 45/45 个用例的最好落点停在第 0 步、`pred_a` 预测变好 8.31× 而实测变差 1.62×；
+  回传同批仍压到 1.03e-05（比代理好 640 倍）。这条是"代理能不能用"的问题，不是"六格谁第一"。
+- 独立复算：`python tools\seed_study_table.py --root result/seed_study --md`（按用例名对齐重算倍率）。
 
 ## 待办（8 维 + 形状维三种取法口径，2^22 六格全量对比）
+
+> **本轮没有留下未完成项。** 下面这条是可选加强、不是缺口：三个差起点跑在 2^20、现役六格跑在 2^22，
+> 交付件里两者只比绝对落点、不比强弱（跨规模的分差分不清是起点造成的还是检测底/量化造成的）。
+> 若要把四个起点严格放在同一规模下比，需把现役起点在 2^20 再跑六格
+> （`tools/run_seed_study.py --seeds <现役起点> --num-symbols 1048576`），届时判据表可加一列并直接参与排序判断。
 
 > 路径提示：`result/ddps_cpp_{full,rotate,secant}/` 是代理行三格、`result/ddps_cpp_direct_{secant,full,rotate}/` 是回传行三格的**现役结果目录**；`result/ddps_cpp_direct_secant/` 沿用最早那批 direct 全量数据（已用新代码 2^18 逐位核对一致）。
 > 重构前的 secant / direct 2^22 全量数据在 `archive/20261022_ddps_ab_secant_2to22/` 下，引用时别混。
@@ -74,8 +96,8 @@
 6. ✅ **文档对齐**：`docs/DDPS_Method.md` §4 单次评估与全量墙钟已改写为 2^22 实测（并清掉被正则改坏的重复括号）；
    §3.3 转角表补齐为六格，算法固化成入库脚本 `python tools\turn_angle_table.py --prefix result/ddps_cpp`
    （口径与交付件 `_grad_turn_stats` 一致：把全部「用例 × 步」的夹角汇总后再取均值 / 全局最大）。
-7. ⏳ **修入口默认值不一致**：`cpp/main.cpp` 的 `--n-steps` 缺参兜底 50 → 15（批量入口都显式传参），已重编 `cpp/build_wsl.sh`；
-   用新二进制把六格 2^18 等价重跑一遍，与既有 `result/ddps_equiv_cpp_*` 逐轨迹比对确认行为不变，结论记入 CHANGELOG。
+7. ✅ **修入口默认值不一致**：`cpp/main.cpp` 的 `--n-steps` 缺参兜底 50 → 15（批量入口都显式传参），已重编 `cpp/build_wsl.sh`；
+   用新二进制把六格 2^18 等价重跑一遍，与既有 `result/ddps_equiv_cpp_*` 逐轨迹比对确认行为不变（六格全 PASS，判据 `max_rel < 1e-9`）。
 8. ✅ **归档被取代的旧等价目录**：`result/ddps_cpp_direct_equiv/`、`result/ddps_cpp_secant_analytic_equiv/` → `archive/20261023_superseded_secant_direct_equiv/`；
    `cpp/compare_traces.py` 的示例路径已指向现役 `result/ddps_equiv_{py,cpp}_full`。
 9. **git add + commit**（新增 `result/ddps_equiv_*`、`result/ddps_cpp_*`、`tools/turn_angle_table.py`、`docs/DDPS_Gradient_Direction_Analysis.md`）。

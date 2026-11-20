@@ -2139,6 +2139,8 @@ def _ratio_txt(x):
         return '%.4f×' % x
     if x < 0.1:
         return '%.3f×' % x
+    if 0.9 <= x <= 1.1:
+        return '%.3f×' % x
     return '%.2f×' % x
 
 
@@ -2476,49 +2478,112 @@ def _study_resolution_note(tabs):
             % (fl_txt, '、'.join(bits)))
 
 
+def _study_ratio_by_tab(tabs):
+    """{起点名: {格: 几何均值倍率}}，只取同规模的差起点页签（现役页签另算锚点）。"""
+    from collections import Counter
+    rows = []
+    for key, label, dirs, _sp, nsym, _sc in tabs:
+        if dirs.get('full') is None:
+            continue
+        rows.append((key, label, nsym, dirs))
+    if not rows:
+        return {}
+    seed_rows = [r for r in rows if r[0] != 'current'] or rows
+    scale = Counter(r[2] for r in seed_rows).most_common(1)[0][0]
+    out = {}
+    for key, label, _nsym, dirs in rows:
+        if _nsym != scale:
+            continue
+        name = label.split('（')[0].split('：')[0].replace('差起点 ', '')
+        ref = dirs['full']
+        d = {'full': 1.0}
+        for ck, _l in _STUDY_CELLS:
+            if ck == 'full':
+                continue
+            v = dirs.get(ck)
+            rr = _study_cell_ratio(v, ref) if v is not None else None
+            if rr:
+                d[ck] = rr['geo_ratio']
+        out[name] = d
+    return out
+
+
 def _study_verdict(tabs):
-    """从判据表实算一段判词：跨起点方向是否一致 + 倍率波动区间 + 退化点名。"""
-    st = _study_rank_stats(tabs)
-    if not st:
+    """判词分两层：族内（哪种取法更好）与族间（代理 vs 回传）。"""
+    per = _study_ratio_by_tab(tabs)
+    if len(per) < 2:
         return ''
-    mat, tab_names = _study_ratio_matrix(tabs)
     label_of = dict(_STUDY_CELLS)
-    span_txt = ['%s %s~%s' % (label_of[ck].replace(' ', ''),
-                              _ratio_txt(st['span'][ck][0]).rstrip('×'), _ratio_txt(st['span'][ck][1]))
-                for ck in st['cells'] if ck != 'full']
-    worst_ck = max(st['span'], key=lambda ck: st['span'][ck][1] / st['span'][ck][0])
-    worst_amp = st['span'][worst_ck][1] / st['span'][worst_ck][0] - 1.0
+    names = list(per)
+    scale = tabs[-1][4]
 
     parts = ['<p><strong>判据表怎么读</strong>：倍率是「该格落点 / 同一起点下代理 × full 的落点」，'
              '逐用例算完再取几何均值；1.00× = 与同一起点下的代理 × full 打平，小于 1 是更好。'
-             '参与判词的是同规模（%s 符号/点）的起点：%s——现役起点是另一规模，只作锚点看绝对落点，'
-             '不参与「起点换了结论变不变」的判断（跨规模的差分不清是起点还是检测底/量化造成的）。'
-             % ('2^%d' % round(np.log2(tabs[-1][4])), '、'.join(tab_names))]
-    order_txt = ' ＞ '.join(label_of[ck].replace(' ', '') for ck in
-                            sorted(st['cells'], key=lambda ck: st['ranks'][0][ck]))
-    if st['identical']:
-        parts.append('实测：<strong>%d 个起点下六格的强弱排序完全相同</strong>（%s，从好到差）；'
-                     '没有哪一格是「在这个起点赢、换个起点就输」，说明这个排序不是现役起点凑出来的。'
-                     % (len(st['names']), order_txt))
-    else:
-        parts.append('实测：<strong>排序随起点变化</strong>（最差的两两 Kendall τ = %.2f）。'
-                     '第 1 个起点（%s）的顺序是 %s；别处不同——这类格不能只按一个起点下结论。'
-                     % (st['min_tau'], st['names'][0], order_txt))
-    if span_txt:
-        parts.append('跨起点的倍率波动：%s。' % '；'.join(span_txt))
-    if worst_ck and worst_amp > 0.2 and not worst_ck.startswith('direct'):
-        vals = mat[worst_ck]
-        why = {
-            'secant': '它第 0 步把方向定死、之后每步不再重测斜率，起点方向不对就没有纠偏能力',
-            'rotate': '它每步只重测随机 k 个维度的斜率，方向估计噪声大，起点一变结果就跟着飘',
-            'full': '它每步重测全部维度的斜率',
-            'direct_full': '它直接对真实 BER 做中心差分，每步都要 16 个微扰态',
-            'direct_rotate': '它每步只重测随机 k 个维度的真实斜率',
-            'direct_secant': '它第 0 步之后不再重测真实斜率',
-        }.get(worst_ck, '')
-        parts.append('<strong>波动最大的是 %s</strong>（%s~%s）——%s。'
-                     % (label_of[worst_ck].replace(' ', ''),
-                        _ratio_txt(min(vals)).rstrip('×'), _ratio_txt(max(vals)), why))
+             '参与判词的是同规模（2^%d 符号/点）的起点：%s——现役起点是另一规模，只作锚点看绝对落点，'
+             '不参与「起点换了结论变不变」的判断。'
+             % (round(np.log2(scale)), '、'.join(names))]
+
+    # ---- 层一：回传族内部顺序 ----
+    direct_keys = ['direct_full', 'direct_rotate', 'direct_secant']
+    orders = []
+    for nm in names:
+        d = per[nm]
+        ks = [k for k in direct_keys if k in d]
+        if len(ks) >= 2:
+            orders.append(sorted(ks, key=lambda k: d[k]))
+    if len(orders) >= 2:
+        same = all(o == orders[0] for o in orders)
+        seq = ' ＞ '.join(label_of[k].replace(' ', '') for k in orders[0])
+        rng = {k: (min(per[nm][k] for nm in names if k in per[nm]),
+                   max(per[nm][k] for nm in names if k in per[nm])) for k in orders[0]}
+        num = '、'.join('%s %s~%s' % (label_of[k].replace(' ', ''),
+                                      _ratio_txt(rng[k][0]).rstrip('×'), _ratio_txt(rng[k][1]))
+                        for k in orders[0])
+        if same:
+            parts.append('实测第一层（族内）：<strong>回传三格在 %d 个起点下的内部顺序完全一致</strong>'
+                         '（从好到差 %s），只是幅度随起点变：%s。'
+                         '也就是「要真实反馈时，每步全量重测最有效、轮转次之、只在第 0 步测一次最差」这条结论'
+                         '不是某一起点凑出来的。' % (len(orders), seq, num))
+        else:
+            parts.append('实测第一层（族内）：回传三格的内部顺序<strong>随起点变化</strong>，'
+                         '各起点从好到差分别是 %s；幅度 %s。'
+                         % ('；'.join('%s：%s' % (nm, ' ＞ '.join(label_of[k].replace(' ', '') for k in o))
+                                     for nm, o in zip([n for n in names
+                                                       if len([k for k in direct_keys if k in per[n]]) >= 2], orders)),
+                            num))
+
+    # ---- 层二：代理族内部 ----
+    proxy_keys = ['rotate', 'secant']
+    prng = {}
+    for k in proxy_keys:
+        vals = [per[nm][k] for nm in names if k in per[nm]]
+        if vals:
+            prng[k] = (min(vals), max(vals))
+    if prng:
+        txt = '、'.join('%s %s~%s' % (label_of[k].replace(' ', ''),
+                                      _ratio_txt(v[0]).rstrip('×'), _ratio_txt(v[1]))
+                        for k, v in prng.items())
+        near = all(v[0] >= 0.95 and v[1] <= 1.06 for v in prng.values())
+        if near:
+            parts.append('代理族内部<strong>基本打平</strong>（%s）：换哪种取法都差不多，'
+                         '真正决定落点的是有没有真实 BER 反馈。' % txt)
+        else:
+            worst_k = max(prng, key=lambda k: prng[k][1])
+            parts.append('代理族内部<strong>大体打平但不总是</strong>（%s）——'
+                         '最不稳的是 %s，它在某个起点上明显更差，原因见下面那段机制。'
+                         % (txt, label_of[worst_k].replace(' ', '')))
+
+    # ---- 层三：族间 ----
+    df_vals = [(nm, per[nm]['direct_full']) for nm in names
+               if 'direct_full' in per[nm] and per[nm].get('full') == 1.0]
+    if len(df_vals) >= 2:
+        lo = min(df_vals, key=lambda x: x[1])
+        hi = max(df_vals, key=lambda x: x[1])
+        parts.append('实测第二层（族间）：<strong>回传 × full 相对代理 × full 的倍率随起点翻得很厉害</strong>'
+                     '（%s 的 %s ~ %s 的 %s，跨 %.0f 倍）。这不是「哪种取法变强变弱」，'
+                     '而是那一个起点上代理本身失效了——看各页签的自检行。'
+                     % (lo[0], _ratio_txt(lo[1]).rstrip('×'), hi[0],
+                        _ratio_txt(hi[1]), hi[1] / lo[1] if lo[1] else 0))
     parts.append('</p>')
     return ''.join(parts)
 
@@ -2651,7 +2716,7 @@ def _study_block(a):
                 cells.append('<td class="n">1.00×</td>')
                 continue
             rr = _study_cell_ratio(v, ref)
-            cells.append('<td class="n">%s</td>' % ('%.2f×' % rr['geo_ratio'] if rr else '—'))
+            cells.append('<td class="n">%s</td>' % (_ratio_txt(rr['geo_ratio']) if rr else '—'))
         rows.append('  <tr><td><strong>%s</strong></td>%s</tr>' % (label, ''.join(cells)))
 
     sum_tbl = (chr(10) + '<div class="tw">' + chr(10) + '<table>' + chr(10)
@@ -2733,13 +2798,14 @@ def _study_block(a):
             + '<li><strong>纯均衡错</strong>：增益不动，把 Tx CTLE 的 peaking 与低频 shelf 拉偏。</li>'
             + '<li><strong>形状 + 幅度都错</strong>：4 个 FFE 旁瓣放大 3 倍，同时增益再降 0.8 dB。</li>'
             + '</ul>' + chr(10)
-            + '<p>判据只有一条：<strong>同一格在不同起点下的相对表现是否一致</strong>——'
-              '如果某个格在四个起点下都落在同一档，说明它的强弱不是被起点凑出来的。</p>' + chr(10)
+            + '<p>判据分两层问：<strong>同一族里哪种取法更好</strong>（代理三格 / 回传三格各自比），'
+              '以及<strong>代理与回传谁更强</strong>。前一层的答案如果不随起点变，说明它不是一个起点凑出来的；'
+              '后一层如果随起点变，要看清是取法变了还是代理失效了。</p>' + chr(10)
             + sum_tbl
+            + _study_verdict(tabs)
             + _study_secant_mech(tabs)
             + _study_out_of_domain_note(tabs)
             + _study_resolution_note(tabs)
-            + _study_verdict(tabs)
             + chr(10) + '<div class="tabs">' + chr(10) + '  <div class="tab-bar">' + chr(10)
             + chr(10).join(bar) + chr(10) + '  </div>' + ''.join(panels) + chr(10) + '</div>' + chr(10)
             + '<p class="note">复现：<code>python tools\\run_seed_study.py --jobs 15 --num-symbols 1048576 '
