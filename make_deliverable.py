@@ -1295,9 +1295,9 @@ g₇ ← ∂A/∂u  每步用当前落点的探针重算</code></pre>
     <td>若需更强整形能力，把 CTLE 零极点比例也纳入搜索空间</td>
   </tr>
   <tr>
-    <td>代理是局部模型</td>
-    <td>训练邻域外预测不可信（数据集只覆盖基线 ±0.10 / ±3.0 dB / ×0.20~1.26）</td>
-    <td>步长尺度 + 组梯度门控限制单步位移；抽头维不设边界，但每步位移由步长与梯度决定且逐步衰减（0.97<sup>k</sup>）；方向错误会立刻反映在下一步的实测 BER 上（6.3 逐条记账）</td>
+    <td>代理只在训练邻域内可信</td>
+    <td>数据集只覆盖基线 ±0.10 / ±3.0 dB / ×0.20~1.26；起点离得远时代理会指错方向且自己不知道——实测把 FFE 旁瓣放大 3 倍当起点，代理三格 15 个用例<strong>全部</strong>的最好落点停在第 0 步（一步没走对），代理预测变好 8.31×、实测变差 1.62×（6.6）</td>
+    <td>代理格拿不到真实反馈，所以"走错会立刻看出来"这条对代理<strong>不成立</strong>：它的落点只能按模型走到头。<strong>能拿到收端 BER 时</strong>：① 用它复核落点（一次评估即可，比起点差就退回起点）；② 起点已知偏离较远就直接用回传格（同一批用例上回传 × full 落到代理的 0.0013×）。<strong>拿不到收端 BER 时</strong>：唯一能做的是部署前把起点校回邻域内（数据集覆盖范围就是邻域边界），并如实标注"起点在邻域内"这个前提——这一点不能靠算法自己发现，代理看不见自己的失效</td>
   </tr>
   <tr>
     <td>用例覆盖有限</td>
@@ -2383,29 +2383,33 @@ def _study_rank_stats(tabs):
 
 
 def _study_conclusion_line(a):
-    """§7 里的第 5 条：换起点之后，六格的相对强弱还成不成立（没数据就不出这一条）。"""
-    tabs = _study_tabs(a)
-    if len(tabs) < 2:
-        return ''
-    st = _study_rank_stats(tabs)
-    if not st:
+    """§7 的第 5 条：换起点之后，哪一层结论不变、哪一层变（与 §6.6 判词同一套口径）。"""
+    per = _study_ratio_by_tab(_study_tabs(a))
+    if len(per) < 2:
         return ''
     label_of = dict(_STUDY_CELLS)
-    worst = max(st['span'], key=lambda ck: st['span'][ck][1] / st['span'][ck][0])
-    lo, hi = st['span'][worst]
-    head = ('<li>结论不依赖起点：把起点换成三个坏法不同的次优工作点（基线用例 BER 都校准到约 1e-3，'
-            '比原起点差约 8 倍）在同一规模下重跑六格，')
-    if st['identical']:
-        body = ('<strong>%d 个起点下六格相对强弱的排序完全相同</strong>（%d 格参与比较）；'
-                '幅度上最多的是 %s，跨起点 %s~%s，但它在哪儿都是同一档（6.6）。'
-                % (len(st['names']), len(st['cells']), label_of[worst].replace(' ', ''),
-                   _ratio_txt(lo).rstrip('×'), _ratio_txt(hi)))
-    else:
-        body = ('<strong>排序随起点变化</strong>（最差的两两 Kendall τ = %.2f）；'
-                '幅度跨度最大的是 %s（%s~%s）——这类格不能只按一个起点下结论（6.6）。'
-                % (st['min_tau'], label_of[worst].replace(' ', ''),
-                   _ratio_txt(lo).rstrip('×'), _ratio_txt(hi)))
-    return head + body + '</li>'
+    names = list(per)
+    dk = ['direct_full', 'direct_rotate', 'direct_secant']
+    orders = [sorted([k for k in dk if k in per[nm]], key=lambda k: per[nm][k]) for nm in names]
+    orders = [o for o in orders if len(o) >= 2]
+    bits = []
+    if orders and all(o == orders[0] for o in orders):
+        bits.append('族内顺序<strong>不随起点变</strong>：回传三格在 %d 个起点下都是 %s（从好到差）'
+                    % (len(orders), ' ＞ '.join(label_of[k].replace(' ', '') for k in orders[0])))
+    elif orders:
+        bits.append('族内顺序随起点变化')
+    pv = [per[nm][k] for nm in names for k in ('rotate', 'secant') if k in per[nm]]
+    if pv:
+        if max(pv) / min(pv) <= 1.06:
+            bits.append('代理三格之间互差 ≤3%')
+        else:
+            bits.append('代理三格之间铺开到 %.2f~%.2f×' % (min(pv), max(pv)))
+    df = [per[nm]['direct_full'] for nm in names if 'direct_full' in per[nm]]
+    if len(df) >= 2 and min(df) > 0:
+        bits.append('族间强弱<strong>随起点翻</strong>：回传 × full 相对代理 × full 从 %.2f× 到 %.4f×'
+                    '（跨 %.0f 倍），翻的原因是那一个起点出了代理的训练邻域，不是取法变强变弱'
+                    % (max(df), min(df), max(df) / min(df)))
+    return '<li>结论稳不稳要分两层看：' + '；'.join(bits) + '（6.6）。</li>'
 
 
 def _study_out_of_domain_note(tabs):
