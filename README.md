@@ -144,8 +144,8 @@ python cpp\run_all_cases.py --backend wsl --method direct --out-dir result\ddps_
 # 1) 先挑起点：给定候选 seed 配置，用链路真实评估报出起点 BER（每个候选 1 步、2^18）
 python tools\probe_start_point.py --pattern s1 --cases Base_IL10x10,IL14x14,IL20x20
 
-# 2) 三个差起点 × 六格全跑（起点 ≈1e-3；2^20 符号/点、15 用例、单种子 42、固定 15 步）
-python tools\run_seed_study.py --jobs 15 --num-symbols 1048576 \
+# 2) 三个差起点 × 六格全跑（起点 ≈1e-3；2^21 符号/点、15 用例、单种子 42、固定 15 步）
+python tools\run_seed_study.py --jobs 12 --num-symbols 2097152 \
     --seeds s1_gain-2.6dB,s2_ctle_g3.0_1.5,s3_shape3.0
 
 # 3) 每格出图（结果目录在 result/seed_study/<起点>/ddps_cpp_<格>）
@@ -186,7 +186,7 @@ python make_deliverable_docx.py
 | `result/ddps_cpp_full/`、`result/ddps_cpp_rotate/`、`result/ddps_cpp_secant/` | C++ 2^22 代理行三格全量（15 用例、单种子 42、固定 15 步） |
 | `result/ddps_cpp_direct_secant/`、`result/ddps_cpp_direct_full/`、`result/ddps_cpp_direct_rotate/` | C++ 2^22 真实 BER 回传三格全量（同上协议） |
 | `result/ddps_equiv_{py,cpp}_<格>/` | 2^18 六格等价参照（Python / C++ 两平台，`compare_traces.py` 逐轨迹比对） |
-| `result/seed_study/<起点>/ddps_cpp_<格>/` | 起点鲁棒性对照：三个差起点 × 六格（2^20），结构同现役格 |
+| `result/seed_study/<起点>/ddps_cpp_<格>/` | 起点鲁棒性对照：三个差起点 × 六格（2^21），结构同现役格 |
 
 每个结果目录含 `case_summary.csv/json`、`trace_<用例>.csv`、`probes_<用例>.csv`、`run_config.json`、`report/`。
 

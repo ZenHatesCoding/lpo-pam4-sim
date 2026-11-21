@@ -3,7 +3,7 @@
   "exe": "wsl -d Ubuntu cpp/build/run_ddps",
   "model_dir": "models/ddps",
   "n_steps": 15,
-  "num_symbols": 1048576,
+  "num_symbols": 2097152,
   "sim_seeds": [
     42
   ],
@@ -26,8 +26,8 @@
     "HighNoise_IL10x10",
     "HighNoise_IL16x16"
   ],
-  "jobs": 15,
-  "total_wall_sec": 4309.927504301071,
+  "jobs": 12,
+  "total_wall_sec": 9817.84383392334,
   "method": "direct",
   "grad_mode": "full",
   "rotate_k": 2

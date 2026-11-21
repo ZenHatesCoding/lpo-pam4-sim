@@ -2157,8 +2157,13 @@ def _study_cell_ratio(v, ref):
     r = r[np.isfinite(r)]
     if not len(r):
         return None
+    rng = np.random.default_rng(12345)
+    idx = rng.integers(0, len(r), size=(400, len(r)))
+    boot = np.exp(np.mean(np.log(r[idx]), axis=1))
+    lo, hi = np.percentile(boot, [5, 95])
     return {'tie': int((r <= 1.05).sum()), 'worse': int((r > 1.05).sum()),
-            'worst': float(np.max(r)), 'geo_ratio': float(np.exp(np.mean(np.log(r)))), 'n': int(len(r))}
+            'worst': float(np.max(r)), 'geo_ratio': float(np.exp(np.mean(np.log(r)))),
+            'lo': float(lo), 'hi': float(hi), 'n': int(len(r))}
 
 
 def _study_tab_selfcheck(dirs):
@@ -2201,14 +2206,33 @@ def _study_tab_selfcheck(dirs):
                 trend = ''
     med = max(steps) if steps else 0.0
     if n_best0 * 2 >= n_tot:
-        head = ('<strong>本起点上代理三格基本没走动</strong>：%d/%d 个用例的最好落点就是第 0 步'
-                '（15 步全走完，没有一步比第 0 步更好）' % (n_best0, n_tot))
+        head = ('<strong>本起点上代理三格没有走对过</strong>：%d/%d 个用例的最好落点就是第 0 步'
+                '（15 步全走完，没有一步比第 0 步更好；第 0 步是走完一步之后的点，不是起点本身）'
+                % (n_best0, n_tot))
     else:
         head = ('代理三格的最好落点中位数在第 %.0f 步（%d/%d 个用例停在第 0 步）'
                 % (med, n_best0, n_tot))
+    drift = ''
+    if ref and n_best0 * 2 >= n_tot:
+        p = os.path.join(ref['dir'], 'case_summary.csv')
+        if os.path.exists(p):
+            try:
+                d = pd.read_csv(p)
+                sb = pd.to_numeric(d['seed_ber'], errors='coerce').astype(float)
+                fb = pd.to_numeric(d['final_ber'], errors='coerce').astype(float)
+                ok = (sb > 0) & (fb > 0)
+                if ok.any():
+                    gs = float(np.exp(np.mean(np.log(sb[ok].values))))
+                    gf = float(np.exp(np.mean(np.log(fb[ok].values))))
+                    if gf > gs * 1.2:
+                        drift = ('；走完 15 步，末步的 15 用例几何均值比起点差 <strong>%.0f 倍</strong>'
+                                 % (gf / gs))
+            except Exception:
+                drift = ''
     tail = ('；%s。代理与实测反向时，说明这一带已经出了代理的训练邻域，'
             'agent 按代理走只会更差——把这条读成「这一格的落点不可信」而不是「这一格收敛了」。'
             % trend) if trend and '×' in trend and _worse(trend) else '。'
+    tail = drift + tail
     return '<p class="note">自检：' + head + tail + '</p>'
 
 
@@ -2321,7 +2345,7 @@ def _study_ratio_matrix(tabs, same_scale_only=True):
     """{格: [各起点的几何均值倍率]} + 起点短名 + 各自规模。
 
     `same_scale_only=True` 时只保留「出现次数最多的那个规模」的页签：现役起点是 2^22、
-    三个差起点是 2^20，跨规模比出来的差既可能是起点造成的、也可能是规模（检测底/量化）造成的，
+    三个差起点与现役页签可能不同规模，跨规模比出来的差既可能是起点造成的、也可能是规模（检测底/量化）造成的，
     不能混在一起当"起点影响"讲。现役页签仍然显示在判据表里，只是不参与稳定性判断。
     """
     keys = [k for k, _l in _STUDY_CELLS if k != 'full']
@@ -2477,9 +2501,41 @@ def _study_resolution_note(tabs):
     fl_txt = '、'.join('2^%d 的 %.2e' % (a, b) for a, b in floors)
     return ('<p class="note">分辨率：检测底取「零错」对应的 0.5/(2·符号数)，各起点按自己的规模算（%s）。'
             '代理 × full 落在检测底之上的用例数分别是 —— %s。低于检测底的用例各格一律打平，'
-            '倍率只由剩下的用例决定；逐用例明细在各起点页签里。另外「0 个错误」与「1 个错误」'
-            '（检测底与 2× 检测底）是同一量级的统计噪声，不要把这种差别当成真实差距读。</p>'
-            % (fl_txt, '、'.join(bits)))
+            '倍率只由剩下的用例决定；逐用例明细在各起点页签里。'
+            '另外「0 个错误」与「1 个错误」（检测底与 2× 检测底）是同一量级的统计噪声。%s</p>'
+            % (fl_txt, '、'.join(bits), _band_txt(tabs)))
+
+
+def _band_txt(tabs):
+    """把噪声带写成一句人话。"""
+    b = _study_noise_band(tabs)
+    if b is None:
+        return ''
+    return ('判据表每个倍率后面都带着统计涨落：把 15 个用例 bootstrap 重采样（相当于换一批用例看结论还成不成立），'
+            '倍率的 90%% 区间中位半宽约 <strong>±%.0f%%</strong>；小于这个带的差别'
+            '（例如 1.16× 与 1.00×）不能当真实差距读，超过它的（例如 1.6×、3×）才有意义；实数用例只有 3~5 个落在检测底之上时，这个带自然就宽。'
+            % (b * 100.0))
+
+
+def _study_noise_band(tabs):
+    """所有「非 full 格」的倍率 bootstrap 半宽中位数（相对量的百分比）。"""
+    hs = []
+    for _k, _label, dirs, _sp, _ns, _sc in tabs:
+        ref = dirs.get('full')
+        if not ref:
+            continue
+        for ck, _l in _STUDY_CELLS:
+            if ck == 'full':
+                continue
+            v = dirs.get(ck)
+            rr = _study_cell_ratio(v, ref) if v is not None else None
+            if not rr or not rr.get('lo'):
+                continue
+            g = rr['geo_ratio']
+            hs.append(max(g / rr['lo'] - 1.0, rr['hi'] / g - 1.0))
+    if not hs:
+        return None
+    return float(np.median(hs))
 
 
 def _study_ratio_by_tab(tabs):
@@ -2577,17 +2633,29 @@ def _study_verdict(tabs):
                          '最不稳的是 %s，它在某个起点上明显更差，原因见下面那段机制。'
                          % (txt, label_of[worst_k].replace(' ', '')))
 
-    # ---- 层三：族间 ----
+    # ---- 层三：族间（按噪声带分「打平」与「真差异」）----
     df_vals = [(nm, per[nm]['direct_full']) for nm in names
                if 'direct_full' in per[nm] and per[nm].get('full') == 1.0]
     if len(df_vals) >= 2:
-        lo = min(df_vals, key=lambda x: x[1])
-        hi = max(df_vals, key=lambda x: x[1])
-        parts.append('实测第二层（族间）：<strong>回传 × full 相对代理 × full 的倍率随起点翻得很厉害</strong>'
-                     '（%s 的 %s ~ %s 的 %s，跨 %.0f 倍）。这不是「哪种取法变强变弱」，'
-                     '而是那一个起点上代理本身失效了——看各页签的自检行。'
-                     % (lo[0], _ratio_txt(lo[1]).rstrip('×'), hi[0],
-                        _ratio_txt(hi[1]), hi[1] / lo[1] if lo[1] else 0))
+        band = _study_noise_band(tabs) or 0.0
+        tie = [(nm, v) for nm, v in df_vals if band and abs(v - 1.0) <= band]
+        off = [(nm, v) for nm, v in df_vals if not (band and abs(v - 1.0) <= band)]
+        seg = []
+        if tie:
+            seg.append('起点还在代理邻域里时<strong>两族打平</strong>（%s，都在 ±%.0f%% 的统计涨落带里，'
+                       '不能读成谁更强；几何均值被大量已经打平的用例摊薄，逐用例的差别集中在少数难用例上）'
+                       % ('、'.join('%s %s' % (nm, _ratio_txt(v)) for nm, v in tie), band * 100.0))
+        if off:
+            lo = min(off, key=lambda x: x[1])
+            seg.append('代理出域时<strong>差别是真的</strong>（%s 的 %s，相当于好 %.0f 倍，'
+                       '远超噪声带）'
+                       % (lo[0], _ratio_txt(lo[1]), 1.0 / lo[1] if lo[1] else 0.0))
+        if seg:
+            head = ('实测第二层（族间）：<strong>回传 × full 只在代理失效时才明显更强</strong>——'
+                    if off and tie else '实测第二层（族间）：')
+            parts.append(head + '；'.join(seg)
+                         + '。这一层问的不是「哪种取法变强变弱」，而是那一个起点上代理还能不能信，'
+                           '看各页签的自检行。')
     parts.append('</p>')
     return ''.join(parts)
 
@@ -2698,6 +2766,33 @@ def _study_tabs(a):
     return tabs
 
 
+def _study_seed_calib(tabs):
+    """差起点的起点 BER 校准值（基线用例几何均值）+ 与现役起点的倍数关系，写成一句人话。"""
+    cur = None
+    vals = []
+    for key, _label, dirs, _sp, _ns, _sc in tabs:
+        ref = dirs.get('full')
+        if not ref:
+            continue
+        b = (ref.get('bmap_seed') or {}).get('Base_IL10x10')
+        if not b or b <= 0:
+            continue
+        if key == 'current':
+            cur = b
+        else:
+            vals.append(b)
+    if not vals:
+        return '<strong>约 1e-3</strong>'
+    g = float(np.exp(np.mean(np.log(vals))))
+    if cur and cur > 0:
+        return ('<strong>%.1e</strong>（原起点 %.1e，差 %.1f 倍）' % (g, cur, g / cur))
+    return '<strong>%.1e</strong>' % g
+
+
+def _study_seed_calib_placeholder():
+    pass
+
+
 def _study_block(a):
     """§6.6 整块：跨起点汇总表 + 每个起点一个大 tab（内含六格小 tab）。"""
     tabs = _study_tabs(a)
@@ -2792,11 +2887,16 @@ def _study_block(a):
         panels.append('\n  <div class="tab-panel%s" id="%s">\n    %s\n  </div>'
                       % (' active' if idx == 0 else '', pid, '\n    '.join(parts)))
 
+    calib = _study_seed_calib(tabs)
     return (chr(10) + '<h3>6.6 起点换了，结论还成立吗（三个差起点 × 六格）</h3>' + chr(10)
             + '<p>前面所有结果的起点都是一个固定的次优工作点（形状基本对、增益只有 0.325 倍）。'
               '如果结论只在那个起点成立，这套算法就不算能用。这里换三个方向不同的差起点，'
-              '把起点 BER 都校准到基线用例 <strong>约 1e-3</strong>（比原起点差 8 倍），'
-              '每个起点把六格全部重跑一遍（三个差起点用 2^20 符号/点，检测底 2.38e-07；现役页签是 2^22，与它只比绝对落点、不比强弱——跨规模的分差不清是起点造成的还是检测底造成的）：</p>' + chr(10)
+              '把起点 BER 都校准到基线用例 %s，'
+              '每个起点把六格全部重跑一遍（三个差起点用 %s 符号/点、检测底 %.2e；现役页签是 %s，'
+              '与它只比绝对落点、不比强弱——跨规模的分差不清是起点造成的还是检测底造成的）：</p>'
+              % (calib, _study_scale_txt(tabs[-1][4]),
+                 (tabs[-1][2].get('full') or {}).get('floor') or 0.0,
+                 _study_scale_txt(tabs[0][4])) + chr(10)
             + '<ul>'
             + '<li><strong>纯幅度错</strong>：形状与 CTLE 不动，只把驱动增益再压低 2.6 dB。</li>'
             + '<li><strong>纯均衡错</strong>：增益不动，把 Tx CTLE 的 peaking 与低频 shelf 拉偏。</li>'
@@ -2812,9 +2912,10 @@ def _study_block(a):
             + _study_resolution_note(tabs)
             + chr(10) + '<div class="tabs">' + chr(10) + '  <div class="tab-bar">' + chr(10)
             + chr(10).join(bar) + chr(10) + '  </div>' + ''.join(panels) + chr(10) + '</div>' + chr(10)
-            + '<p class="note">复现：<code>python tools\\run_seed_study.py --jobs 15 --num-symbols 1048576 '
+            + '<p class="note">复现：<code>python tools\\run_seed_study.py --jobs 12 --num-symbols %d '
               '--seeds s1_gain-2.6dB,s2_ctle_g3.0_1.5,s3_shape3.0</code>；起点文件在 <code>seeds/</code>，'
-              '起点 BER 由链路真实评估得到（选点脚本 <code>tools/probe_start_point.py</code>）。</p>')
+              '起点 BER 由链路真实评估得到（选点脚本 <code>tools/probe_start_point.py</code>）。</p>'
+              % (tabs[-1][4],))
 
 
 
