@@ -200,6 +200,14 @@ TEMPLATE = r'''<!DOCTYPE html>
     .wt-frame::before{content:attr(data-title);display:block;font-weight:800;color:var(--accent);font-size:12.5px;margin-bottom:6px}
     .wt-bar .wt-btn,.wt-bar .wt-dot{display:none}
   }
+
+  /* 六格轨迹小图：一行三张，窄屏自动并成一列 */
+  .cv-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0 6px}
+  @media (max-width:980px){.cv-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media (max-width:680px){.cv-grid{grid-template-columns:1fr}}
+  .cv-card{margin:0;background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px 6px 4px}
+  .cv-card svg.cv{width:100%;height:auto;display:block}
+  .cv-card figcaption{font-size:11px;color:var(--mut);margin-top:2px;line-height:1.35}
 </style>
 </head>
 <body>
@@ -2353,18 +2361,11 @@ def _study_tab_rows(seed_dirs):
         if v is None:
             continue
         rr = _study_cell_ratio(v, ref) if key != 'full' else None
-        if key == 'full':
-            cmp_txt = '—'
-            worse_txt = '—'
-            worst_txt = '—'
-        else:
-            cmp_txt = _ratio_txt(rr['geo_ratio']) if rr else '—'
-            worse_txt = '%d/%d' % (rr['worse'], rr['n']) if rr else '—'
-            worst_txt = _ratio_txt(rr['worst']) if rr else '—'
+        cmp_txt = '—' if key == 'full' else (_ratio_txt(rr['geo_ratio']) if rr else '—')
         body.append(
             '  <tr><td><strong>%s</strong></td><td class="n">%.3e</td><td class="n">%s</td>'
-            '<td class="n">%s</td><td class="n">%s</td><td class="n">%.1f</td><td class="n">%d/%d</td></tr>'
-            % (label, v['geo'], cmp_txt, worse_txt, worst_txt, v['evals'], v['n_floor'], v['n']))
+            '<td class="n">%.0f</td></tr>'
+            % (label, v['geo'], cmp_txt, v['evals']))
     return chr(10).join(body)
 
 
@@ -2678,14 +2679,171 @@ def _study_verdict(tabs):
     return ''.join(parts)
 
 
-def _study_conv_png(d):
-    """该格的收敛图：代理格叫 ddps_convergence.png，回传格叫 ddps_conv_grid.png。"""
-    rd = os.path.join(d, 'report')
-    for name in ('ddps_convergence.png', 'ddps_conv_grid.png'):
-        p = os.path.join(rd, name)
-        if os.path.exists(p):
-            return p
-    return None
+_CURVE_COLORS = {
+    'full': '#0b63ce', 'rotate': '#0f8a4a', 'secant': '#b8860b',
+    'direct_full': '#c2410c', 'direct_rotate': '#7c3aed', 'direct_secant': '#0891b2',
+}
+_CURVE_SHORT = {
+    'full': '代理全测', 'rotate': '代理轮测', 'secant': '代理外推',
+    'direct_full': '回传全测', 'direct_rotate': '回传轮测', 'direct_secant': '回传外推',
+}
+
+
+def _trace_lb(cell_dir, env):
+    """该格该用例每一步实测算到的 log10 BER。"""
+    p = os.path.join(cell_dir, 'trace_%s.csv' % env)
+    if not os.path.exists(p):
+        return []
+    try:
+        t = pd.read_csv(p)
+        return [(int(r['step']), float(r['real_lb'])) for _, r in t.iterrows()
+                if float(r['real_lb']) == float(r['real_lb'])]
+    except Exception:
+        return []
+
+
+def _study_case_svg(dirs, env, w=330, h=168):
+    """一个用例、六格六条线的收敛对比图。"""
+    series = []
+    for key, label in _STUDY_CELLS:
+        cell = dirs.get(key)
+        if not cell:
+            continue
+        pts = _trace_lb(cell['dir'], env)
+        if len(pts) >= 2:
+            series.append((key, label, pts))
+    if len(series) < 2:
+        return ''
+    ys = [y for _k, _l, pts in series for _s, y in pts]
+    y0, y1 = min(ys), max(ys)
+    if y1 - y0 < 0.15:
+        y0, y1 = y0 - 0.1, y1 + 0.1
+    pad = 0.08 * (y1 - y0)
+    y0, y1 = y0 - pad, y1 + pad
+    xmax = max(len(pts) for _k, _l, pts in series) - 1
+    ml, mr, mt, mb = 34, 6, 26, 20
+    iw, ih = w - ml - mr, h - mt - mb
+
+    def X(i):
+        return ml + (iw * i / max(1, xmax))
+
+    def Y(v):
+        return mt + ih * (1.0 - (v - y0) / (y1 - y0))
+
+    out = ['<svg class="cv" viewBox="0 0 %d %d" role="img" aria-label="%s 六格收敛对比">' % (w, h, env)]
+    # 网格与刻度
+    for k in range(5):
+        yy = mt + ih * k / 4.0
+        out.append('<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="#e6ebf1" stroke-width="1"/>'
+                   % (ml, yy, ml + iw, yy))
+    for k in range(5):
+        yy = mt + ih * k / 4.0
+        val = y1 - (y1 - y0) * k / 4.0
+        out.append('<text x="%d" y="%.1f" text-anchor="end" font-size="8" fill="#6b7a8d">%.0f</text>'
+                   % (ml - 4, yy + 3, val))
+    out.append('<text x="%d" y="%d" font-size="8" fill="#6b7a8d">log10 BER</text>' % (2, mt - 12))
+    out.append('<text x="%.1f" y="%d" text-anchor="middle" font-size="8" fill="#6b7a8d">步</text>'
+               % (ml + iw / 2.0, h - 6))
+    for i in range(0, xmax + 1, max(1, xmax // 5)):
+        out.append('<text x="%.1f" y="%d" text-anchor="middle" font-size="8" fill="#6b7a8d">%d</text>'
+                   % (X(i), h - 8, i))
+    # 六条线
+    for key, _label, pts in series:
+        col = _CURVE_COLORS.get(key, '#333')
+        d = ' '.join('%.1f,%.1f' % (X(i), Y(v)) for i, v in pts)
+        out.append('<polyline points="%s" fill="none" stroke="%s" stroke-width="1.6" '
+                   'stroke-linejoin="round"/>' % (d, col))
+        xe, ye = X(pts[-1][0]), Y(pts[-1][1])
+        out.append('<circle cx="%.1f" cy="%.1f" r="2.2" fill="%s"/>' % (xe, ye, col))
+    # 图例（两行三列，压在顶部）
+    for idx, (key, _label, _pts) in enumerate(series):
+        cx = ml + (idx % 3) * (iw / 3.0)
+        cy = 9 + (idx // 3) * 11
+        out.append('<rect x="%.1f" y="%.1f" width="7" height="7" fill="%s"/>'
+                   % (cx, cy - 6, _CURVE_COLORS.get(key, '#333')))
+        out.append('<text x="%.1f" y="%.1f" font-size="8" fill="#43536b">%s</text>'
+                   % (cx + 10, cy, _CURVE_SHORT.get(key, key)))
+    out.append('</svg>')
+    return ''.join(out)
+
+
+def _study_cell_svg(cell_dir, envs, key, w=680, h=230):
+    """一格、15 个用例的轨迹叠在一张图上，粗线是中位数。"""
+    series = []
+    for env in envs:
+        pts = _trace_lb(cell_dir, env)
+        if len(pts) >= 2:
+            series.append((env, pts))
+    if len(series) < 2:
+        return ''
+    ys = [y for _e, pts in series for _s, y in pts]
+    y0, y1 = min(ys), max(ys)
+    if y1 - y0 < 0.15:
+        y0, y1 = y0 - 0.1, y1 + 0.1
+    pad = 0.06 * (y1 - y0)
+    y0, y1 = y0 - pad, y1 + pad
+    xmax = max(len(pts) for _e, pts in series) - 1
+    ml, mr, mt, mb = 40, 8, 10, 20
+    iw, ih = w - ml - mr, h - mt - mb
+    col = _CURVE_COLORS.get(key, '#0b63ce')
+
+    def X(i):
+        return ml + iw * i / max(1, xmax)
+
+    def Y(v):
+        return mt + ih * (1.0 - (v - y0) / (y1 - y0))
+
+    out = ['<svg class="cv" viewBox="0 0 %d %d" role="img" aria-label="该格 15 个用例的收敛轨迹">' % (w, h)]
+    for k in range(5):
+        yy = mt + ih * k / 4.0
+        out.append('<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="#e6ebf1" stroke-width="1"/>'
+                   % (ml, yy, ml + iw, yy))
+        val = y1 - (y1 - y0) * k / 4.0
+        out.append('<text x="%d" y="%.1f" text-anchor="end" font-size="9" fill="#6b7a8d">%.0f</text>'
+                   % (ml - 5, yy + 3, val))
+    for i in range(0, xmax + 1, max(1, xmax // 6)):
+        out.append('<text x="%.1f" y="%d" text-anchor="middle" font-size="9" fill="#6b7a8d">%d</text>'
+                   % (X(i), h - 6, i))
+    out.append('<text x="%d" y="%d" font-size="9" fill="#6b7a8d">log10 BER</text>' % (2, 9))
+    for _env, pts in series:
+        d = ' '.join('%.1f,%.1f' % (X(i), Y(v)) for i, v in pts)
+        out.append('<polyline points="%s" fill="none" stroke="%s" stroke-width="1" opacity="0.55"/>'
+                   % (d, col))
+    # 中位数线
+    n = max(len(p) for _e, p in series)
+    med = []
+    for i in range(n):
+        vals = [p[i][1] for _e, p in series if len(p) > i]
+        if vals:
+            med.append((i, float(np.median(vals))))
+    if len(med) >= 2:
+        d = ' '.join('%.1f,%.1f' % (X(i), Y(v)) for i, v in med)
+        out.append('<polyline points="%s" fill="none" stroke="%s" stroke-width="2.4"/>' % (d, col))
+    out.append('</svg>')
+    return ''.join(out)
+
+
+def _study_case_curves(dirs, seed_ber=None):
+    """一个起点下，15 个用例各一张六格轨迹图。"""
+    ref = dirs.get('full')
+    if not ref:
+        return ''
+    cards = []
+    for env in ref['envs']:
+        svg = _study_case_svg(dirs, env)
+        if not svg:
+            continue
+        rb = ref['bmap'].get(env) or 0
+        sb = ref['bmap_seed'].get(env) or 0
+        cards.append('<figure class="cv-card">%s<figcaption>%s<br>起点 %.2e → 代理全测 %.2e</figcaption></figure>'
+                     % (svg, env, sb, rb) if sb and rb else
+                     '<figure class="cv-card">%s<figcaption>%s</figcaption></figure>' % (svg, env))
+    if not cards:
+        return ''
+    return ('<h4>每个用例、六个组合分别怎么走的</h4>'
+            '<p class="note">一张图一个用例，六条线是六种组合各自的 BER 随步变化，纵轴 log10(BER)，'
+            '端点圆点是最后一步。同一个用例的六条线放在同一刻度上，可以直接比谁掉得快、谁中途回升。</p>'
+            '<div class="cv-grid">' + ''.join(cards) + '</div>')
 
 
 def _study_hard_png(d):
@@ -2866,6 +3024,7 @@ def _study_block(a):
                          % (brief[0] or float('nan'), brief[1] or float('nan'), brief[2], scale,
                             dirs['full']['floor']))
         parts.append(_study_seed_params(spath) if spath and os.path.exists(spath) else '')
+        parts.append(_study_case_curves(dirs))
         for ck in ('full', 'direct_full'):
             cell = dirs.get(ck)
             if not cell:
@@ -2878,13 +3037,12 @@ def _study_block(a):
                    '发端频谱（起点与最优）、频谱改变量。频谱含 FFE、DAC 零阶保持、Tx CTLE 与驱动增益'
                    % cname)
             parts.append('<figure>\n  <div class="fig-scroll"><img src="%s" alt="%s"></div>\n'
-                         '  <figcaption>%s</figcaption>\n</figure>' % (_img_tag(hard_png), cap, cap))
+                         '  <figcaption>%s</figcaption>\n</figure>' % (_img_tag(hard_png, width=1200), cap, cap))
         parts.append(chr(10) + '<div class="tw">' + chr(10) + '<table>' + chr(10)
-                     + '  <caption>同一起点下的六格：倍率 = 该格 BER / 代理 × full 的 BER，15 个用例的几何平均'
-                       '<span class="sh">· 可左右滑动</span></caption>' + chr(10)
-                     + '  <tr><th>格</th><th class="n">15 用例的几何平均 BER</th><th class="n">相对现役倍率</th>'
-                       '<th class="n">差 >5% 用例</th><th class="n">最坏单例</th>'
-                       '<th class="n">真实评估/用例</th><th class="n">到检测底</th></tr>' + chr(10)
+                     + '  <caption>同一起点下六格的结果与代价：BER 取 15 个用例的几何平均，'
+                       '倍率是相对代理全测<span class="sh">· 可左右滑动</span></caption>' + chr(10)
+                     + '  <tr><th>格</th><th class="n">几何平均 BER</th><th class="n">相对代理全测</th>'
+                       '<th class="n">每用例真实评估</th></tr>' + chr(10)
                      + _study_tab_rows(dirs) + chr(10) + '</table>' + chr(10) + '</div>' + chr(10))
         parts.append(_study_hard_detail(dirs))
         parts.append(_study_tab_selfcheck(dirs))
@@ -2909,14 +3067,13 @@ def _study_block(a):
             spid = 'tab-seed-%s-%s' % (key, ck)
             sbar.append('    <button class="tab-btn%s" data-tab="%s">%s</button>'
                         % (' active' if not sbar else '', spid, clabel))
-            conv = _study_conv_png(v['dir'])
+            cell_svg = _study_cell_svg(v['dir'], v['envs'], ck)
             fig_html = ''
-            if conv:
-                alt = '%s · %s 15 个用例的 BER 随步变化' % (label, clabel)
-                fig_html = ('<figure>\n  <div class="fig-scroll"><img src="%s" alt="%s"></div>\n'
-                            '  <figcaption>%s：每个小图是用例的 BER 随步变化，灰点是为测梯度把参数'
-                            '临时推开时实测的 BER。</figcaption>\n</figure>\n'
-                            % (_img_tag(conv), alt, alt))
+            if cell_svg:
+                fig_html = ('<figure>\n  <div class="fig-scroll">%s</div>\n'
+                            '  <figcaption>%s · %s：该格 15 个用例各自的 BER 随步变化，'
+                            '细线是一个用例，粗线是 15 个用例的中位数。</figcaption>\n</figure>\n'
+                            % (cell_svg, label, clabel))
             span.append('\n  <div class="tab-panel%s" id="%s">\n    %s'
                         '    <div class="tw">\n    <table>\n'
                         '      <caption>%s · %s：逐用例（起点 BER 由链路实测）</caption>\n'
