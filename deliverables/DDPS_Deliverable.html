@@ -228,7 +228,7 @@
   <p style="font-size:15px;line-height:1.65;margin:0 0 10px"><strong>结论：拿不到收端误码时，用发端探针训一个方向代理，足以把 8 个均衡参数自动调到该环境的最优点；这个结论换起点仍成立，前提是起点落在代理训练覆盖的范围内。</strong>判断依据不是 BER 压了多少倍。那个数换个信道、换套器件参数就会变。真正的依据是三件与参数无关的事：三种取法的好坏顺序在四个起点上不变；有真实回传可比时，代理只在起点出界时才会输；出界这件事可以从数据集覆盖范围提前判断。</p>
   <ol style="margin-bottom:0">
     <li><strong>只用发端量就够，换环境不用重训</strong>：方向来自 8 个发端可测量（7-tap FIR 形状 + 驱动 RMS），与收端无关。训练数据只有 10 dB 基线环境的 2001 个点，15 个用例（插损 10～20 dB，含色散、群时延、噪声）逐个在线调，不重训也不重新标定。逐用例见 6.1 核心表与 6.2 六格并列表。</li>
-    <li><strong>三种取法的顺序是确定的：每步全测 ＞ 每步轮测 ＞ 只测首步后外推</strong>，代价按同一顺序递减。这是拿精度换链路时间的单调交换，没有一种取法全面更好；换起点也不改这个顺序，只在具体倍数上变。拆解见 4.3，对比见 6.1 矩阵表。</li>
+    <li><strong>三种取法的顺序是确定的：每步全测 ＞ 每步轮测 ＞ 只测首步后外推</strong>，而它们对链路的扰动按同一顺序递减。这是「方向精度」换「在线瞬时风险」的单调交换，没有一种取法全面更好；换起点也不改这个顺序，只改具体倍数。拆解见 4.3，对比见 6.1 矩阵表。</li>
     <li><strong>代理和真实回传差的是可信范围，不是精度</strong>：起点在训练范围内时两者落点相当，差别落在统计噪声里（见 6.4 前两个起点）；起点出界时代理给反向，回传仍能把 BER 拉下来。所以选哪条路，取决于起点有没有把握落在范围内，不取决于谁的数字小。</li>
     <li><strong>出界能提前判断，不用等它自己暴露</strong>：数据集覆盖范围就是边界（抽头 ±0.10、CTLE ±3 dB、gain ×0.20~1.26）。把旁瓣放大 3 倍这种起点已经出界，45 个用例·组合的最好结果全停在第一步之后，走完 15 步仍比出发时更差，而代理本身没有任何提示。判据与实测见 6.4 后两个起点和第 7 节。</li>
 
@@ -538,7 +538,41 @@
   <figcaption>5 个抽头全部独立进入搜索向量，t₂ 与其它抽头地位相同；抽头维不设边界。</figcaption>
 </figure>
 
-<h3>2.3 关键参数（取自 <span class="mono">config.xlsx</span>，112G 模式）</h3>
+<h3>2.3 偏振怎么建模：单偏振收发，双偏振信道投影成一路</h3>
+<p class="lead">这套链路是强度调制直接检测，发端和收端都是单偏振；偏振只出现在信道里，而且只通过两个量起作用：主轴夹角 pol_angle_deg 和差分群时延 dgd_ps。</p>
+<ul>
+  <li>发端单偏振。一个激光器出连续光，MZM 上做强度调制；FFE、驱动增益、Tx CTLE 都在电域，与偏振无关。没有偏振复用，也没有偏振旋转器件。</li>
+  <li>信道按两个正交主轴算。信号按夹角 θ = pol_angle_deg 分到两轴，功率比 cos²θ : sin²θ；慢轴相对快轴延时 τ = dgd_ps。色散单独作用在光场包络上（频域二次相位），与 DGD 不耦合。</li>
+  <li>收端单偏振直接检测。只有一个光电探测器，不分辨偏振，两轴分量在探测前叠加后平方律检波。正因为不分辨，两轴干涉直接落在强度上，等效频响 H(f) = cos²θ + sin²θ·e^(−j2πfτ)。</li>
+  <li>两个极端。θ = 0° 时信号与一条主轴对齐，H(f) = 1，DGD 不起作用；θ = 45° 时功率均分，H(f) = (1 + e^(−j2πfτ))/2，出现两径干涉凹陷。15 个用例里的 DGD 应力就取在这个角度附近。</li>
+  <li>没建模的部分。偏振相关损耗、偏振态随时间漂移、偏振复用与偏振分集接收都不在模型里；这条链路的分集只有时间和均衡两个方向，没有偏振方向。第 7 节把这条算进适用范围。</li>
+</ul>
+<figure>
+<svg class="d-wide" viewBox="0 0 1040 220" role="img" aria-label="偏振建模通路">
+  <rect x="14" y="60" width="150" height="86" rx="8" fill="#eef4ff" stroke="#8fb3e8"/>
+  <text x="89" y="92" text-anchor="middle" font-size="12.5" fill="#1b3f6b">激光器（单偏振）</text>
+  <text x="89" y="112" text-anchor="middle" font-size="11" fill="#43536b">强度调制 MZM</text>
+  <text x="89" y="130" text-anchor="middle" font-size="11" fill="#43536b">电域均衡在发端</text>
+  <rect x="238" y="46" width="250" height="114" rx="8" fill="#f7f9fc" stroke="#b8c4d6"/>
+  <text x="363" y="68" text-anchor="middle" font-size="12" fill="#1b3f6b">光纤：双折射等效两主轴</text>
+  <text x="363" y="90" text-anchor="middle" font-size="11" fill="#43536b">快轴 cosθ（不延时）</text>
+  <text x="363" y="110" text-anchor="middle" font-size="11" fill="#43536b">慢轴 sinθ（延时 τ = DGD）</text>
+  <text x="363" y="134" text-anchor="middle" font-size="11" fill="#43536b">θ = pol_angle_deg，0～45°</text>
+  <text x="363" y="152" text-anchor="middle" font-size="11" fill="#43536b">τ = dgd_ps，0～5 ps</text>
+  <rect x="562" y="60" width="170" height="86" rx="8" fill="#eef7f0" stroke="#8fc5a3"/>
+  <text x="647" y="90" text-anchor="middle" font-size="12.5" fill="#14532d">两轴合成后探测</text>
+  <text x="647" y="110" text-anchor="middle" font-size="11" fill="#43536b">单个 PD，平方律</text>
+  <text x="647" y="128" text-anchor="middle" font-size="11" fill="#43536b">不分辨偏振</text>
+  <rect x="806" y="60" width="200" height="86" rx="8" fill="#fff8e8" stroke="#e0c07a"/>
+  <text x="906" y="90" text-anchor="middle" font-size="12.5" fill="#7a5b12">等效单路频响</text>
+  <text x="906" y="112" text-anchor="middle" font-size="11.5" fill="#43536b">H(f) = cos²θ</text>
+  <text x="906" y="130" text-anchor="middle" font-size="11.5" fill="#43536b">+ sin²θ·e^(−j2πfτ)</text>
+  <text x="14" y="196" font-size="11" fill="#5b6b7d">发端、收端都是单偏振；双偏振信道被投影成一路：θ=0° 时冲击只走一条轴，DGD 不起作用；θ=45° 时功率均分，DGD 造成两径干涉凹陷。</text>
+</svg>
+<figcaption>图 2 · 偏振只在信道里起作用：发端单偏振强度调制，信道按 cos²θ / sin²θ 把功率分到两个正交主轴，慢轴延时 τ，收端单个探测器把两轴合成后平方律检波，整条链路等效成一个标量频响。</figcaption>
+</figure>
+
+<h3>2.4 关键参数（取自 <span class="mono">config.xlsx</span>，112G 模式）</h3>
 <details class="fold">
 <summary>系统 / 均衡 / 器件 / 信道参数取值</summary>
 <div class="fold-body">
@@ -577,7 +611,7 @@
 </div>
 </details>
 
-<h3>2.4 十五个物理应力用例</h3>
+<h3>2.5 十五个物理应力用例</h3>
 <details class="fold">
 <summary>15 个用例定义：对称/非对称插损、色散、DGD、器件噪声（训练 / 测试 / 报告共用）</summary>
 <div class="fold-body">
@@ -605,7 +639,7 @@
 </div>
 </details>
 
-<h3>2.5 搜索向量的参数化公式（复现所需的完整映射）</h3>
+<h3>2.6 搜索向量的参数化公式（复现所需的完整映射）</h3>
 <p>搜索向量 <span class="mono">x = [x₀ x₁ x₂ x₃ x₄, x₅, x₆, x₇] ∈ R⁸</span> 到物理器件的映射如下，是复现本方案必须写死的三处参数化。</p>
 <div class="card">
 <h4 style="margin-top:0">① 5 抽头 Tx FFE（5 个抽头都是搜索变量）</h4>
@@ -823,7 +857,7 @@ Model A：d = 8（7-tap 绝对标定 FIR + drive_rms），α = 1.0，预测 log1
 
 <a class="back-toc" href="#toc">↩ 回目录</a>
 <h2 id="s4"><span class="num">4</span>寻优算法</h2>
-<p class="lead">在线只做两件事：把参数打到链路上取探针，按方向走一步。三种取法的差别不在算法，而在于为了估方向要真实打多少次链路，这个次数就是方案的全部代价。</p>
+<p class="lead">三种取法的算法完全一样，区别只在于为了估方向，每步要把链路推开多少次。每一次推开都是一次真实扰动：链路在那一刻停在偏离工作点的位置，端到端 BER 会比这一步的结果更差。这个方案真正在换的是「方向准不准」和「在线承担多大瞬时风险」，评估次数只是这本风险账的计量单位。</p>
 
 <p>在线调优就是<strong>8 维梯度下降</strong>：<span class="mono">x = [5 个 Tx FFE 抽头, gDC, gDC2, u_gain]</span>。梯度怎么拿，是两个正交的选择，一共六种组合：<strong>三种形状维取法</strong>（<strong>full</strong> 每步全量微扰、<strong>rotate</strong> 每步轮转 2 维、<strong>secant</strong> 只在第 0 步微扰、之后割线外推）乘 <strong>两种梯度来源</strong>（发端 Model A 方向代理，不用回传；收端真实 BER 回传）。发端代理那一行是现役方案：方向由冻结的 Model A 给，形状 7 维按三种取法之一刷新，gain 维一直用解析梯度。六格共用同一次优起点、同一组归一化步长与门控、同一个 15 步上限，一键切换（<span class="mono">--method proxy|direct</span> 配 <span class="mono">--grad-mode full|rotate|secant</span>）。真正的区别只有一个：为了估计梯度，要把链路真实推到偏离工作点的位置多少次。次数与每次的该步 BER 在第 6 节逐条列出，代价汇总在 §4.3。六格共用同一条物理链路（第 2 节）和同一个起点（6.0）。</p>
 
@@ -1053,18 +1087,18 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
 <p>共轭梯度、拟牛顿这类方法省的是迭代次数，前提有三条：目标光滑、能做线搜索、约束不挡路。在线闭环里三条都不成立。端到端 BER 带门限，错误数是整数，发端算出来的差值在统计噪声里抖；CG 的 β 由相邻两步的梯度差构成，噪声一大，算出来的方向就和真实曲率无关。参数有物理量程，clip 会打断共轭；调优又不允许把 BER 打炸（§6.3），而 CG 后期的步长偏大。真正决定代价的是链路时间：一个探针态要让链路在该工作点跑够流量、等收端均衡收敛，才统计得出可信 BER，这段时间链路停在次优工作点上，就是实打实的流量损失。线搜索每步要测好几个这样的点，调优窗口直接被放大。CG 每步仍然要一个新梯度（16 个探针态），省的是迭代数，不是测量数。在线系统还是非平稳的，温度、老化、收端自适应都在漂，上一步的曲率下一步就过期。实测里唯一带跨步记忆外推的 secant，最坏单例落后 2.71 倍（§6.1），每步重测的 full 最好。CG 最擅长治的特征值跨度大，在这里主要是量纲差（抽头 ±0.1、CTLE 6 dB、gain 0.6 dex），三组归一化加步长已经处理掉了；剩下的是 BER 曲面自己的曲率，那不是二次型。</p>
 <p>什么时候该用 CG 或 L-BFGS：目标是廉价解析模型、维度高、梯度无噪、能负担线搜索，而且调优窗口内可以当成平稳。对这套系统，对应的是离线设计，也就是拿准确的链路模型做预加重和 FIR 设计，不是在线闭环。在线闭环里能省的只有每步测几个点（full → rotate → secant），不是少迭代几次。</p>
 
-<h3>4.3 真实评估次数与耗时（梯度估计的物理代价）</h3>
-<p>「把参数打到链路上取探针」和「落在某个工作点上测真实 BER」都是一次真实的端到端评估。下表是按实测 trace 统计出来的每用例评估次数（2<sup>22</sup> 符号，单种子 42）。落地次数各格一样，都是 15 步；不同的是微扰点次数。单价也要算清楚：每个被记录的状态都要付一次完整的真实评估，参数点要测真实 BER，±ε 微扰点同样要测，微扰点的实测 BER 见 6.4。在线算法本身在微扰点只需要探针加 Model A 前向（Python 实测中位约 5 ms，比一次真实评估便宜三个数量级），真实 BER 只是为记录而测，不参与决策。所以各格的墙钟差，就是把链路真实推到偏离工作点的次数差。</p>
+<h3>4.3 每步往链路注入多少扰动，带来多大瞬时风险</h3>
+<p>「把参数打到链路上取探针」和「落在某个工作点上测真实 BER」都是一次真实的端到端评估。下表是按实测 trace 统计出来的每用例评估次数（2<sup>22</sup> 符号，单种子 42）。落地次数各格一样，都是 15 步；不同的是微扰点次数。单价也要算清楚：每个被记录的状态都要付一次完整的真实评估，参数点要测真实 BER，±ε 微扰点同样要测，微扰点的实测 BER 见 6.4。在线算法本身在微扰点只需要探针加 Model A 前向（Python 实测中位约 5 ms，比一次真实评估便宜三个数量级），真实 BER 只是为记录而测，不参与决策。所以三种取法的差别，就是它们把链路推到偏离工作点的次数不同；次数多，方向估得准，但在线承担的瞬时风险也大。</p>
 <div class="tw">
 <table class="wide">
   <caption>每用例真实评估次数（数据取自 <span class="mono">result/ddps_cpp_*/case_summary.csv</span>） <span class="sh">· 可左右滑动</span></caption>
-  <tr><th>格</th><th>落地评估</th><th class="n">±ε 微扰点</th><th class="n">合计真实评估</th><th class="n">相对 full</th><th class="n">每次真实评估耗时（C++）</th><th class="n">每用例墙钟（串行）</th></tr>
-  <tr><td><strong>代理 × full（7 维每步全量中心差分）</strong><br><span class="sh">7 维每步重算，gain 维解析</span></td><td class="n">15</td><td class="n">210</td><td class="n win"><strong>225</strong></td><td class="n">1.00×</td><td class="n">36.6 s</td><td class="n">2.3 h</td></tr>
-<tr><td><strong>代理 × rotate（每步轮转 2 维）</strong><br><span class="sh">其余维沿用上次实测值</span></td><td class="n">15</td><td class="n">70</td><td class="n"><strong>85</strong></td><td class="n">0.38×</td><td class="n">35.9 s</td><td class="n">51 min</td></tr>
-<tr><td><strong>代理 × secant（第 0 步一轮后割线外推）</strong><br><span class="sh">Broyden 秩一修正，0 微扰</span></td><td class="n">15</td><td class="n">14</td><td class="n"><strong>29</strong></td><td class="n">0.13×</td><td class="n">37.5 s</td><td class="n">18 min</td></tr>
-<tr><td><strong>回传 × full（8 维每步全量中心差分）</strong><br><span class="sh">每步 16 态，需真实 BER 回传</span></td><td class="n">10</td><td class="n">165</td><td class="n"><strong>176</strong></td><td class="n">0.78×</td><td class="n">38.0 s</td><td class="n">1.9 h</td></tr>
-<tr><td><strong>回传 × rotate（每步轮转 2 维）</strong><br><span class="sh">每步 4 态，需真实 BER 回传</span></td><td class="n">10</td><td class="n">52</td><td class="n"><strong>62</strong></td><td class="n">0.27×</td><td class="n">35.3 s</td><td class="n">36 min</td></tr>
-<tr><td><strong>回传 × secant（第 0 步一轮后割线外推）</strong><br><span class="sh">Broyden 秩一修正，需真实 BER 回传</span></td><td class="n">9</td><td class="n">16</td><td class="n"><strong>25</strong></td><td class="n">0.11×</td><td class="n">37.1 s</td><td class="n">16 min</td></tr>
+  <tr><th>取法</th><th>每步走到的点</th><th class="n">±ε 微扰点</th><th class="n">合计扰动次数</th><th class="n">相对每步全测</th></tr>
+  <tr><td><strong>代理 × full（7 维每步全量中心差分）</strong><br><span class="sh">7 维每步重算，gain 维解析</span></td><td class="n">15</td><td class="n">210</td><td class="n win"><strong>225</strong></td><td class="n">1.00×</td></tr>
+<tr><td><strong>代理 × rotate（每步轮转 2 维）</strong><br><span class="sh">其余维沿用上次实测值</span></td><td class="n">15</td><td class="n">70</td><td class="n"><strong>85</strong></td><td class="n">0.38×</td></tr>
+<tr><td><strong>代理 × secant（第 0 步一轮后割线外推）</strong><br><span class="sh">Broyden 秩一修正，0 微扰</span></td><td class="n">15</td><td class="n">14</td><td class="n"><strong>29</strong></td><td class="n">0.13×</td></tr>
+<tr><td><strong>回传 × full（8 维每步全量中心差分）</strong><br><span class="sh">每步 16 态，需真实 BER 回传</span></td><td class="n">10</td><td class="n">165</td><td class="n"><strong>176</strong></td><td class="n">0.78×</td></tr>
+<tr><td><strong>回传 × rotate（每步轮转 2 维）</strong><br><span class="sh">每步 4 态，需真实 BER 回传</span></td><td class="n">10</td><td class="n">52</td><td class="n"><strong>62</strong></td><td class="n">0.27×</td></tr>
+<tr><td><strong>回传 × secant（第 0 步一轮后割线外推）</strong><br><span class="sh">Broyden 秩一修正，需真实 BER 回传</span></td><td class="n">9</td><td class="n">16</td><td class="n"><strong>25</strong></td><td class="n">0.11×</td></tr>
 </table>
 </div>
 <details class="fold">
@@ -1346,8 +1380,8 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
 <p>六格在同一协议、同一起点、同一个 15 步上限下横向比：三种形状维取法乘两种梯度来源。该步 BER 取 15 个用例的几何平均；两格算一样，指逐用例最优 BER 相差 5% 以内，基准是代理 × full。</p>
 <div class="tw">
 <table class="wide" id="tbl-mode-cmp">
-  <caption>六格矩阵的代价与效果（15 用例） <span class="sh">· 可左右滑动</span></caption>
-  <tr><th>格（梯度来源 × 形状维获取方式）</th><th class="n">15 用例最优 BER 几何平均</th><th class="n">相对代理 full</th><th class="n">与代理 full 一样</th><th class="n">最坏单例倍数</th><th class="n">每用例真实评估</th><th class="n">15 用例合计</th></tr>
+  <caption>六格的方向精度与扰动账（15 用例）：次数是每用例把链路推开的总次数 <span class="sh">· 可左右滑动</span></caption>
+  <tr><th>格（梯度来源 × 形状维获取方式）</th><th class="n">15 用例最优 BER 几何平均</th><th class="n">相对代理 full</th><th class="n">与代理 full 一样</th><th class="n">最坏单例倍数</th><th class="n">每用例扰动次数</th><th class="n">15 用例合计</th></tr>
   <tr><td>代理 × full（7 维每步全量中心差分）</td><td class="n">2.01e-07</td><td class="n">1.00×</td><td class="n">15/15</td><td class="n">1.00×</td><td class="n win">225</td><td class="n">3375</td></tr>
 <tr><td>代理 × rotate（每步轮转 2 维）</td><td class="n">2.06e-07</td><td class="n">1.03×</td><td class="n">13/15</td><td class="n">1.21×</td><td class="n">85</td><td class="n">1275</td></tr>
 <tr><td>代理 × secant（第 0 步一轮后割线外推）</td><td class="n">1.86e-07</td><td class="n">0.92×</td><td class="n">12/15</td><td class="n">2.71×</td><td class="n">29</td><td class="n">435</td></tr>
