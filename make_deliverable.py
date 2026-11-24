@@ -246,7 +246,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     <li>LPO 光模块内部不做重 DSP，发送端均衡由 Host ASIC 承担。可用的均衡自由度：<strong>5-tap T-spaced 发送端 FFE</strong>（5 个抽头全部是搜索自由度，不设边界、不做主抽头派生）与 <strong>发送端模拟 CTLE 的高频 peaking 增益 gDC 与低频 shelf 增益 gDC2</strong>，再加 <strong>driver_gain</strong>，构成 8 维搜索空间。接收端另有一级固定参数的模拟 CTLE（gDC = 6 dB，gDC2 = 3 dB）作为静态均衡基座。</li>
     <li>信道条件：奈奎斯特电插损 Tx/Rx <strong>各自</strong> 10～20 dB，色散 0～28 ps/nm，差分群时延 0～5 ps，偏振角 0～45°，另含器件噪声应力（RIN / 消光比 / TIA 噪声）。</li>
     <li>在线阶段拿不到收端误码，方向只能由发送端可测的物理探针推断。探针算不出来，要读到它，就得把参数真的打到链路上跑一遍，那一刻收端性能是真的在变。所以每一次参数微扰都是一次真实的性能代价，方案把每一次的端到端 BER 都记下来公开，见 6.3 / 6.4。</li>
-    <li>若回传通道存在、端到端 BER 拿得到，就不需要代理，直接对真实目标做梯度下降。这种情形的对照实验见 6.5。</li>
+    <li>若回传通道存在、端到端 BER 拿得到，就不需要代理，直接对真实目标做梯度下降。这种情形的对照实验见 6.2。</li>
   </ul>
 </div>
 
@@ -987,7 +987,7 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
 步长         α_k = GD_LR · ALPHA_DECAY^k = 0.05 · 0.97^k
 更新         x_{k+1} = clip(x_k − α_k · span ⊙ d, 物理量程)
 物理量程     gDC ∈ [0, 12] dB，gDC2 ∈ [0, 4] dB，gain/g₀ ∈ [10^−0.52, 10^0.6]；抽头维无边界
-步数         固定 15 步，不做提前停止（真实 BER 回传格保留边际停止，见 6.5）</code></pre>
+步数         固定 15 步，不做提前停止（真实 BER 回传格保留边际停止，见 6.2）</code></pre>
 <p>每组步长管的是每一步走多远，不是参数的允许范围。抽头维没有范围限制，走多远完全由梯度与步长决定。三组各自归一化后再乘尺度，FFE（±0.1 量级）、CTLE（dB 量级）、gain（dex 量级）三个量纲不同的组就不会互相压制。</p>
 <p>共轭梯度、拟牛顿这类方法省的是迭代次数，前提有三条：目标光滑、能做线搜索、约束不挡路。在线闭环里三条都不成立。端到端 BER 带门限，错误数是整数，发端算出来的差值在统计噪声里抖；CG 的 β 由相邻两步的梯度差构成，噪声一大，算出来的方向就和真实曲率无关。参数有物理量程，clip 会打断共轭；调优又不允许把 BER 打炸（§6.3），而 CG 后期的步长偏大。真正决定代价的是链路时间：一个探针态要让链路在该工作点跑够流量、等收端均衡收敛，才统计得出可信 BER，这段时间链路停在次优工作点上，就是实打实的流量损失。线搜索每步要测好几个这样的点，调优窗口直接被放大。CG 每步仍然要一个新梯度（16 个探针态），省的是迭代数，不是测量数。在线系统还是非平稳的，温度、老化、收端自适应都在漂，上一步的曲率下一步就过期。实测里唯一带跨步记忆外推的 secant，最坏单例落后 2.71 倍（§6.1），每步重测的 full 最好。CG 最擅长治的特征值跨度大，在这里主要是量纲差（抽头 ±0.1、CTLE 6 dB、gain 0.6 dex），三组归一化加步长已经处理掉了；剩下的是 BER 曲面自己的曲率，那不是二次型。</p>
 <p>什么时候该用 CG 或 L-BFGS：目标是廉价解析模型、维度高、梯度无噪、能负担线搜索，而且调优窗口内可以当成平稳。对这套系统，对应的是离线设计，也就是拿准确的链路模型做预加重和 FIR 设计，不是在线闭环。在线闭环里能省的只有每步测几个点（full → rotate → secant），不是少迭代几次。</p>
@@ -1044,7 +1044,7 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
   <li>上板时间是能预算的：15 步乘每步的评估次数，再乘单次评估时间，就是这段调优的总时长（§4.3 给了每用例的准确次数）。</li>
   <li>不提前退出也亏不了多少：步长按 <span class="mono">0.97^k</span> 衰减，后段位移很小；组梯度门控会自动把已经趋平的组冻结。</li>
 </ul>
-<p>参照方案 direct 每次评估拿到的就是真实目标本身，所以保留了「边际改善小于 0.01 dex 就停」的判据（机制见 6.5）。</p>
+<p>参照方案 direct 每次评估拿到的就是真实目标本身，所以保留了「边际改善小于 0.01 dex 就停」的判据（机制见 6.2）。</p>
 
 <h3>4.6 部署走一遍：逐帧走查（真实用例）</h3>
 <p>部署到新环境，主线是训练离线做一次、调优每个环境在线跑一遍。训练完成后手里有这几样东西：</p>
@@ -1092,7 +1092,7 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
 25           s = x_new[0..6] − x_k[0..6]； dA_shape = (A_new − A_prev) − g[7]·(x_new[7] − x_k[7])
 26           g[0..6] += [(dA_shape − g[0..6]ᵀ·s) / ‖s‖²] · s
 27       A_prev = A_new； x_k = x_new
-28   # 15 步走满，不做提前停止；真实 BER 回传格的边际停止另见 6.5</code></pre>
+28   # 15 步走满，不做提前停止；真实 BER 回传格的边际停止另见 6.2</code></pre>
 
 <div class="tw">
 <table class="wide">
@@ -1173,7 +1173,7 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
 
 <h2 id="s6"><span class="num">6</span>实测结果</h2>
 
-<p>以下核心指标为<strong>现役格 <!--MODE_LABEL--></strong>（Model A 方向代理，无需回传通道）的 15 用例 <!--SCALE_LABEL--> 结果；六格矩阵的横向对比见 6.1 末表，真实 BER 回传三格的结果与对照见 6.5（收敛轨迹见 6.2 页签）。</p>
+<p>以下核心指标为<strong>现役格 <!--MODE_LABEL--></strong>（Model A 方向代理，无需回传通道）的 15 用例 <!--SCALE_LABEL--> 结果；六格的横向对比在 6.1，逐用例数字在 6.2，四个起点下每个用例怎么走、图长什么样在 6.4。</p>
 
 <div class="kpis">
   <!--KPI_CARDS-->
@@ -1188,7 +1188,7 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
     <li>driver_gain = 0.1106（相对标称 0.3399 的倍率 ×0.325，u_gain = −0.4875）：驱动摆幅未按用例标定，是次优的主要来源。</li>
   </ul>
   <p>在线调优是 8 维梯度下降。方向来源和形状维取法各三种，组合成六格（机制见 4.2，每格的在线代价见 4.3），六格共用同一个起点、同一组归一化步长与门控、同一个 15 步上限。从这个次优点出发，各用例的真实 BER 在数步内降到该环境最优工作点附近。</p>
-  <p style="margin-bottom:0">本节曲线和逐用例表都取自现役格 <!--MODE_NAME_TEXT-->，方向来自 Model A 代理，不需要回传通道。有回传通道、直接对真实 BER 做梯度下降的对照在 6.5。</p>
+  <p style="margin-bottom:0">本节以现役格 <!--MODE_NAME_TEXT--> 为主：方向来自 Model A 代理，不需要回传通道。有回传通道、直接对真实 BER 做梯度下降的三格，数字在 6.2，轨迹在 6.4。</p>
 </div>
 <!--SEED_SPECTRUM-->
 
@@ -1212,15 +1212,12 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
 </div>
 <p><!--MODE_CMP_VERDICT--></p>
 
-<h3>6.2 收敛轨迹与物理量变化</h3>
-<p>收敛图曲线起点（step −1）是 x₀（次优工作点，基线实测 <!--SEED_BER_BASE-->）。逐格查看（页签切换），灰点为该格为估计梯度而施加的 ±ε 微扰点的真实 BER：</p>
-<div class="tabs">
-  <!--FIG_TABS-->
-</div>
+<h3>6.2 逐用例数字：15 个用例 × 六个组合</h3>
+<!--DIRECT_SECTION-->
 
-<h3>6.3 安全性核验：参数点与微扰瞬间</h3>
+<h3>6.3 安全性：每步与微扰点最坏能到哪</h3>
 <div class="card">
-  <p>调优时链路会短暂停在两类真实工作点上，安全性得分开看。一类是参数点，即每步落地后的 x<sub>k+1</sub>；另一类是 ±ε 微扰点，就是为估计形状维梯度加的参数偏移，链路也真的经过这些点。两者都会影响那一刻的端到端 BER，只看每一步走到的点不够。下面的数字取现役格 <!--MODE_LABEL-->：<!--MODE_PROBE_TEXT-->。回传格没有代理，也就没有这一层安全机制（6.5）。</p>
+  <p>调优时链路会短暂停在两类真实工作点上，安全性得分开看。一类是参数点，即每步落地后的 x<sub>k+1</sub>；另一类是 ±ε 微扰点，就是为估计形状维梯度加的参数偏移，链路也真的经过这些点。两者都会影响那一刻的端到端 BER，只看每一步走到的点不够。下面的数字取现役格 <!--MODE_LABEL-->：<!--MODE_PROBE_TEXT-->。回传格没有代理，也就没有这一层安全机制（见 6.2 的回传三列）。</p>
 
   <p>先只看每步的结果：<!--TOTAL_STEPS--> 步里有 <!--TOTAL_WORSE--> 个比起点差。</p>
   <div class="tw">
@@ -1242,8 +1239,7 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
   <p class="mut" style="margin-bottom:0">瞬时值超过起点，原因在中心差分：要同时测 x+ε 和 x−ε 两边的斜率，就得往差的方向也短暂挪一步。这是用实测斜率换方向的固有代价，三种取法差的只是这个代价出现得多频繁（见 4.3）。如果真实系统不接受任何瞬时扰动，可以改单边差分，只往预计改善的方向探，或者把 ε 调小。secant 取法把这份瞬时代价压到只有第 0 步一轮，之后不再产生微扰点。原始记录在 <span class="mono">trace_&lt;用例&gt;.csv</span>（参数点）和 <span class="mono">probes_&lt;用例&gt;.csv</span>（微扰点，含 step / param / sign / 真实 BER）。</p>
 </div>
 
-<h3>6.4 微扰点 BER 包络（梯度估计的物理代价）</h3>
-<p>每个 ±ε 参数偏移都让链路真的停在那个工作点上，所以每个微扰点自己的端到端 MLSE BER 都记了下来，在 6.2 的收敛图里是那些灰点。这些数不参与决定方向，方向仍然由 Model A 的梯度给，但它们是这份方案真实运行代价的完整底账：<!--MODE_PROBE_TEXT-->。回传格一样：第 0 步 8 维全测，共 16 个微扰点（没有解析 gain 梯度，gain 维也只能实测），每个的真实 BER 同样记下来（<span class="mono">result/ddps_cpp_direct_*/probes_*.csv</span>）。</p>
+<p>每个微扰点自己的 BER 也全部记了下来。这些数不参与决定方向，方向仍由 Model A 的梯度给，但它们是这套方案真实运行代价的底账：<!--MODE_PROBE_TEXT-->。回传格一样，第 0 步 8 维全测共 16 个微扰点（没有解析 gain 梯度，gain 维也只能实测），每个的真实 BER 同样记在 <span class="mono">probes_&lt;用例&gt;.csv</span> 里。</p>
 <div class="tw">
 <table class="wide" id="tbl-probe">
   <caption><!--MODE_PROBE_CAPTION--> <span class="sh">· 可左右滑动</span></caption>
@@ -1252,8 +1248,7 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
 </table>
 </div>
 
-<h3>6.5 另一条梯度来源：真实 BER 回传（三格）</h3>
-<!--DIRECT_SECTION-->
+
 
 <!--SEED_STUDY-->
 
@@ -1277,7 +1272,7 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
   <tr>
     <td>无回传通道（方案前提）</td>
     <td>在线调优拿不到收端端到端 BER，无法直接对真实目标做梯度下降</td>
-    <td>用发端可测探针训练 Model A 指方向；另一种梯度来源（真实 BER 回传）的三格对照见 6.5</td>
+    <td>用发端可测探针训练 Model A 指方向；另一种梯度来源（真实 BER 回传）的三格对照见 6.2</td>
   </tr>
   <tr>
     <td>每次梯度估计都要真实打到链路上</td>
@@ -1306,7 +1301,7 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
   </tr>
   <tr>
     <td>代理只在训练邻域内可信</td>
-    <td>数据集只覆盖基线 ±0.10 / ±3.0 dB / ×0.20~1.26。起点离得远，代理会指错方向，而且它自己不知道。把 FFE 旁瓣放大 3 倍当起点时，代理三格 45 个用例的最好结果全在第一步，模型预测变好 8.31 倍，实测是 0.62 倍（6.6）</td>
+    <td>数据集只覆盖基线 ±0.10 / ±3.0 dB / ×0.20~1.26。起点离得远，代理会指错方向，而且它自己不知道。把 FFE 旁瓣放大 3 倍当起点时，代理三格 45 个用例的最好结果全在第一步，模型预测变好 8.31 倍，实测是 0.62 倍（6.4）</td>
     <td>代理格拿不到真实反馈，走错了不会立刻看出来，只能按模型走到头。能拿到收端 BER 时，先用一次评估复核这一步的结果，比起点差就退回起点；已知起点离得远，直接走回传格（同一批用例上回传 × full 是代理 × full 的 0.0009 倍）。拿不到收端 BER 时，唯一能做的是部署前把起点校回邻域内，数据集覆盖的范围就是邻域边界，并如实标注这个前提。代理看不见自己的失效，这件事不能指望算法自己发现</td>
   </tr>
   <tr>
@@ -1454,14 +1449,7 @@ python tools\verify_ddps.py --expect-cells 6</code></pre>
   <!--EQ_TABS-->
 </div>
 <p>比对命令：<span class="mono">python cpp/compare_traces.py --py &lt;Python 目录&gt; --cpp &lt;C++ 目录&gt;</span>；比对列 <span class="mono">gdc / gdc2 / gain / u_gain / drive_rms / pred_a / real_lb / real_ber / grad_norm</span>。通过比对后，全量规模（2<sup>22</sup> 高 SNR）只用 C++ 跑（见 §6）；Python 结果作为低 SNR 收敛与等价性参照。</p>
-<h3>10.5 评估量对比（六格矩阵）</h3>
-<p>同一次优起点、同一 15 步上限、同一物理链路，六格每用例真实打到链路上的次数（落地次数各格相同，差别全在梯度估计）：</p>
-<div class="kpis" style="grid-template-columns:repeat(3,1fr)">
-  <!--EVAL_KPI_CARDS-->
-</div>
-<p>单次真实评估的实测耗时见 §4.3（同一物理链、同一符号数）。现役格 15 用例全量重跑（15 步）合计墙钟：<!--CXX_TOTAL_WALL-->（4 路并行，见 <span class="mono">result/ddps_cpp_<!--MODE_KEY-->/</span>）。</p>
-
-<h3>10.6 统一入口</h3>
+<h3>10.5 统一入口</h3>
 <pre><code># C++ 后端：全量在线调优（Base_IL10x10，2^22 符号，无噪声，单种子 42，次优起点，代理 × full）
 # （WSL 内运行：Linux 进程不受本机 Smart App Control 强制模式管辖，见本节开头「构建运行环境」）
 wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity ./cpp/build/run_ddps cpp/config.txt \
@@ -2435,7 +2423,7 @@ def _study_rank_stats(tabs):
 
 
 def _study_conclusion_line(a):
-    """§7 的第 5 条：换起点之后，哪一层结论不变、哪一层变（与 §6.6 判词同一套口径）。"""
+    """§7 的第 5 条：换起点之后，哪一层结论不变、哪一层变（与 §6.4 的判词同一套口径）。"""
     per = _study_ratio_by_tab(_study_tabs(a))
     if len(per) < 2:
         return ''
@@ -2461,7 +2449,7 @@ def _study_conclusion_line(a):
         bits.append('用不用回传，答案随起点变：回传 × full 是代理 × full 的 %.2f 倍到 %.4f 倍，'
                     '差在第三个起点上模型指错方向，不在取法'
                     % (max(df), min(df)))
-    return '<li>换起点之后：' + '；'.join(bits) + '（6.6）。</li>'
+    return '<li>换起点之后：' + '；'.join(bits) + '（6.4）。</li>'
 
 
 def _study_out_of_domain_note(tabs):
@@ -3044,7 +3032,7 @@ def _study_block(a):
                      + '  <tr><th>格</th><th class="n">几何平均 BER</th><th class="n">相对代理全测</th>'
                        '<th class="n">每用例真实评估</th></tr>' + chr(10)
                      + _study_tab_rows(dirs) + chr(10) + '</table>' + chr(10) + '</div>' + chr(10))
-        parts.append(_study_hard_detail(dirs))
+
         parts.append(_study_tab_selfcheck(dirs))
         # 小 tab：六格逐用例明细（纯表格，避免重复内联收敛图把 HTML 撑大）
         sbar, span = [], []
@@ -3068,19 +3056,18 @@ def _study_block(a):
             sbar.append('    <button class="tab-btn%s" data-tab="%s">%s</button>'
                         % (' active' if not sbar else '', spid, clabel))
             cell_svg = _study_cell_svg(v['dir'], v['envs'], ck)
-            fig_html = ''
-            if cell_svg:
-                fig_html = ('<figure>\n  <div class="fig-scroll">%s</div>\n'
-                            '  <figcaption>%s · %s：该格 15 个用例各自的 BER 随步变化，'
-                            '细线是一个用例，粗线是 15 个用例的中位数。</figcaption>\n</figure>\n'
-                            % (cell_svg, label, clabel))
-            span.append('\n  <div class="tab-panel%s" id="%s">\n    %s'
-                        '    <div class="tw">\n    <table>\n'
-                        '      <caption>%s · %s：逐用例（起点 BER 由链路实测）</caption>\n'
-                        '      <tr><th>用例</th><th class="n">起点 BER</th><th class="n">最好 BER</th>'
-                        '<th class="n">相对代理 × full</th></tr>\n%s\n    </table>\n    </div>\n  </div>'
-                        % (' active' if len(span) == 0 else '', spid, fig_html, label, clabel,
-                           chr(10).join(rows_td)))
+            fig_html = ('<figure>\n  <div class="fig-scroll">%s</div>\n'
+                        '  <figcaption>%s · %s：该格 15 个用例各自的 BER 随步变化，'
+                        '细线是一个用例，粗线是 15 个用例的中位数。</figcaption>\n</figure>\n'
+                        % (cell_svg, label, clabel)) if cell_svg else ''
+            envs_all = v['envs']
+            bi = int(np.argmin(v['best'])) if len(v['best']) else 0
+            wi = int(np.argmax(v['best'])) if len(v['best']) else 0
+            brief = ('最好 %s（%s）· 最差 %s（%s）· 15 个用例几何平均 %.2e · 每用例真实评估 %.0f 次'
+                     % (_ber(v['best'][bi]), envs_all[bi], _ber(v['best'][wi]), envs_all[wi],
+                        v['geo'], v['evals'])) if len(v['best']) else ''
+            span.append('\n  <div class="tab-panel%s" id="%s">\n    %s\n    <p class="note">%s</p>\n  </div>'
+                        % (' active' if len(span) == 0 else '', spid, fig_html, brief))
         if sbar:
             parts.append(chr(10) + '<div class="tabs">' + chr(10) + '  <div class="tab-bar">' + chr(10)
                          + chr(10).join(sbar) + chr(10) + '  </div>' + ''.join(span) + chr(10) + '</div>')
@@ -3088,7 +3075,7 @@ def _study_block(a):
                       % (' active' if idx == 0 else '', pid, '\n    '.join(parts)))
 
     calib = _study_seed_calib(tabs)
-    return (chr(10) + '<h3>6.6 换个起点，结论还成不成立（三个差起点 × 六格）</h3>' + chr(10)
+    return (chr(10) + '<h3>6.4 换个起点：四个起点下每个组合每个用例怎么走的</h3>' + chr(10)
             + '<p>前面所有结果的起点是同一个次优工作点：抽头形状基本对，增益只有标称的 0.325 倍。'
               '结论只在一个起点成立就用不了，这一节换三个方向不同的坏起点，'
               '三个差起点在基线用例上的 BER 都校准到 %s 上下，每个起点把六格各跑一遍。'
@@ -3731,65 +3718,15 @@ def _build_direct_section(a, summary, order, fs=None):
     ov_html = '\n'.join(ov_rows) if ov_rows else '<tr><td colspan="6">回传格结果尚未生成</td></tr>'
 
     section = f'''
-<p>现役方案的前提是没有回传通道：在线调优拿不到收端的端到端 BER，只能靠发端测得到的波形探针，由 Model A 指方向。有回传通道、端到端 BER 拿得到时，目标可以直接换成真实 log10(BER)，梯度也对真实目标取，不用代理。回传格走的就是这一路：三种形状维取法各跑一格，每格只和同一种取法的代理格比，唯一的变量是梯度从哪来。同一次优起点、同样 15 个用例、{_scale_label(_dir_num_symbols(a.baseline))} 符号、单种子 42、同一份 C++ 实现、同一套下降机制。收敛轨迹的对照在 6.2，等价性证据在第 10 节。</p>
+<p>15 个用例，六个组合各自的最优 BER 和步号并列在下面。起点、协议、步数上限都一样（{_scale_label(_dir_num_symbols(a.baseline))} 符号、单种子 42、固定 15 步），差别只在梯度来源和形状维取法。最后一列取三格回传里该用例最好的一格。</p>
 <div class="tw">
-<table class="wide" id="tbl-direct-overview">
-  <caption>回传三格总览（15 个用例）。两格算一样，指与同取法的代理格相差 5% 以内；比值是该步 BER 的几何平均之比，小于 1 表示回传格更好。<span class="sh">· 可左右滑动</span></caption>
-  <tr><th>形状维获取方式</th><th class="n">每用例真实评估</th><th class="n">平均步数</th><th class="n">与同方式代理格一样</th><th class="n">几何平均之比</th><th>对照参考</th></tr>
-  {ov_html}
+<table class="wide" id="tbl-direct-cmp">
+  <caption>逐用例最优 BER（括号里是步号）：代理全测与三格回传并列 <span class="sh">· 可左右滑动</span></caption>
+  <tr><th>用例</th><th>物理条件</th><th class="n">起点 BER</th><th class="n">代理全测</th><th class="n">回传全测</th><th class="n">回传轮测</th><th class="n">回传外推</th><th class="n">最好回传 ÷ 代理</th><th>最好回传格停止原因</th></tr>
+  {rows_html}
 </table>
 </div>
-<p>下面是回传三格的逐用例明细，并列现役格（代理 × full）。三格共用同一次优起点、同一套下降机制、同一个 15 步上限，差别只在形状维取法：full 每步把 8 维全量重测，rotate 每步轮转 2 维，secant 在第一步之后割线外推。「最好回传」取该用例三格里最好的参数点，用它和现役比，看回传这一路的上限在哪。</p>
-
-<div class="tabs">
-  <div class="tab-bar">
-    <button class="tab-btn active" data-tab="tab-direct-result">结果对比</button>
-    <button class="tab-btn" data-tab="tab-direct-method">方案说明</button>
-  </div>
-
-  <div class="tab-panel active" id="tab-direct-result">
-    <div class="kpis" style="grid-template-columns:repeat({len(kpi_rows)},1fr)">
-      {direct_kpis}
-    </div>
-    <p>{verdict} {n_evals_note}。逐用例看：</p>
-    <ul style="margin-top:6px">
-{bullets}
-    </ul>
-    <p style="margin-bottom:0">回传格不是来替代现役方案的，它回答的是：有回传通道时，直接对真实目标做梯度下降能到哪一步。两边算法、步数上限都一样，差别在每个决策用的数从哪来。回传格要收端先测出端到端 BER 再送回发端（仿真里直接读模拟收端的 BER，等于假设它能回传）；现役方案每一步只用发端自己测得到的探针（约 5 ms），不需要链路另一端配合。本方案的默认前提就是拿不到端到端 BER，这种情况下代理是唯一选择（§1）。换成有回传的前提，回传 × full 在同取法对照里确实更好，个别用例上也会因为真实梯度的抖动落后于现役。</p>
-    <figure>
-      <div class="fig-scroll"><img src="{img_tag}" alt="direct 与现役方案最优 BER 对比"></div>
-      <figcaption>图 13 · 15 个用例的最优 BER_MLSE（对数横轴）：蓝点是代理 × full，红菱是回传 × secant，灰线连的是同一个用例。逐用例数字在下表。</figcaption>
-    </figure>
-    <div class="tw">
-    <table class="wide" id="tbl-direct-cmp">
-      <caption>逐用例对比：三格回传并列代理 × full。最优取整条轨迹上真实 BER_MLSE 的最小值，括号里是步号；「最好回传 ÷ 现役」小于 1 表示回传更好。<span class="sh">· 可左右滑动</span></caption>
-      <tr><th>用例</th><th>物理条件</th><th class="n">起点 BER</th><th class="n">代理 × full 最优 BER（步）</th><th class="n">回传 × full 最优 BER（步）</th><th class="n">回传 × rotate 最优 BER（步）</th><th class="n">回传 × secant 最优 BER（步）</th><th class="n">最好回传 ÷ 现役</th><th>最好回传格停止原因</th></tr>
-      {rows_html}
-    </table>
-    </div>
-  </div>
-
-  <div class="tab-panel" id="tab-direct-method">
-    <div class="card">
-      <p>现役方案在线只拿得到发端的量（7-tap Tx FIR 探针、drive_rms），方向由冻结的 Model A 给。回传行假设收端 BER 能送回发端，每次调参都拿得到端到端误码统计。这时候目标本身就在手上，代理没有存在的理由，直接对真实目标做梯度下降，就是这个前提下的上限参照。</p>
-      <p>对照要成立，两边的下降机制得一样：同一个 8 维搜索空间、同一组归一化步长与组门控、同一个 15 步上限、同一次优起点。差别只有目标和梯度来源。</p>
-      <div class="tw">
-      <table class="wide" style="margin-bottom:8px">
-        <caption>机制对照：代理行（探针代理）与回传行（真实 BER），两边各有三种取法</caption>
-        <tr><th>环节</th><th>代理行（Model A 方向代理，无需回传）</th><th>回传行（真实 BER，需回传通道）</th></tr>
-        <tr><td>下降目标</td><td>Model A 预测 log10(BER)（探针域代理）</td><td>端到端真实 log10(BER)（回传值）</td></tr>
-        <tr><td>第 0 步初始化</td><td>形状 7 维中心差分查 A（14 个 ±ε 微扰点），gain 维用解析梯度（A 的 8 维探针特征严格正比于 gain，闭式可得，0 微扰）</td><td>全 8 维中心差分实测真实 BER（16 个 ±ε 微扰点）。没有代理就没有解析 gain 梯度，gain 维也只能实测</td></tr>
-        <tr><td>每步梯度维持</td><td>形状 7 维按方式：full 每步全量重算 / rotate 每步轮转 2 维 / secant Broyden 秩一修正（0 微扰）；gain 维每步解析重算</td><td>全 8 维按方式：full 每步全量重测 / rotate 每步轮转 2 维 / secant Broyden 秩一修正真实 Δlog10(BER)（无代理即无解析 gain 梯度，gain 维也随方式走）</td></tr>
-        <tr><td>参数点安全机制</td><td>没有否决层：方向对不对，看 15 个用例的该步实测 BER（6.1 / 6.3）</td><td>也没有；搜索盒与固定步数预算仍然保留</td></tr>
-        <tr><td>微扰点（真实链路工作点）</td><td>第 0 步 14 个；此后按方式为 14 / 4 / 0 个每步</td><td>第 0 步 16 个；此后按方式为 16 / 4 / 0 个每步</td></tr>
-        <tr><td>在线真实评估（每用例）</td><td>≈{evals_s} 次（现役格实测均值）</td><td>≈{ev3} 次（full / rotate / secant 三格实测均值）</td></tr>
-      </table>
-      </div>
-      <p>记录：direct 下 trace 的 <span class="mono">pred_a</span> 列记当前参数点的目标值（等于 real_lb，也就是回传的 log10 BER），<span class="mono">pred_b / allowed_ber / pred_b_ber</span> 恒为 0，因为这一路没有代理。列结构和其它结果目录一致，报表工具统一解析。第 0 步那 16 个微扰点的真实 BER 逐条记进 <span class="mono">probes_&lt;用例&gt;.csv</span>（param/sign/坐标/真实 BER），与其余格同 schema。</p>
-      <p style="margin-bottom:0">公平性：六格共用同一次优起点、同样 15 个用例、同一套评估协议（{_scale_label(_dir_num_symbols(a.baseline))} 符号、单种子 42）、同一份 C++ 实现、同一个 15 步上限。协议本身在 §5，逐格评估量与步数在上表。</p>
-    </div>
-  </div>
-</div>
+<p class="note">每用例真实评估次数回传三格约 {ev3} 次，代理全测约 {evals_s} 次，逐格拆解见 4.3。</p>
 '''
     return section
 
@@ -4452,7 +4389,7 @@ def main():
             f"<tr><td>对比实验 回传行（有回传通道）</td>"
             f"<td>若端到端 BER 可回传：目标直接换成真实 BER、不用代理的直接梯度下降，"
             f"与现役方案同协议对比（{_scale_label(fs.get('num_symbols'))} C++、同次优起点、"
-            f"三格逐用例取最好）：{hl_direct}，见 6.5</td></tr>")
+            f"三格逐用例取最好）：{hl_direct}，见 6.2</td></tr>")
 
     html = TEMPLATE
     repl = {
