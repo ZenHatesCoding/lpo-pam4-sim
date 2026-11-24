@@ -201,6 +201,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     .wt-bar .wt-btn,.wt-bar .wt-dot{display:none}
   }
 
+  .lead{font-size:14px;line-height:1.6;margin:8px 0 6px;padding-left:10px;border-left:3px solid var(--accent)}
   /* 六格轨迹小图：一行三张，窄屏自动并成一列 */
   .cv-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0 6px}
   @media (max-width:980px){.cv-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -218,53 +219,62 @@ TEMPLATE = r'''<!DOCTYPE html>
     <h1>DDPS：在线把发端均衡参数调到最优</h1>
     <div class="scope">
       这套方法解决一件事：光模块在线工作时拿不到收端误码，只有发端能测的量，怎么把 5 个 FFE 抽头、两个 CTLE 维度和驱动增益这 8 个参数自动调到该环境的最优附近。
-      下面依次是物理链路与参数、方向代理怎么来、在线怎么走、每走一步要花多少真实代价、15 个用例上的实测结果、换三个坏起点之后结果还成不成立、什么情况下这套方法不适用。
+      第一节直接给结论和四条支撑，后面依次是物理链路与参数、方向代理、在线算法与代价、15 个用例上的实测结果、换四个起点之后的轨迹、什么情况下不成立、怎么复现。
       数字全部来自结果目录里的 <code>case_summary / trace</code> 与源码常量；图是内嵌的 SVG 与 PNG，单个 HTML 离线就能看。
     </div>
     <nav class="toc" id="toc" aria-label="目录">
-      <a href="#s1"><b>1</b> 方案概要</a>
+      <a href="#s1"><b>1</b> 结论</a>
       <a href="#s2"><b>2</b> 物理链路与优化对象</a>
       <a href="#s3"><b>3</b> 代理模型</a>
       <a href="#s4"><b>4</b> 寻优算法</a>
       <a href="#s5"><b>5</b> 数据集与评估协议</a>
       <a href="#s6"><b>6</b> 实测结果</a>
-      <a href="#s7"><b>7</b> 结论</a>
-      <a href="#s8"><b>8</b> 适用边界与对策</a>
-      <a href="#s9"><b>9</b> 复现与产物</a>
-      <a href="#s10"><b>10</b> C++ 平台与等价性</a>
+      <a href="#s7"><b>7</b> 什么时候不成立</a>
+      <a href="#s8"><b>8</b> 复现与产物</a>
+      <a href="#s9"><b>9</b> 两套实现与等价性</a>
     </nav>
   </div>
 </header>
 
 <div class="wrap">
 
-<h2 id="s1"><span class="num">1</span>方案概要</h2>
+<h2 id="s1"><span class="num">1</span>结论</h2>
 
 <div class="card">
-  <h4 style="margin-top:0">适用场景与约束</h4>
+  <p style="font-size:15px;line-height:1.65;margin:0 0 10px">只靠发端测得到的量，这套方法把 15 个用例的 BER 从 <!--SEED_BER_LO--> ~ <!--SEED_BER_HI--> 压到 <!--FLOOR_TXT_LONG-->，平均降约 <!--MEAN_DEX--> 个数量级；整个决策过程没有用一次收端误码。代价是每用例 29 到 225 次真实链路评估（取决于取法），15 个用例全量跑一遍的墙钟是 <!--CXX_TOTAL_WALL-->。</p>
+  <ol style="margin-bottom:0">
+    <li><strong>跨环境成立，不用重训</strong>：训练数据只有 10 dB 基线环境的 <!--N_ROWS--> 个点，15 个用例（插损 10～20 dB，含色散、群时延、噪声应力）逐个在线调，不重训也不重新标定。逐用例数字见 6.1 的核心表和 6.2 的六格并列表。</li>
+    <li><strong>代价可以从 225 次压到 29 次，但要付出最坏单例 2.7 倍的代价</strong>：每步全量重测每用例 225 次真实评估，只在第一步测一次然后外推是 29 次；三种取法的好坏顺序在所有起点上都一样。拆解见 4.3，对比见 6.1 的矩阵表。</li>
+    <li><strong>换起点不改「哪种取法更好」，改「模型还能不能信」</strong>：三个方向不同的坏起点上，全测 ＞ 轮测 ＞ 外推的顺序都不变；模型给的方向与真实回传的差别，只在起点落到训练范围外时才拉开。</li>
+    <li><strong>失效条件明确，可以提前判断</strong>：起点离训练数据太远时（例如把旁瓣放大 3 倍），模型给的方向与实测相反，45 个用例·组合的最好结果都停在第一步之后，走完 15 步仍比出发时更差，这时只有回传能把 BER 拉回来。判据与实测见 6.4 和第 7 节。</li>
+
+  </ol>
+</div>
+
+<figure>
+  <div class="fig-scroll"><!--TOP_CURVE--></div>
+  <figcaption>最能说明问题的一个用例：最难用例（IL20x20）在六种组合各自的 BER 随步变化，六条线同刻度。这四条结论的证据分别在第 4、6 节；四个起点 × 每个用例的完整轨迹在 6.4。</figcaption>
+</figure>
+
+<p class="note">往下怎么读：第 2 节讲约束和做法，第 3–5 节讲代理、算法和一次调优要花多少，第 6 节给全部证据（15 个用例、四个起点、安全性），第 7 节讲什么时候不成立，第 8–9 节讲怎么复现、两套实现怎么对齐。</p>
+
+<div class="card">
+  <h4 style="margin-top:0">约束：可用的是什么</h4>
   <ul style="margin-bottom:0">
-    <li>LPO 光模块内部不做重 DSP，发送端均衡由 Host ASIC 承担。可用的均衡自由度：<strong>5-tap T-spaced 发送端 FFE</strong>（5 个抽头全部是搜索自由度，不设边界、不做主抽头派生）与 <strong>发送端模拟 CTLE 的高频 peaking 增益 gDC 与低频 shelf 增益 gDC2</strong>，再加 <strong>driver_gain</strong>，构成 8 维搜索空间。接收端另有一级固定参数的模拟 CTLE（gDC = 6 dB，gDC2 = 3 dB）作为静态均衡基座。</li>
-    <li>信道条件：奈奎斯特电插损 Tx/Rx <strong>各自</strong> 10～20 dB，色散 0～28 ps/nm，差分群时延 0～5 ps，偏振角 0～45°，另含器件噪声应力（RIN / 消光比 / TIA 噪声）。</li>
-    <li>在线阶段拿不到收端误码，方向只能由发送端可测的物理探针推断。探针算不出来，要读到它，就得把参数真的打到链路上跑一遍，那一刻收端性能是真的在变。所以每一次参数微扰都是一次真实的性能代价，方案把每一次的端到端 BER 都记下来公开，见 6.3 / 6.4。</li>
-    <li>若回传通道存在、端到端 BER 拿得到，就不需要代理，直接对真实目标做梯度下降。这种情形的对照实验见 6.2。</li>
+    <li>LPO 光模块内部不做重 DSP，发送端均衡由 Host ASIC 承担。可用的自由度是 5 个 T-spaced 发送端 FFE 抽头（全部是搜索变量，不设边界），发送端模拟 CTLE 的高频 peaking 增益 gDC 与低频 shelf 增益 gDC2，再加 driver_gain，一共 8 维。接收端另有一级固定参数的模拟 CTLE（gDC = 6 dB，gDC2 = 3 dB）作静态均衡基座。</li>
+    <li>信道条件：奈奎斯特电插损 Tx/Rx 各自 10～20 dB，色散 0～28 ps/nm，差分群时延 0～5 ps，偏振角 0～45°，另含 RIN、消光比、TIA 噪声三种器件应力。</li>
+    <li>在线拿不到收端误码，方向只能由发端测得到的物理探针推断。探针没有现成的，要读到它就得把参数真的打到链路上跑一遍，那一刻收端性能是真的在变，所以每一次微扰都记一次真实的端到端 BER。</li>
+    <li>有回传通道时不需要代理，直接对真实 BER 做梯度下降，这种情形跑成三格，数字在 6.2。</li>
   </ul>
 </div>
 
 <div class="card">
-  <h4 style="margin-top:0">方法构成</h4>
+  <h4 style="margin-top:0">做法：三段</h4>
   <ol style="margin-bottom:0">
-    <li><strong>物理探针</strong>：向发送链注入单位脉冲，在 MZM 输入端截取 7-tap 等效发射 FIR <em>形状</em>，并把该点的<strong>绝对驱动 RMS</strong> 一并取出：FIR 形状描述波形，RMS 描述驱动幅度。</li>
-    <li><strong>方向代理（Model A）</strong>：输入 = 8 维探针（7-tap FIR + 驱动 RMS）→ 输出 log10 BER_MLSE 的条件均值，二阶多项式 Ridge 闭式解，纯 NumPy，带解析梯度。它只回答一个问题：<em>波形往这个方向变，误码往哪边走</em>。在线决策只依赖它。</li>
-    <li><strong>8 维梯度下降</strong>：搜索向量 <span class="mono">x = [5 个 FFE 抽头, gDC, gDC2, u_gain]</span>，driver_gain（第 8 维）走解析梯度（0 微扰）。梯度获取是一张 <strong>3 × 2 矩阵</strong>：形状维获取方式（每步全量微扰 / 每步轮转微扰 / 只在第 0 步微扰一轮后外推）× 梯度来源（发端 Model A 代理 / 收端真实 BER 回传），一键切换、共用同一起点与固定 15 步；机制、每格在线代价与实测对比见 4.2 / 4.3 / 6.5。</li>
+    <li><strong>物理探针</strong>：向发送链注入单位脉冲，在 MZM 输入端截取 7-tap 等效发射 FIR 的形状，同时取该点的绝对驱动 RMS。前者描述波形，后者描述驱动幅度，合成 8 维可测量。</li>
+    <li><strong>方向代理（Model A）</strong>：输入 8 维探针，输出 log10 BER_MLSE 的条件均值，二阶多项式 Ridge 闭式解，纯 NumPy，带解析梯度。它只回答一件事：波形往这个方向变，误码往哪边走。在线决策只依赖它。</li>
+    <li><strong>8 维梯度下降</strong>：<span class="mono">x = [5 个 FFE 抽头, gDC, gDC2, u_gain]</span>，driver_gain 走解析梯度（0 微扰）。梯度怎么拿是 3 × 2 的选择：三种形状维取法乘两种梯度来源，共用同一起点和固定 15 步，机制在 4.2，代价在 4.3。</li>
   </ol>
-</div>
-
-<div class="tw">
-<table id="tbl-headline">
-  <caption>结论（完整数据见第 6 节）</caption>
-  <tr><th>项目</th><th>结果</th></tr>
-  <!--HEADLINE_ROWS-->
-</table>
 </div>
 
 <h2 id="s2"><span class="num">2</span>物理链路与优化对象</h2>
@@ -1252,20 +1262,7 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
 
 <!--SEED_STUDY-->
 
-<h2 id="s7"><span class="num">7</span>结论</h2>
-
-<div class="card">
-  <h4 style="margin-top:0">结论</h4>
-  <ol style="margin-bottom:0">
-    <li>只用 Base_IL10x10 邻域 <!--N_ROWS--> 行训练，15 个用例环境全部改善：次优起点（BER <!--SEED_BER_LO--> ~ <!--SEED_BER_HI-->）压到 <!--FLOOR_TXT_LONG-->，平均降约 <!--MEAN_DEX--> 个数量级；<!--TOTAL_STEPS--> 步里有 <!--TOTAL_WORSE--> 步比起点差（含 ±ε 微扰瞬时 <!--PROBE_WORSE_STEPS--> 步超种子，最坏 ×<!--PROBE_WORST_RATIO-->，见 6.3）。</li>
-    <li>在线方案的前提是拿不到收端误码：方向只来自发端探针和冻结的代理。探针随信道条件变化，所以同一个模型能跨插损、色散、群时延复用，不用按环境重训。</li>
-    <li>梯度怎么拿是一个 3 × 2 的选择：三种形状维取法，两种梯度来源（4.2）。现役用哪一格有数据依据，代价逐条公开（4.3 / 6.5）；选哪一格是工程取舍，不是能力边界。</li>
-    <li>搜索空间 8 维，抽头维没有边界，只有 CTLE 与 gain 保留器件量程，边界不替代理做决定。每步位移由步长和梯度决定，逐步衰减（0.97<sup>k</sup>）；方向错了，下一步的实测 BER 会立刻反映出来（6.3 逐条记录）。</li>
-    <!--STUDY_LI-->
-  </ol>
-</div>
-
-<h2 id="s8"><span class="num">8</span>适用边界与对策</h2>
+<h2 id="s7"><span class="num">7</span>什么时候不成立</h2>
 <div class="tw">
 <table>
   <tr><th>边界</th><th>表现</th><th>对策</th></tr>
@@ -1312,7 +1309,7 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
 </table>
 </div>
 
-<h2 id="s9"><span class="num">9</span>复现与产物</h2>
+<h2 id="s8"><span class="num">8</span>复现与产物</h2>
 
 <p>下面是部署这套方案的完整流水线命令和产物清单：数据集、训练、标定、2<sup>18</sup> 六格验证、2<sup>22</sup> 全量调优、报告、交付件。点开看完整命令。</p>
 
@@ -1397,12 +1394,12 @@ python tools\verify_ddps.py --expect-cells 6</code></pre>
 </details>
 </details>
 
-<h2 id="s10"><span class="num">10</span>C++ 平台与等价性</h2>
+<h2 id="s9"><span class="num">9</span>两套实现与等价性</h2>
 
 <p>平台提供两套同源实现：Python（原理参照）与 C++17（一比一复刻）。两实现读同一 <span class="mono">config.xlsx</span> 配置、装载同一冻结模型转换产物（<span class="mono">models/ddps/model_{a,b}.json</span>，由 <span class="mono">cpp/export_models.py</span> 从 pkl 转出，不重训），在线调优结果数值等价。两实现的比对只在 2<sup>18</sup> 小点数低 SNR 口径下进行（本节 10.2~10.4 的等价性数字均出自该口径）；全量规模仿真（高 SNR 大点数）只用通过比对的 C++ 入口执行，Python 不承担高 SNR 大点数仿真。6.5 节的 direct 对比实验走同一条流水线；比对工具已固化为 <span class="mono">cpp/compare_traces.py</span>（本节各表同口径）。</p>
 <p><strong>构建运行环境</strong>：C++ 产物在 WSL(Ubuntu) g++ 13.3 下构建运行（<span class="mono">cpp/build_wsl.sh</span>）。本机 Windows Smart App Control 处于强制模式，拦截本地编译的无签名可执行文件（含 MinGW 工具链组件与历史产物），Linux 进程不受该策略管辖；工程 C++ 源码为纯标准 C++17、无平台相关 API，跨平台构建不影响数值行为，等价性以本节 2<sup>18</sup> 口径比对为准。</p>
 
-<h3>10.1 模块映射（一比一复刻）</h3>
+<h3>9.1 模块映射（一比一复刻）</h3>
 <div class="tw">
 <table>
 <caption>C++ 头文件 ↔ Python 模块对应</caption>
@@ -1418,7 +1415,7 @@ python tools\verify_ddps.py --expect-cells 6</code></pre>
 </table>
 </div>
 
-<h3>10.2 物理层 bit 级等价</h3>
+<h3>9.2 物理层 bit 级等价</h3>
 <p>同一配置、同一种子 42、2<sup>18</sup> 符号，对物理链逐段取 sum|x| 校验和对比（C++ vs Python）：</p>
 <div class="tw">
 <table>
@@ -1439,17 +1436,17 @@ python tools\verify_ddps.py --expect-cells 6</code></pre>
 <b>差异来源</b>：浮点差只来自频域滤波的 FFT 求和顺序（radix-2 vs numpy pocketfft），量级 ≤1.6e-11，不改变任何 BER 判决。时间域步骤（ZOH、光电、PIN、TIA、AGC）逐位一致；频域步骤引入并传播 ~1e-11 舍入差；最终判决仍逐位相同。
 </div>
 
-<h3>10.3 探针与代理推理</h3>
+<h3>9.3 探针与代理推理</h3>
 <p>发端探针（7 抽头 Tx FIR + drive_rms）与方向代理前向：<span class="mono">drive_rms</span> 相对差 ≤1e-13、<span class="mono">pred_a</span> 相对差 ≤1e-12（两平台 <span class="mono">pred_a = -5.995717769951e+00</span> 同值到第 12 位）。探针是两平台唯一的方向信息来源，探针等价 + 代理前向等价，是六格逐格等价的前提（10.4 各表）。</p>
 
 
-<h3>10.4 在线调优等价</h3>
+<h3>9.4 在线调优等价</h3>
 <p>Python 定原理、C++ 一比一复刻，两者只在 2<sup>18</sup> 小点数低 SNR 下比对：单种子 42、不加人工噪声、Base_IL10x10 加 IL20x20 两个代表用例，按用例、步、数值列逐项算最大相对差，判据 &lt; 1e-9。六格都单独比一遍，发端代理三格和真实 BER 回传三格各一组，结果目录缺的格不会出现在页签里。</p>
 <div class="tabs">
   <!--EQ_TABS-->
 </div>
 <p>比对命令：<span class="mono">python cpp/compare_traces.py --py &lt;Python 目录&gt; --cpp &lt;C++ 目录&gt;</span>；比对列 <span class="mono">gdc / gdc2 / gain / u_gain / drive_rms / pred_a / real_lb / real_ber / grad_norm</span>。通过比对后，全量规模（2<sup>22</sup> 高 SNR）只用 C++ 跑（见 §6）；Python 结果作为低 SNR 收敛与等价性参照。</p>
-<h3>10.5 统一入口</h3>
+<h3>9.5 统一入口</h3>
 <pre><code># C++ 后端：全量在线调优（Base_IL10x10，2^22 符号，无噪声，单种子 42，次优起点，代理 × full）
 # （WSL 内运行：Linux 进程不受本机 Smart App Control 强制模式管辖，见本节开头「构建运行环境」）
 wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity ./cpp/build/run_ddps cpp/config.txt \
@@ -3005,6 +3002,17 @@ def _study_block(a):
         bar.append('    <button class="tab-btn%s" data-tab="%s">%s</button>'
                    % (' active' if idx == 0 else '', pid, label))
         parts = []
+        geos = {ck: _study_cell_metrics(dirs[ck]['dir']) for ck, _l in _STUDY_CELLS if dirs.get(ck)}
+        geos = {k: v for k, v in geos.items() if v}
+        if len(geos) >= 2:
+            bk = min(geos, key=lambda k: geos[k]['geo'])
+            wk = max(geos, key=lambda k: geos[k]['geo'])
+            lead = ('<p class="lead">这个起点上，<strong>%s</strong> 的几何平均 BER 最低（%.2e），'
+                    '<strong>%s</strong> 最高（%.2e），相差 %.1f 倍。</p>'
+                    % (dict(_STUDY_CELLS)[bk], geos[bk]['geo'],
+                       dict(_STUDY_CELLS)[wk], geos[wk]['geo'],
+                       geos[wk]['geo'] / geos[bk]['geo'] if geos[bk]['geo'] else 0.0))
+            parts.append(lead)
         brief = _study_seed_brief(dirs)
         if brief:
             parts.append('<p>这个起点的 BER：基线用例 %.2e，最难用例 %.2e，15 个用例的几何平均 %.2e。'
@@ -3550,6 +3558,21 @@ def _direct_cells(dirs, order, live_summary, live_mode='full'):
             'steps': float(np.mean([int(dsum[e]['n_steps_actual']) for e in envs])),
         })
     return out
+
+
+def _top_curve(a, summary, order):
+    """开篇用：现役六格在最难用例上的六条轨迹（和 6.4 同一套画法）。"""
+    if not a.dirs:
+        return ''
+    env = max(order, key=lambda e: summary[e]['best_ber'])
+    dirs = {}
+    for key, path in a.dirs.items():
+        m = _study_cell_metrics(path) if path else None
+        if m:
+            dirs[key] = m
+    if len(dirs) < 2:
+        return ''
+    return _study_case_svg(dirs, env, w=640, h=250)
 
 
 def _build_direct_section(a, summary, order, fs=None):
@@ -4393,7 +4416,6 @@ def main():
 
     html = TEMPLATE
     repl = {
-        '<!--HEADLINE_ROWS-->': headline,
         '<!--MODEL_METRICS_ROWS-->': _rows_metrics(meta),
         '<!--KPI_CARDS-->': kpis,
         '<!--CORE_ROWS-->': _rows_core(summary, order),
@@ -4430,11 +4452,11 @@ def main():
         '{{IMG_GAIN}}': _img_tag(img_gain) if os.path.exists(img_gain) else '',
         '{{IMG_TRACK}}': _img_tag(img_track) if os.path.exists(img_track) else '',
         '{{IMG_CASE_HARD}}': _img_tag(hard_png) if os.path.exists(hard_png) else '',
+        '<!--TOP_CURVE-->': _top_curve(a, summary, order),
         '<!--DIRECT_SECTION-->': direct_section,
         '<!--SEED_STUDY-->': _study_block(a),
         '<!--SEED_SPECTRUM-->': _seed_spectrum_block(a),
         '<!--STUDY_LI-->': _study_conclusion_line(a),
-        '<!--FIG_TABS-->': fig_tabs,
         '<!--MODE_NAME_TEXT-->': mode_name_text,
         '<!--MODE_KEY-->': a.mode,
         '<!--MODE_LABEL-->': cur_mode_zh,
