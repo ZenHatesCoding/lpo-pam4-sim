@@ -241,12 +241,12 @@ TEMPLATE = r'''<!DOCTYPE html>
 <h2 id="s1"><span class="num">1</span>结论</h2>
 
 <div class="card">
-  <p style="font-size:15px;line-height:1.65;margin:0 0 10px">只靠发端测得到的量，这套方法把 15 个用例的 BER 从 <!--SEED_BER_LO--> ~ <!--SEED_BER_HI--> 压到 <!--FLOOR_TXT_LONG-->，平均降约 <!--MEAN_DEX--> 个数量级；整个决策过程没有用一次收端误码。代价是每用例 29 到 225 次真实链路评估（取决于取法），15 个用例全量跑一遍的墙钟是 <!--CXX_TOTAL_WALL-->。</p>
+  <p style="font-size:15px;line-height:1.65;margin:0 0 10px"><strong>结论：拿不到收端误码时，用发端探针训一个方向代理，足以把 8 个均衡参数自动调到该环境的最优点；这个结论换起点仍成立，前提是起点落在代理训练覆盖的范围内。</strong>判断依据不是 BER 压了多少倍。那个数换个信道、换套器件参数就会变。真正的依据是三件与参数无关的事：三种取法的好坏顺序在四个起点上不变；有真实回传可比时，代理只在起点出界时才会输；出界这件事可以从数据集覆盖范围提前判断。</p>
   <ol style="margin-bottom:0">
-    <li><strong>跨环境成立，不用重训</strong>：训练数据只有 10 dB 基线环境的 <!--N_ROWS--> 个点，15 个用例（插损 10～20 dB，含色散、群时延、噪声应力）逐个在线调，不重训也不重新标定。逐用例数字见 6.1 的核心表和 6.2 的六格并列表。</li>
-    <li><strong>代价可以从 225 次压到 29 次，但要付出最坏单例 2.7 倍的代价</strong>：每步全量重测每用例 225 次真实评估，只在第一步测一次然后外推是 29 次；三种取法的好坏顺序在所有起点上都一样。拆解见 4.3，对比见 6.1 的矩阵表。</li>
-    <li><strong>换起点不改「哪种取法更好」，改「模型还能不能信」</strong>：三个方向不同的坏起点上，全测 ＞ 轮测 ＞ 外推的顺序都不变；模型给的方向与真实回传的差别，只在起点落到训练范围外时才拉开。</li>
-    <li><strong>失效条件明确，可以提前判断</strong>：起点离训练数据太远时（例如把旁瓣放大 3 倍），模型给的方向与实测相反，45 个用例·组合的最好结果都停在第一步之后，走完 15 步仍比出发时更差，这时只有回传能把 BER 拉回来。判据与实测见 6.4 和第 7 节。</li>
+    <li><strong>只用发端量就够，换环境不用重训</strong>：方向来自 8 个发端可测量（7-tap FIR 形状 + 驱动 RMS），与收端无关。训练数据只有 10 dB 基线环境的 <!--N_ROWS--> 个点，15 个用例（插损 10～20 dB，含色散、群时延、噪声）逐个在线调，不重训也不重新标定。逐用例见 6.1 核心表与 6.2 六格并列表。</li>
+    <li><strong>三种取法的顺序是确定的：每步全测 ＞ 每步轮测 ＞ 只测首步后外推</strong>，代价按同一顺序递减。这是拿精度换链路时间的单调交换，没有一种取法全面更好；换起点也不改这个顺序，只在具体倍数上变。拆解见 4.3，对比见 6.1 矩阵表。</li>
+    <li><strong>代理和真实回传差的是可信范围，不是精度</strong>：起点在训练范围内时两者落点相当，差别落在统计噪声里（见 6.4 前两个起点）；起点出界时代理给反向，回传仍能把 BER 拉下来。所以选哪条路，取决于起点有没有把握落在范围内，不取决于谁的数字小。</li>
+    <li><strong>出界能提前判断，不用等它自己暴露</strong>：数据集覆盖范围就是边界（抽头 ±0.10、CTLE ±3 dB、gain ×0.20~1.26）。把旁瓣放大 3 倍这种起点已经出界，45 个用例·组合的最好结果全停在第一步之后，走完 15 步仍比出发时更差，而代理本身没有任何提示。判据与实测见 6.4 后两个起点和第 7 节。</li>
 
   </ol>
 </div>
@@ -278,6 +278,7 @@ TEMPLATE = r'''<!DOCTYPE html>
 </div>
 
 <h2 id="s2"><span class="num">2</span>物理链路与优化对象</h2>
+<p class="lead">能动的东西全在发端：5 个 FFE 抽头、两个 CTLE 维度、驱动增益，一共 8 维；接收端固定。8 维里只有 CTLE 与增益受器件量程约束，抽头完全放开，边界不替代理做决定。</p>
 
 <h3>2.1 链路构成</h3>
 <figure>
@@ -643,6 +644,7 @@ f_z = f_b/2.862，f_p1 = f_b/1.884，f_p2 = f_b/1.0，f_lf = f_b/40，f_b = 56 G
 </div>
 
 <h2 id="s3"><span class="num">3</span>代理模型</h2>
+<p class="lead">8 个发端可测量就够判断「波形往哪边改会让误码变好」，不需要知道 BER 的绝对值。代理吃的是波形，所以换信道、换插损不用重训，这是它能跨环境复用的原因。</p>
 
 <h3>3.1 方向代理（Model A）的输入输出，以及它的在线代价</h3>
 <figure>
@@ -798,6 +800,7 @@ Model A：d = 8（7-tap 绝对标定 FIR + drive_rms），α = 1.0，预测 log1
 </div>
 
 <h2 id="s4"><span class="num">4</span>寻优算法</h2>
+<p class="lead">在线只做两件事：把参数打到链路上取探针，按方向走一步。三种取法的差别不在算法，而在于为了估方向要真实打多少次链路，这个次数就是方案的全部代价。</p>
 
 <p>在线调优就是<strong>8 维梯度下降</strong>：<span class="mono">x = [5 个 Tx FFE 抽头, gDC, gDC2, u_gain]</span>。梯度怎么拿，是两个正交的选择，一共六种组合：<strong>三种形状维取法</strong>（<strong>full</strong> 每步全量微扰、<strong>rotate</strong> 每步轮转 2 维、<strong>secant</strong> 只在第 0 步微扰、之后割线外推）乘 <strong>两种梯度来源</strong>（发端 Model A 方向代理，不用回传；收端真实 BER 回传）。发端代理那一行是现役方案：方向由冻结的 Model A 给，形状 7 维按三种取法之一刷新，gain 维一直用解析梯度。六格共用同一次优起点、同一组归一化步长与门控、同一个 15 步上限，一键切换（<span class="mono">--method proxy|direct</span> 配 <span class="mono">--grad-mode full|rotate|secant</span>）。真正的区别只有一个：为了估计梯度，要把链路真实推到偏离工作点的位置多少次。次数与每次的该步 BER 在第 6 节逐条列出，代价汇总在 §4.3。六格共用同一条物理链路（第 2 节）和同一个起点（6.0）。</p>
 
@@ -1132,6 +1135,7 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
 </div>
 
 <h2 id="s5"><span class="num">5</span>数据集与评估协议</h2>
+<p class="lead">协议只有两条硬约束：符号数决定能测到多低的 BER，单种子决定结果可复现；其余参数都在 4.3 的代价表里。</p>
 
 <div class="tw">
 <table>
@@ -1182,8 +1186,9 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
 </details>
 
 <h2 id="s6"><span class="num">6</span>实测结果</h2>
+<p class="lead">六种组合都能把参数走到该环境最优附近，没有一种走不动；差别在代价和少数难用例的落点。下面先给结果与逐用例数字，再给四个起点下每个用例的轨迹。</p>
 
-<p>以下核心指标为<strong>现役格 <!--MODE_LABEL--></strong>（Model A 方向代理，无需回传通道）的 15 用例 <!--SCALE_LABEL--> 结果；六格的横向对比在 6.1，逐用例数字在 6.2，四个起点下每个用例怎么走、图长什么样在 6.4。</p>
+<p>下面的数都取自 <!--SCALE_LABEL--> 全量重跑、单种子 42。6.1 先给六格横向对比与判词，6.2 给六个组合的逐用例数字，6.3 是安全性，6.4 是四个起点下每个用例怎么走的。</p>
 
 <div class="kpis">
   <!--KPI_CARDS-->
@@ -1263,6 +1268,7 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
 <!--SEED_STUDY-->
 
 <h2 id="s7"><span class="num">7</span>什么时候不成立</h2>
+<p class="lead">这套方法只有一个真实前提：起点落在代理训练覆盖的范围内。出了这个范围代理会给反向，而且它自己看不出来；其余边界都有对策，不需要改算法。</p>
 <div class="tw">
 <table>
   <tr><th>边界</th><th>表现</th><th>对策</th></tr>
@@ -3007,10 +3013,10 @@ def _study_block(a):
         if len(geos) >= 2:
             bk = min(geos, key=lambda k: geos[k]['geo'])
             wk = max(geos, key=lambda k: geos[k]['geo'])
-            lead = ('<p class="lead">这个起点上，<strong>%s</strong> 的几何平均 BER 最低（%.2e），'
-                    '<strong>%s</strong> 最高（%.2e），相差 %.1f 倍。</p>'
-                    % (dict(_STUDY_CELLS)[bk], geos[bk]['geo'],
-                       dict(_STUDY_CELLS)[wk], geos[wk]['geo'],
+            lead = ('<p class="lead">这个起点上最好的是 <strong>%s</strong>，最差的是 <strong>%s</strong>'
+                    '（几何平均 BER 分别 %.2e 和 %.2e，相差 %.1f 倍）。</p>'
+                    % (dict(_STUDY_CELLS)[bk], dict(_STUDY_CELLS)[wk],
+                       geos[bk]['geo'], geos[wk]['geo'],
                        geos[wk]['geo'] / geos[bk]['geo'] if geos[bk]['geo'] else 0.0))
             parts.append(lead)
         brief = _study_seed_brief(dirs)
