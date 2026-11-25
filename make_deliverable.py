@@ -1506,7 +1506,7 @@ python tools\verify_ddps.py --expect-cells 6</code></pre>
 </div>
 <p>比对命令：<span class="mono">python cpp/compare_traces.py --py &lt;Python 目录&gt; --cpp &lt;C++ 目录&gt;</span>；比对列 <span class="mono">gdc / gdc2 / gain / u_gain / drive_rms / pred_a / real_lb / real_ber / grad_norm</span>。通过比对后，全量规模（2<sup>22</sup> 高 SNR）只用 C++ 跑（见 §6）；Python 结果作为低 SNR 收敛与等价性参照。</p>
 <h3>9.5 统一入口</h3>
-<pre><code># C++ 后端：全量在线调优（Base_IL10x10，2^22 符号，无噪声，单种子 42，次优起点，代理 × full）
+<pre><code># C++ 后端：全量在线调优（Base_IL10x10，2^21 符号，无噪声，单种子 42，次优起点，代理 × full）
 # （WSL 内运行：Linux 进程不受本机 Smart App Control 强制模式管辖，见本节开头「构建运行环境」）
 wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity ./cpp/build/run_ddps cpp/config.txt \
     --num-symbols 2097152 --tx-noise-snr 0 \
@@ -2428,7 +2428,7 @@ def _study_ratio_matrix(tabs, same_scale_only=True):
         rows.append((key, label.split('（')[0].split('：')[0].replace('差起点 ', ''), nsym, dirs))
     if same_scale_only and rows:
         from collections import Counter
-        # 现役页签的规模是历史口径（2^22），先排除，再在差起点之间取最常见的规模
+        # 现役页签先排除，再在差起点之间取最常见的规模
         seed_rows = [r for r in rows if r[0] != 'current'] or rows
         scale = Counter(r[2] for r in seed_rows).most_common(1)[0][0]
         rows = [r for r in rows if r[2] == scale]
