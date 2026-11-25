@@ -3910,62 +3910,6 @@ _FIG_MODE_LABELS = [
 ]
 
 
-def _build_fig_tabs(a, hard_env):
-    """§6.2 页签组：逐格收敛图组（图由 report_ddps.py 从各格结果目录出）。
-
-    每格一个页签。图组缺失的格自动跳过。
-    """
-    bar, panels = [], []
-    first = True
-    for mode, label in _FIG_MODE_LABELS:
-        rd = os.path.join(a.dirs.get(mode, ''), 'report')
-        conv = os.path.join(rd, 'ddps_convergence.png')
-        if not os.path.exists(conv):
-            continue
-        imgs = [('ddps_convergence.png', f'图 6 · {label} 收敛轨迹（Model A 预测 / 实测 BER_MLSE / ±ε 微扰点灰点，对数纵轴；虚线为起点）'),
-                ('ddps_gain_rms.png', '图 7 · gain 维（第 8 维）与 drive_rms 轨迹（虚线为起点 gain 倍率 ×0.325）'),
-                ('ddps_tracking.png', '图 8 · 左 Δ预测 vs Δ实测散点（逐用例逐步）；右逐用例相关系数'),
-                (f'ddps_case_{hard_env}.png', f'图 9 · 最难用例（{hard_env}）六联图：收敛轨迹、Tx FFE 抽头（起点 vs 最优）、Tx CTLE |H(f)| 频响、Tx 探针 7-tap FIR、发端频谱对比（起点 vs 最优）、频谱改变量 ΔdB')]
-        figs = []
-        for fn, cap in imgs:
-            p = os.path.join(rd, fn)
-            if os.path.exists(p):
-                figs.append('<figure>\n      <div class="fig-scroll"><img src="%s" alt="%s"></div>\n'
-                            '      <figcaption>%s</figcaption>\n    </figure>' % (_img_tag(p), cap, cap))
-        pid = 'tab-fig-%s' % mode
-        bar.append('    <button class="tab-btn%s" data-tab="%s">%s</button>'
-                   % (' active' if first else '', pid, label))
-        panels.append('\n  <div class="tab-panel%s" id="%s">\n    %s\n  </div>'
-                      % (' active' if first else '', pid, '\n    '.join(figs)))
-        first = False
-    # 回传行三格页签（结果目录/报告图缺失的格自动不出现）
-    for _cell, _mdir in (('full', a.direct_full), ('rotate', a.direct_rotate), ('secant', a.direct)):
-        if not _mdir or not os.path.isdir(_mdir):
-            continue
-        rd = os.path.join(_mdir, 'report')
-        imgs = [('ddps_conv_grid.png', f'图 6 · 回传 × {_cell} 收敛轨迹（实测 BER_MLSE / ±ε 微扰点灰点）'),
-                ('ddps_gain_rms.png', f'图 7 · 回传 × {_cell}：gain 与 drive_rms 轨迹'),
-                ('ddps_case_hard.png', f'图 9 · 回传 × {_cell} 最难用例六联图（含发端频谱对比与频谱改变量）')]
-        figs = []
-        for fn, cap in imgs:
-            p = os.path.join(rd, fn)
-            if os.path.exists(p):
-                figs.append('<figure>\n      <div class="fig-scroll"><img src="%s" alt="%s"></div>\n'
-                            '      <figcaption>%s</figcaption>\n    </figure>' % (_img_tag(p), cap, cap))
-        if figs:
-            pid = f'tab-fig-direct-{_cell}'
-            bar.append(f'    <button class="tab-btn" data-tab="{pid}">回传 × {_cell}（有回传通道）</button>')
-            panels.append('\n  <div class="tab-panel" id="%s">\n    %s\n  </div>'
-                          % (pid, '\n    '.join(figs)))
-    if not bar:
-        return ''
-    return '  <div class="tab-bar">\n' + '\n'.join(bar) + '\n  </div>' + ''.join(panels)
-
-
-
-# ---------------------------------------------------------------------------
-# 训练数据构建可视化（§3.1）：一行数据长什么样 + 2001 点怎么撒
-# ---------------------------------------------------------------------------
 def _build_dataset_card(a):
     """§3.1 的「训练数据怎么构建」卡：真实数据集首行 + LHS 覆盖散点。
 
@@ -4465,8 +4409,6 @@ def main():
 
     # direct 对比实验：数据存在才渲染（6.5 对比节 + 6.2 图组页签）
     direct_section = _build_direct_section(a, summary, order, fs)
-    # 6.2 图组页签：逐格收敛图（各格 report_ddps.py 产物）+ 回传 × secant
-    fig_tabs = _build_fig_tabs(a, hard_env)
     # 10.4 等价页签：六格（发端代理三格 + 真实 BER 回传三格）的 2^18 比对，逐格实算
     eq_tabs = _build_eq_tabs(a)
     # 机制可视化素材（§3.1 训练数据 / §4.6 逐帧走查）：数据缺失自动退化
