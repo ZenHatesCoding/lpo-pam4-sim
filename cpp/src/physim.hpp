@@ -249,6 +249,21 @@ inline std::vector<std::complex<double>> apply_cd(const std::vector<std::complex
     return out;
 }
 
+// 单极点高通（收端隔直）：H(f) = (j f/fc)/(1 + j f/fc)，与 Python 同一式子。
+// H(0)=0，直流由滤波器自己去；整段施加，含相位。fc 由规范给定，不在代码里调。
+inline std::vector<double> apply_ac_coupling(const std::vector<double>& x, double fs, double fc_hz) {
+    size_t n = x.size();
+    if (fc_hz <= 0.0 || n == 0) return x;
+    auto X = rfft(x);
+    size_t half = n / 2 + 1;
+    for (size_t k = 0; k < half; k++) {
+        double f = (double)k * fs / (double)n;
+        std::complex<double> s_h(0.0, f / fc_hz);
+        X[k] *= s_h / (std::complex<double>(1.0, 0.0) + s_h);
+    }
+    return irfft(X, (int)n);
+}
+
 inline std::vector<double> apply_dgd(const std::vector<double>& P, double fs, double dgd_ps, double pol_angle_deg) {
     if (dgd_ps == 0.0) return P;
     int N = (int)P.size();
@@ -420,11 +435,11 @@ inline ChannelNodes apply_channel(const std::vector<double>& x_dac0, const Confi
     for (auto& v : V_tia) v += rk_normal(rng, 0.0, s_tia);
     V_tia = lowpass_filter(V_tia, cfg.d("channel.tia_bw", 40e9), fs_analog, 4);
 
+    // 收端隔直：模拟 AC 耦合，单极点高通（规范给 3 dB 上限，不是可调参数）
+    double ac_fc = cfg.d("channel.ac_coupling_fc_hz", 100e3);
+    V_tia = apply_ac_coupling(V_tia, fs_analog, ac_fc);
+
     // 单层 Rx AGC（目标 RMS = √5）
-    double mean = 0.0;
-    for (double v : V_tia) mean += v;
-    mean /= V_tia.size();
-    for (auto& v : V_tia) v -= mean;
     double var = 0.0;
     for (double v : V_tia) var += v * v;
     var /= V_tia.size();
@@ -442,6 +457,11 @@ inline ChannelNodes apply_channel(const std::vector<double>& x_dac0, const Confi
         else xr = lowpass_filter(xr, fc_pcb_rx, fs_analog, 1);
     } else {
         xr = lowpass_filter(xr, fc_pcb_rx, fs_analog, 1);
+    }
+
+    // host 输入端的 AC 耦合（第二处隔直，与模块内串联）
+    if ((int)cfg.d("channel.ac_coupling_stages", 2.0) >= 2) {
+        xr = apply_ac_coupling(xr, fs_analog, cfg.d("channel.ac_coupling_fc_hz", 100e3));
     }
 
     double host_rx = cfg.d("channel.host_rx_noise_rms", 0.001);

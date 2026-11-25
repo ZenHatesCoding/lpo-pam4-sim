@@ -587,7 +587,20 @@ TEMPLATE = r'''<!DOCTYPE html>
 <figcaption>图 2 · 偏振只在信道里起作用：发端单偏振强度调制，信道按 cos²θ / sin²θ 把功率分到两个正交主轴，慢轴延时 τ，收端单个探测器把两轴合成后平方律检波，整条链路等效成一个标量频响。</figcaption>
 </figure>
 
-<h3>2.4 关键参数（取自 <span class="mono">config.xlsx</span>，112G 模式）</h3>
+<h3>2.4 隔直与低频响应：规范只给 3 dB 上限，模型就是一个单极点高通</h3>
+<p class="lead">收端隔直是模拟电路（模块输出、host 输入各一处），规范只规定低频 3 dB 截止频率的上限，不规定电容和电阻的取值，所以建模就按这个上限取一个单极点高通，不还原成 RC 器件。</p>
+<ul>
+  <li>规范给的数：50G/lane 上限 50 kHz，100G/lane 提到 <strong>100 kHz</strong>，200G/lane 草案仍按 100 kHz（200 kHz 只是提案）。100 nF 配 46.5 Ω 实算 34 kHz，同样合规——规范限的是拐点，不是器件。</li>
+  <li>模型：H(f) = (j·f/fc) / (1 + j·f/fc)，fc 取规范上限；幅度与相位都按这条式子施加，含群时延。两处隔直串联，复合 -3 dB 点是 1.554·fc。</li>
+  <li>为什么取上限：链路要能容忍任何合规实现，拐点越高、低频掉得越狠，取上限就是最坏的合规情况；比上限更低的实现只会更好，不需要再建一档。</li>
+  <li>在这个波特率下它几乎透明：fc = 100 kHz 对应 τ = 1.59 µs，53.125 GBd 下相当于 8.45 万个符号时间；1000 个相同符号的 droop 只有 1.2%，要到 1 MHz 才 11%。所以隔直去掉的是直流，符号尺度的波形几乎不动。</li>
+  <li>去掉的东西：以前收端是「整段减均值」，等于截止频率为 0 的理想隔直，低频漂移在模型里不存在。换成这条高通之后，基线漂移是模型里真实存在的效应。</li>
+</ul>
+<figure>
+  <div class="fig-scroll"><!--AC_SVG--></div>
+  <figcaption>图 3 · 左：单极点高通的幅频响应与两条合规拐点；右：1000 个相同符号经过隔直后的 droop。fc 取规范上限时，符号尺度上几乎看不见衰减，1 MHz 那条只作对照、不合规。</figcaption>
+</figure>
+<h3>2.5 关键参数（取自 <span class="mono">config.xlsx</span>，112G 模式）</h3>
 <details class="fold">
 <summary>系统 / 均衡 / 器件 / 信道参数取值</summary>
 <div class="fold-body">
@@ -626,7 +639,7 @@ TEMPLATE = r'''<!DOCTYPE html>
 </div>
 </details>
 
-<h3>2.5 十五个物理应力用例</h3>
+<h3>2.6 十五个物理应力用例</h3>
 <details class="fold">
 <summary>15 个用例定义：对称/非对称插损、色散、DGD、器件噪声（训练 / 测试 / 报告共用）</summary>
 <div class="fold-body">
@@ -654,7 +667,7 @@ TEMPLATE = r'''<!DOCTYPE html>
 </div>
 </details>
 
-<h3>2.6 搜索向量的参数化公式（复现所需的完整映射）</h3>
+<h3>2.7 搜索向量的参数化公式（复现所需的完整映射）</h3>
 <p>搜索向量 <span class="mono">x = [x₀ x₁ x₂ x₃ x₄, x₅, x₆, x₇] ∈ R⁸</span> 到物理器件的映射如下，是复现本方案必须写死的三处参数化。</p>
 <div class="card">
 <h4 style="margin-top:0">① 5 抽头 Tx FFE（5 个抽头都是搜索变量）</h4>
@@ -2848,6 +2861,55 @@ def _study_cell_svg(cell_dir, envs, key, w=680, h=230):
     return ''.join(out)
 
 
+def _ac_coupling_svg(w=980, h=250):
+    """左：单极点高通的 |H(f)| 与规范上限；右：长连码经过隔直后的 droop。"""
+    import numpy as np
+    f = np.logspace(3, 7, 200)
+    out = ['<svg class="d-wide" viewBox="0 0 %d %d" role="img" aria-label="隔直频响与基线漂移">' % (w, h)]
+    # ---- 左：频响 ----
+    x0, y0, pw, ph = 60, 30, 380, 170
+    out.append('<text x="%d" y="18" font-size="12" fill="#1b3f6b">单极点高通 |H(f)|（fc = 100 kHz）</text>' % x0)
+    out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#43536b"/>' % (x0, y0 + ph, x0 + pw, y0 + ph))
+    out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#43536b"/>' % (x0, y0, x0, y0 + ph))
+    for fc, col, lab in ((1e5, '#0b63ce', 'fc = 100 kHz（规范上限）'),
+                         (3.4e4, '#0f8a4a', 'fc = 34 kHz（100 nF 实算）')):
+        pts = []
+        for fv in f:
+            x = fv / fc
+            mag = 20 * np.log10(max(1e-6, x / np.sqrt(1 + x * x)))
+            px = x0 + pw * (np.log10(fv) - 3) / 4.0
+            py = y0 + ph * (1.0 - (max(-40.0, mag) + 40.0) / 40.0)
+            pts.append('%.1f,%.1f' % (px, py))
+        out.append('<polyline points="%s" fill="none" stroke="%s" stroke-width="1.8"/>' % (' '.join(pts), col))
+        out.append('<text x="%d" y="%d" font-size="11" fill="%s">%s</text>' % (x0 + 150, y0 + 12 + (14 if fc > 5e4 else 0), col, lab))
+    for db in (-3, -20, -40):
+        py = y0 + ph * (1.0 - (db + 40) / 40.0)
+        out.append('<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="#e6ebf1"/>' % (x0, py, x0 + pw, py))
+        out.append('<text x="%d" y="%.1f" text-anchor="end" font-size="10" fill="#6b7a8d">%d dB</text>' % (x0 - 4, py + 3, db))
+    for fv, lab in ((1e3, '1k'), (1e4, '10k'), (1e5, '100k'), (1e6, '1M'), (1e7, '10M')):
+        px = x0 + pw * (np.log10(fv) - 3) / 4.0
+        out.append('<text x="%.1f" y="%d" text-anchor="middle" font-size="10" fill="#6b7a8d">%s</text>' % (px, y0 + ph + 14, lab))
+    # ---- 右：droop ----
+    x1, pw2 = 560, 380
+    out.append('<text x="%d" y="18" font-size="12" fill="#1b3f6b">1000 个相同符号经过隔直后的 droop</text>' % x1)
+    out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#43536b"/>' % (x1, y0 + ph, x1 + pw2, y0 + ph))
+    out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#43536b"/>' % (x1, y0, x1, y0 + ph))
+    t = np.linspace(0, 1000, 200)          # 以符号为单位
+    for fc, col, lab, baud in ((1e5, '#0b63ce', '100 kHz', 53.125e9),
+                               (3.4e4, '#0f8a4a', '34 kHz', 53.125e9),
+                               (1e6, '#c2410c', '1 MHz（不合规，作对照）', 53.125e9)):
+        tau_sym = (1.0 / (2 * np.pi * fc)) * baud
+        droop = 1.0 - np.exp(-t / tau_sym)
+        pts = ['%.1f,%.1f' % (x1 + pw2 * tt / 1000.0, y0 + ph * (1.0 - d)) for tt, d in zip(t, droop)]
+        out.append('<polyline points="%s" fill="none" stroke="%s" stroke-width="1.8"/>' % (' '.join(pts), col))
+        out.append('<text x="%d" y="%d" font-size="11" fill="%s">%s：%.1f%%</text>'
+                   % (x1 + 12, y0 + 14 + (14 * [1e5, 3.4e4, 1e6].index(fc)), col, lab, 100 * droop[-1]))
+    out.append('<text x="%d" y="%d" text-anchor="middle" font-size="10" fill="#6b7a8d">连码长度（符号）</text>'
+               % (x1 + pw2 / 2, h - 6))
+    out.append('</svg>')
+    return ''.join(out)
+
+
 def _study_case_curves(dirs, seed_ber=None):
     """一个起点下，15 个用例各一张六格轨迹图。"""
     ref = dirs.get('full')
@@ -4491,6 +4553,7 @@ def main():
         '{{IMG_TRACK}}': _img_tag(img_track) if os.path.exists(img_track) else '',
         '{{IMG_CASE_HARD}}': _img_tag(hard_png) if os.path.exists(hard_png) else '',
         '<!--TOP_CURVE-->': _top_curve(a, summary, order),
+        '<!--AC_SVG-->': _ac_coupling_svg(),
         '<!--DIRECT_SECTION-->': direct_section,
         '<!--SEED_STUDY-->': _study_block(a),
         '<!--SEED_SPECTRUM-->': _seed_spectrum_block(a),

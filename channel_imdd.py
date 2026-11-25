@@ -1,4 +1,4 @@
-import numpy as np
+﻿import numpy as np
 from scipy import signal
 import os
 
@@ -133,6 +133,23 @@ def apply_dgd(P, fs, dgd_ps, pol_angle_deg=45.0):
     tau = dgd_ps * 1e-12
     H_dgd = np.cos(theta)**2 + np.sin(theta)**2 * np.exp(-1j * 2 * np.pi * f * tau)
     return np.fft.irfft(P_f * H_dgd, n=N)
+
+def apply_ac_coupling(x, fs, fc_hz):
+    """单极点高通（隔直）：H(f) = (j f/fc)/(1 + j f/fc)。
+
+    fc_hz 由规范给定（100G/lane 100 kHz），不在这里调。
+    H(0) = 0，直流由滤波器自己去；整段施加该网络的传输函数，含相位。
+    记录按周期延拓处理，环绕误差 exp(-记录长/τ)：2^21 符号 ≈ 25τ，可忽略。
+    """
+    x = np.asarray(x, dtype=float)
+    n = len(x)
+    if fc_hz is None or float(fc_hz) <= 0 or n == 0:
+        return x
+    f = np.fft.rfftfreq(n, d=1.0 / fs)
+    s_h = 1j * f / float(fc_hz)
+    X = np.fft.rfft(x)
+    return np.fft.irfft(X * (s_h / (1.0 + s_h)), n=n)
+
 
 def dac_zoh(x, sps_in, sps_out):
     """ DAC Zero-Order Hold upsampling """
@@ -411,7 +428,9 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     # ADC 数字域 √5）合并为一级，目标 RMS = √5（两级级联等效增益）。Rx IL / Rx CTLE
     # 位于 AGC 之后，实际 ADC 输入电平随用例插损物理变化；ADC 量化噪声按 ADC 输入
     # 自身 max−min 定满量程，因此 AGC 目标值不改变量化 SNR（只影响固定 host 噪声相对电平）。
-    V_tia = V_tia - np.mean(V_tia)
+    # 收端隔直：模拟 AC 耦合，单极点高通（规范给 3 dB 上限，不是可调参数）
+    ac_fc = float(config_ch.get('ac_coupling_fc_hz', 100e3))
+    V_tia = apply_ac_coupling(V_tia, fs_analog, ac_fc)
     current_rms_tia = np.std(V_tia)
     if current_rms_tia > 1e-12:
         V_tia = V_tia * (RX_AGC_RMS / current_rms_tia)
@@ -428,6 +447,10 @@ def apply_channel(x_dac, config, baud_rate, sps_dac, sps_channel, sps_adc):
     else:
         x = lowpass_filter(x, fc_pcb_rx, fs_analog, order=1)
         
+    # host 输入端的 AC 耦合（第二处隔直，与模块内串联）
+    if int(config_ch.get('ac_coupling_stages', 2)) >= 2:
+        x = apply_ac_coupling(x, fs_analog, ac_fc)
+
     # [Host Rx Noise]
     x += rng.normal(0, config_ch.get('host_rx_noise_rms', 0.001), len(x))
 
