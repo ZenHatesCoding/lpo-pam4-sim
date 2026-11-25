@@ -52,6 +52,11 @@
 **分辨率统一**：24 格全部 2^21（现役六格不再留在 2^22），检测底 1.19e-7。理由：这是方案验证，比的是排序与量级；
 统一后全文只有一种分辨率，§6.4「两个规模只比绝对落点」那句随之删除。
 
+**断点续跑**：`scratch/pipeline_ac2.py` 每一步先看产物在不在、比上游新，在就跳过（数据集、训练、导出、2^18 等价、
+现役六格、18 格、出图、验收）。`scratch/supervisor_ac.py` 是独立进程（`Start-Process` 启动，不受会话生命周期影响）：
+等 `dataset/ddps_dataset_*.csv` 落盘后停掉旧流水线，改用 `pipeline_ac2.py` 接着跑，日志 `scratch/supervisor_ac.log`
+与 `scratch/ac_pipeline2.log`。
+
 **流水线**：`scratch/pipeline_ac.py`（日志 `scratch/ac_pipeline.log`，第一步之后任何一步 rc≠0 即停）：
 数据集重生成（2001 点 / 7 维 LHS 不变，只重测标签）→ 重训并导出 `model_a.json` → 2^18 六格等价（判据 1e-9）
 → 现役六格 2^21 → 三个差起点 18 格 2^21 → 24 格逐格出图 → `verify_ddps.py --expect-cells 6`。
