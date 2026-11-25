@@ -612,7 +612,7 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
     L.append(f'> 模型：`{model_dir}`（Model A：8 维探针 → log10 BER_MLSE 条件均值，核岭闭式解）\n')
     L.append(f'> 搜索空间：8 维 = 5 个 Tx FFE 抽头（全自由、无边界）+ gDC + gDC2 + u_gain\n')
     L.append(f'> 梯度获取：{mode_text or "见 run_config.json"}\n')
-    L.append(f'> 评估协议：{meta.get("num_symbols", 4194304)} 符号/点 × 单种子 '
+    L.append(f'> 评估协议：{meta.get("num_symbols", 2097152)} 符号/点 × 单种子 '
              f'{meta.get("sim_seeds", [42])[0] if meta.get("sim_seeds") else 42}\n\n')
 
     L.append('## 1. 逐用例结果\n\n')
@@ -701,7 +701,7 @@ def write_report(test_dir, report_dir, model_dir, envs, summary_text=None,
     if summary_out:
         with open(summary_out, 'w', encoding='utf-8') as f:
             f.write('# DDPS：跨实验汇总（BER_MLSE）\n\n')
-            f.write(f'评估协议：{meta.get("num_symbols", 4194304)} 符号/点 × 单种子 '
+            f.write(f'评估协议：{meta.get("num_symbols", 2097152)} 符号/点 × 单种子 '
                     f'{meta.get("sim_seeds", [42])[0] if meta.get("sim_seeds") else 42}；'
                     f'梯度获取：{mode_text}\n\n')
             f.write('| 用例 | 物理条件 | 种子 | DDPS 最优 | 改善 × |\n')

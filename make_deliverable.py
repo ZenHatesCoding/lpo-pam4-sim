@@ -1205,8 +1205,8 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
     <tr><td class="n">262144</td><td class="n">0</td><td class="n">−6.004</td><td class="n">5.7e-6</td></tr>
     <tr><td class="n">524288</td><td class="n">0</td><td class="n">−6.313</td><td class="n">2.9e-6</td></tr>
     <tr><td class="n">1048576</td><td class="n">0</td><td class="n">−6.618</td><td class="n">1.4e-6</td></tr>
-    <tr><td class="n">2097152</td><td class="n">0</td><td class="n">−6.922</td><td class="n">7.2e-7</td></tr>
-    <tr><td class="n">4194304（采用）</td><td class="n">0</td><td class="n">−7.224</td><td class="n">3.6e-7</td></tr>
+    <tr><td class="n">2097152（采用）</td><td class="n">0</td><td class="n">−6.922</td><td class="n">7.2e-7</td></tr>
+    <tr><td class="n">4194304</td><td class="n">0</td><td class="n">−7.224</td><td class="n">3.6e-7</td></tr>
   </table>
   </div>
   </div>
@@ -1214,7 +1214,7 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
   <p style="margin-bottom:0">
     最优工作点在 2^18 到 2^22 的每个块长下都是 0 个错误，真实 BER 低于检测限，也没有随块长出现系统性变化。
     表里 log10 BER 随块长加长往下走（−6.0 → −7.2），来自 0 错误时的 1/(2N) 伪计数，不是 BER 真在变：块长越长，检测限越低。
-    所以取 4194304 符号、单种子 42。收敛后最优工作点的 BER 落在 0 错误检测限之下（伪计数 <!--FLOOR_BER-->，95% CL 上界 <!--FLOOR_UB95-->），
+    所以全量跑取 2097152 符号（2^21）、单种子 42，检测底 1.19e-7。收敛后最优工作点的 BER 落在 0 错误检测限之下（伪计数 <!--FLOOR_BER-->，95% CL 上界 <!--FLOOR_UB95-->），
     这种情况用上界表述，不跟点估计混着用；次优起点和压力用例（≥1e-4）仍然是统计上可靠的点估计。
   </p>
 </div>
@@ -1355,6 +1355,11 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
     <td>代理格拿不到真实反馈，走错了不会立刻看出来，只能按模型走到头。能拿到收端 BER 时，先用一次评估复核这一步的结果，比起点差就退回起点；已知起点离得远，直接走回传格（同一批用例上回传 × full 是代理 × full 的 0.0009 倍）。拿不到收端 BER 时，唯一能做的是部署前把起点校回邻域内，数据集覆盖的范围就是邻域边界，并如实标注这个前提。代理看不见自己的失效，这件事不能指望算法自己发现</td>
   </tr>
   <tr>
+    <td>低频响应由规范决定</td>
+    <td>收端隔直是模拟 AC 耦合，规范只给低频 3 dB 截止频率的上限（100G/lane 100 kHz），拐点以下的基线漂移是这条链路真实存在的效应；换速率档只改这个上限（200G/lane 草案同为 100 kHz）</td>
+    <td>模型取上限即最坏的合规情况，比上限更低的实现只会更好，所以不需要为器件容差再建一档；换速率档时只改 <code>ac_coupling_fc_hz</code> 一处</td>
+  </tr>
+  <tr>
     <td>用例覆盖有限</td>
     <td>15 个用例覆盖 10/14/16/20 dB 插损组合与 CD/DGD/噪声应力</td>
     <td>超出范围时重跑离线数据集（2^20 符号 × <!--N_ROWS--> 点，多进程并行）并重训（&lt;0.1 s），算法本身无需修改</td>
@@ -1364,10 +1369,10 @@ g₇ ← ∂A/∂u  每步用当前参数点的探针重算</code></pre>
 
 <h2 id="s8"><span class="num">8</span>复现与产物</h2>
 
-<p>下面是部署这套方案的完整流水线命令和产物清单：数据集、训练、标定、2<sup>18</sup> 六格验证、2<sup>22</sup> 全量调优、报告、交付件。点开看完整命令。</p>
+<p>下面是部署这套方案的完整流水线命令和产物清单：数据集、训练、标定、2<sup>18</sup> 六格验证、2<sup>21</sup> 全量调优、报告、交付件。点开看完整命令。</p>
 
 <details class="fold">
-<summary>完整流水线：数据集 → 训练 → 标定 → 2^18 六格验证 → 2^22 全量调优 → 报告 → 交付件</summary>
+<summary>完整流水线：数据集 → 训练 → 标定 → 2^18 六格验证 → 2^21 全量调优 → 报告 → 交付件</summary>
 <div class="fold-body">
 
 <div class="card">
@@ -1403,8 +1408,8 @@ python cpp/run_all_cases.py --backend wsl --only-envs Base_IL10x10,IL20x20 \
 （同理 rotate / secant；真实 BER 回传三格用 --method direct 配 --grad-mode full|rotate|secant；起点同上，由 run_all_cases.py 内置）
 python cpp\compare_traces.py --py result/ddps_equiv_py_full --cpp result/ddps_equiv_cpp_full
 
-# 7) 全量规模仿真（2^22 高 SNR 大点数，只允许 C++；六格）
-python cpp/run_all_cases.py --backend wsl --num-symbols 4194304 --n-steps 15 --jobs 4 \
+# 7) 全量规模仿真（2^21 高 SNR 大点数，只允许 C++；六格）
+python cpp/run_all_cases.py --backend wsl --num-symbols 2097152 --n-steps 15 --jobs 4 \
     --method proxy --grad-mode <!--MODE_KEY--> --out-dir result/ddps_cpp_<!--MODE_KEY-->
 （换形状维取法只改 --grad-mode；换成真实 BER 回传来源用 --method direct，再配 --grad-mode。
  起点与协议由 run_all_cases.py 内置：SEED_CONFIG = result/seed_config_bad_1e4.json、15 环境清单、
@@ -1503,7 +1508,7 @@ python tools\verify_ddps.py --expect-cells 6</code></pre>
 <pre><code># C++ 后端：全量在线调优（Base_IL10x10，2^22 符号，无噪声，单种子 42，次优起点，代理 × full）
 # （WSL 内运行：Linux 进程不受本机 Smart App Control 强制模式管辖，见本节开头「构建运行环境」）
 wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity ./cpp/build/run_ddps cpp/config.txt \
-    --num-symbols 4194304 --tx-noise-snr 0 \
+    --num-symbols 2097152 --tx-noise-snr 0 \
     --seed 42 --n-steps 15 --seed-config result/seed_config_bad_1e4.json \
     --method proxy --grad-mode full
 
@@ -1515,12 +1520,12 @@ wsl -d Ubuntu --cd /mnt/c/DSPPlayground/eLPO_antigravity ./cpp/build/run_ddps cp
     --num-symbols 16384 --tx-noise-snr 23 --seed 42
 
 # 15 用例并行全量重跑（C++ 侧；WSL 内存放开到 28 GB 后 4 路并行）
-python cpp\run_all_cases.py --backend wsl --num-symbols 4194304 --n-steps 15 --jobs 4 \
+python cpp\run_all_cases.py --backend wsl --num-symbols 2097152 --n-steps 15 --jobs 4 \
     --method proxy --grad-mode <!--MODE_KEY--> --out-dir result\ddps_cpp_<!--MODE_KEY--></code></pre>
 
 <footer>
   <p><strong>测量口径</strong>：Python 3.11.11 / NumPy 2.4.6 / SciPy 1.17.1；BLAS 线程数固定为 1（<span class="mono">OMP_NUM_THREADS=1</span>）；
-  BER 评估统一 4194304 符号/点 × 单仿真实例种子 42；数据集采样与模型划分固定 seed = 42。C++ 侧同一种子、同一符号数。</p>
+  BER 评估统一 2097152 符号/点（2^21）× 单仿真实例种子 42；数据集采样与模型划分固定 seed = 42。C++ 侧同一种子、同一符号数。</p>
   <p>数值来源：<span class="mono">config.xlsx</span>、<span class="mono">models/*/meta.json</span>、<span class="mono">result/*/case_summary.csv</span>、
   <span class="mono">result/*/trace_*.csv</span>、<span class="mono">dataset/ddps_dataset_*.csv</span> 与源码常量。</p>
 </footer>
@@ -2641,8 +2646,8 @@ def _study_verdict(tabs):
     scale = tabs[-1][4]
 
     parts = ['<p>倍率是该格的 BER 除以同一起点下代理 × full 的 BER，先逐用例算再取几何平均；'
-             '1.00 倍表示两边一样，小于 1 表示更好。下面比较的是同规模（2^%d 符号/点）的三个差起点：%s。'
-             '现役起点是另一个规模，只作对照，不参与比较。</p>'
+             '1.00 倍表示两边一样，小于 1 表示更好。四个起点（现役加三个差起点）都在 2^%d 符号/点上，'
+             '直接一起比：%s。</p>'
              % (round(np.log2(scale)), '、'.join(names))]
 
     # ---- 层一：回传族内部顺序 ----
@@ -3189,10 +3194,9 @@ def _study_block(a):
             + '<p>前面所有结果的起点是同一个次优工作点：抽头形状基本对，增益只有标称的 0.325 倍。'
               '结论只在一个起点成立就用不了，这一节换三个方向不同的坏起点，'
               '三个差起点在基线用例上的 BER 都校准到 %s 上下，每个起点把六格各跑一遍。'
-              '差起点用 %s 符号/点，检测底 %.2e；现役页签是 %s，两个规模只比绝对水平，不比强弱。</p>'
+              '四个起点都在 %s 符号/点上，检测底 %.2e，可以直接对读。</p>'
               % (calib, _study_scale_txt(tabs[-1][4]),
-                 (tabs[-1][2].get('full') or {}).get('floor') or 0.0,
-                 _study_scale_txt(tabs[0][4])) + chr(10)
+                 (tabs[-1][2].get('full') or {}).get('floor') or 0.0) + chr(10)
             + '<ul>'
             + '<li>纯幅度错：形状与 CTLE 不动，驱动增益再压低 2.6 dB。</li>'
             + '<li>纯均衡错：增益不动，Tx CTLE 的 peaking 与低频 shelf 拉偏。</li>'

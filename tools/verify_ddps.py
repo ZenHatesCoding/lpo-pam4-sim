@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """DDPS 交付验收：一条命令回答"这套结果是不是真的跑完、跑对了"。
 
@@ -14,7 +14,7 @@
   python tools/verify_ddps.py                              # 验收默认的现役结果集
   python tools/verify_ddps.py --prefix result/ddps_cpp     # 验收别的前缀
   python tools/verify_ddps.py --cells full,rotate,secant,direct_secant
-  python tools/verify_ddps.py --expect-cases 15 --expect-symbols 4194304
+  python tools/verify_ddps.py --expect-cases 15 --expect-symbols 2097152
 退出码：0 = 全部通过；1 = 有检查未过；2 = 结果集不全（缺少期望的目录）。
 """
 import argparse
@@ -253,7 +253,7 @@ def main():
     ap.add_argument('--expect-cells', type=int, default=0,
                     help='期望发现/验收的格数（0 = 不检查）；用来回答"是不是真的跑齐了"')
     ap.add_argument('--expect-cases', type=int, default=15)
-    ap.add_argument('--expect-symbols', type=int, default=4194304)
+    ap.add_argument('--expect-symbols', type=int, default=2097152)
     ap.add_argument('--deliverable', default='deliverables/DDPS_Deliverable.html')
     ap.add_argument('--skip-equivalence', action='store_true')
     a = ap.parse_args()
