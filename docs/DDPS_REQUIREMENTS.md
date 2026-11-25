@@ -62,7 +62,7 @@ PAM4（电平 [-3,-1,1,3]，RMS = √5）→ 5-tap Tx FFE → DAC(ZOH,ENOB 5.5 �
 - 同一实现一键切换：`--method proxy|direct` × `--grad-mode full|rotate|secant`
   （Python `_stage2_descent_proxy(grad_mode=…)` / `_stage2_descent_direct(…, grad_mode)`，
   C++ `stage2_descent_proxy` / `stage2_descent_direct`）。
-- 六格共用同一次优起点、同一 15 用例、同一 2^22 符号 / 单种子 42 协议、同一固定 15 步。
+- 六格共用同一次优起点、同一 15 用例、同一 2^21 符号 / 单种子 42 协议、同一固定 15 步。
 - 交付件必须并列呈现：每格落点 BER（几何平均 / 相对参照格 / 打平数 / 最坏单例倍数）与每用例真实评估次数，
   由 `_rows_mode_cmp` / `_rows_eval_cost` 从结果目录实算，不手写数字；规模不一致的格不得混进对比
   （生成器默认拒绝，`--allow-mixed-scale` 仅供调试）。
@@ -74,7 +74,7 @@ PAM4（电平 [-3,-1,1,3]，RMS = √5）→ 5-tap Tx FFE → DAC(ZOH,ENOB 5.5 �
 - 与代理行的差别只在目标与梯度来源：无代理 → 无解析 gain 梯度（gain 维也实测）、无代理否决层。
 - 同 8 维搜索空间、同起点、同步长机制、同组门控、同 15 步上限；C++ 一比一复刻
   （`optimizer.hpp` `grad_direct_chain` / `stage2_descent_direct`，`cpp/main.cpp --method direct --grad-mode …`）。
-- 结果目录：`result/ddps_cpp_direct_{secant,full,rotate}/`（2^22 全量）、
+- 结果目录：`result/ddps_cpp_direct_{secant,full,rotate}/`（2^21 全量）、
   `result/ddps_equiv_{py,cpp}_direct_<取法>/`（2^18 等价参照）。
 - 交付件呈现：6.2 收敛图组页签（逐格）；6.5 矩阵第二行总览 + 深挖；10.4 等价页签（六格 2^18 实算最大相对差表）。
 - 判读：同协议并列呈现，谁好用谁；真实 BER 到 0 错误检测限后梯度信号消失、边际停止触发属固有属性，不是缺陷。
