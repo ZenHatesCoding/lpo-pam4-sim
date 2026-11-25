@@ -2867,51 +2867,79 @@ def _study_cell_svg(cell_dir, envs, key, w=680, h=230):
     return ''.join(out)
 
 
-def _ac_coupling_svg(w=980, h=250):
-    """左：单极点高通的 |H(f)| 与规范上限；右：长连码经过隔直后的 droop。"""
+def _ac_coupling_svg(w=980, h=260):
+    """左：单极点高通的 |H(f)| 与两条合规拐点；右：droop 对连码长度（对数横轴）。"""
     import numpy as np
-    f = np.logspace(3, 7, 200)
     out = ['<svg class="d-wide" viewBox="0 0 %d %d" role="img" aria-label="隔直频响与基线漂移">' % (w, h)]
-    # ---- 左：频响 ----
-    x0, y0, pw, ph = 60, 30, 380, 170
-    out.append('<text x="%d" y="18" font-size="12" fill="#1b3f6b">单极点高通 |H(f)|（fc = 100 kHz）</text>' % x0)
+    # ---------------- 左：幅频响应 ----------------
+    x0, y0, pw, ph = 60, 34, 380, 170
+    out.append('<text x="%d" y="20" font-size="12" fill="#1b3f6b">单极点高通 |H(f)|</text>' % x0)
     out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#43536b"/>' % (x0, y0 + ph, x0 + pw, y0 + ph))
     out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#43536b"/>' % (x0, y0, x0, y0 + ph))
-    for fc, col, lab in ((1e5, '#0b63ce', 'fc = 100 kHz（规范上限）'),
-                         (3.4e4, '#0f8a4a', 'fc = 34 kHz（100 nF 实算）')):
+    f = np.logspace(3, 7, 240)
+    for fc, col, lab, dy in ((1e5, '#0b63ce', 'fc = 100 kHz（100G/lane 上限）', 0),
+                             (3.4e4, '#0f8a4a', 'fc = 34 kHz（100 nF 实算）', 15)):
         pts = []
         for fv in f:
             x = fv / fc
-            mag = 20 * np.log10(max(1e-6, x / np.sqrt(1 + x * x)))
+            mag = max(-40.0, 20 * np.log10(max(1e-6, x / np.sqrt(1 + x * x))))
             px = x0 + pw * (np.log10(fv) - 3) / 4.0
-            py = y0 + ph * (1.0 - (max(-40.0, mag) + 40.0) / 40.0)
+            py = y0 + ph * (1.0 - (mag + 40.0) / 40.0)
             pts.append('%.1f,%.1f' % (px, py))
         out.append('<polyline points="%s" fill="none" stroke="%s" stroke-width="1.8"/>' % (' '.join(pts), col))
-        out.append('<text x="%d" y="%d" font-size="11" fill="%s">%s</text>' % (x0 + 150, y0 + 12 + (14 if fc > 5e4 else 0), col, lab))
+        out.append('<text x="%.1f" y="%d" font-size="10.5" fill="%s">%s</text>'
+                   % (x0 + pw * 0.42, y0 + 20 + dy, col, lab))
     for db in (-3, -20, -40):
         py = y0 + ph * (1.0 - (db + 40) / 40.0)
         out.append('<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="#e6ebf1"/>' % (x0, py, x0 + pw, py))
-        out.append('<text x="%d" y="%.1f" text-anchor="end" font-size="10" fill="#6b7a8d">%d dB</text>' % (x0 - 4, py + 3, db))
+        out.append('<text x="%d" y="%.1f" text-anchor="end" font-size="9.5" fill="#6b7a8d">%d dB</text>'
+                   % (x0 - 4, py + 3, db))
     for fv, lab in ((1e3, '1k'), (1e4, '10k'), (1e5, '100k'), (1e6, '1M'), (1e7, '10M')):
         px = x0 + pw * (np.log10(fv) - 3) / 4.0
-        out.append('<text x="%.1f" y="%d" text-anchor="middle" font-size="10" fill="#6b7a8d">%s</text>' % (px, y0 + ph + 14, lab))
-    # ---- 右：droop ----
-    x1, pw2 = 560, 380
-    out.append('<text x="%d" y="18" font-size="12" fill="#1b3f6b">1000 个相同符号经过隔直后的 droop</text>' % x1)
+        out.append('<line x1="%.1f" y1="%d" x2="%.1f" y2="%d" stroke="#e6ebf1"/>' % (px, y0, px, y0 + ph))
+        out.append('<text x="%.1f" y="%d" text-anchor="middle" font-size="9.5" fill="#6b7a8d">%s</text>'
+                   % (px, y0 + ph + 14, lab))
+    out.append('<text x="%.1f" y="%d" text-anchor="middle" font-size="9.5" fill="#6b7a8d">Hz</text>'
+               % (x0 + pw / 2, y0 + ph + 28))
+
+    # ---------------- 右：droop 对连码长度 ----------------
+    x1, pw2 = 566, 380
+    out.append('<text x="%d" y="20" font-size="12" fill="#1b3f6b">连码越长，隔直把电平拉低多少</text>' % x1)
     out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#43536b"/>' % (x1, y0 + ph, x1 + pw2, y0 + ph))
     out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#43536b"/>' % (x1, y0, x1, y0 + ph))
-    t = np.linspace(0, 1000, 200)          # 以符号为单位
+    lo, hi = np.log10(10.0), np.log10(3e5)
+    t = np.logspace(lo, hi, 240)
     for fc, col, lab, baud in ((1e5, '#0b63ce', '100 kHz', 53.125e9),
                                (3.4e4, '#0f8a4a', '34 kHz', 53.125e9),
-                               (1e6, '#c2410c', '1 MHz（不合规，作对照）', 53.125e9)):
+                               (1e6, '#c2410c', '1 MHz（不合规，仅对照）', 53.125e9)):
         tau_sym = (1.0 / (2 * np.pi * fc)) * baud
-        droop = 1.0 - np.exp(-t / tau_sym)
-        pts = ['%.1f,%.1f' % (x1 + pw2 * tt / 1000.0, y0 + ph * (1.0 - d)) for tt, d in zip(t, droop)]
+        pts = []
+        for n_sym in t:
+            droop = 1.0 - np.exp(-n_sym / tau_sym)
+            px = x1 + pw2 * (np.log10(n_sym) - lo) / (hi - lo)
+            py = y0 + ph * (1.0 - droop)
+            pts.append('%.1f,%.1f' % (px, py))
         out.append('<polyline points="%s" fill="none" stroke="%s" stroke-width="1.8"/>' % (' '.join(pts), col))
-        out.append('<text x="%d" y="%d" font-size="11" fill="%s">%s：%.1f%%</text>'
-                   % (x1 + 12, y0 + 14 + (14 * [1e5, 3.4e4, 1e6].index(fc)), col, lab, 100 * droop[-1]))
-    out.append('<text x="%d" y="%d" text-anchor="middle" font-size="10" fill="#6b7a8d">连码长度（符号）</text>'
-               % (x1 + pw2 / 2, h - 6))
+        d1000 = 1.0 - np.exp(-1000.0 / tau_sym)
+        out.append('<text x="%.1f" y="%d" font-size="10.5" fill="%s">%s：1000 连码 %.1f%%</text>'
+                   % (x1 + 8, y0 + 16 + (14 * [1e5, 3.4e4, 1e6].index(fc)), col, lab, 100 * d1000))
+    # 典型连码位置
+    px = x1 + pw2 * (np.log10(1000.0) - lo) / (hi - lo)
+    out.append('<line x1="%.1f" y1="%d" x2="%.1f" y2="%d" stroke="#8a97a8" stroke-dasharray="3 3"/>'
+               % (px, y0, px, y0 + ph))
+    out.append('<text x="%.1f" y="%d" text-anchor="middle" font-size="9.5" fill="#6b7a8d">1000 符号</text>'
+               % (px, y0 + ph - 4))
+    for pct in (0.25, 0.5, 0.75):
+        py = y0 + ph * (1.0 - pct)
+        out.append('<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="#e6ebf1"/>' % (x1, py, x1 + pw2, py))
+        out.append('<text x="%d" y="%.1f" text-anchor="end" font-size="9.5" fill="#6b7a8d">%d%%</text>'
+                   % (x1 - 4, py + 3, int(pct * 100)))
+    for n_sym, lab in ((10, '10'), (100, '100'), (1e3, '1k'), (1e4, '10k'), (1e5, '100k')):
+        px = x1 + pw2 * (np.log10(n_sym) - lo) / (hi - lo)
+        out.append('<text x="%.1f" y="%d" text-anchor="middle" font-size="9.5" fill="#6b7a8d">%s</text>'
+                   % (px, y0 + ph + 14, lab))
+    out.append('<text x="%.1f" y="%d" text-anchor="middle" font-size="9.5" fill="#6b7a8d">连码长度（符号）</text>'
+               % (x1 + pw2 / 2, y0 + ph + 28))
     out.append('</svg>')
     return ''.join(out)
 
