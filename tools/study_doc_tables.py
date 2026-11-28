@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """从 `result/seed_study` 重算 §6b.1 的两张表，并写回 docs/DDPS_Method.md 的标记区间。
 
 用法：python tools\\study_doc_tables.py [--check]
@@ -81,8 +81,7 @@ def tables(seeds):
 
     out = []
     out.append('倍率 = 该格落点 / 同一起点下 `代理 × full` 的落点（逐用例算完再取几何均值）。'
-               '差起点用 %s 符号/点、检测底 %.2e；现役六格是 2^22，两栏只比绝对落点、不比强弱'
-               '（跨规模的差分不清是起点造成的还是检测底/量化造成的）。\n' % (num_label(nsym), floor))
+               '四个起点都在 %s 符号/点上，检测底 %.2e，可以直接对读。\n' % (num_label(nsym), floor))
     out.append('| 格 | %s |' % cols)
     out.append('|---|%s' % ('---|' * len(names)))
     for key, label in CELLS:
@@ -100,7 +99,7 @@ def tables(seeds):
             cells.append(fmt_ratio(rr))
         out.append('| %s | %s |' % (label, ' | '.join(cells)))
     out.append('')
-    out.append('绝对落点（15 用例几何均值 best BER；差起点检测底 %.2e，现役 2^22 检测底 5.96e-08）：\n' % floor)
+    out.append('绝对落点（15 用例几何均值 best BER，检测底 %.2e）：\n' % floor)
     out.append('| 起点 | 代理 × full | 代理 × rotate | 代理 × secant | 回传 × full |')
     out.append('|---|---|---|---|---|')
     for s in seeds:

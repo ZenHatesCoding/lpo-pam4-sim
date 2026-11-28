@@ -72,15 +72,14 @@
 **文档**：`docs/DDPS_Method.md` 新增「1b. 收端隔直与低频响应」（规范上限表、H(f)、级联拐点、droop 算式）；
 交付件 §2.4 已写好同一主题的文字与两联图（|H(f)| 与规范上限、长连码 droop），数字待流水线出来后统一填。
 
-## 待办（收端隔直重做）
+## 待办（隔直重做已完成）
 
-1. 等 `scratch/pipeline_ac.py` 跑完，看 `scratch/ac_pipeline.log` 的最后一行是否为「流水线结束」，
-   以及 `tools/verify_ddps.py --expect-cells 6` 是否 exit 0。
-2. 重建交付件：§6 全部换成 2^21 的新数字；§6.4 删掉「两个规模只比绝对落点」；§2.4 的图与文字核对；
-   §7 边界把「低频未建模」改成「基线漂移已建模，拐点由规范决定」。
-3. docs/CHANGELOG 记本次变更与实测结论；README 补两个配置键。
-4. 按 AGENTS.md 那份八条清单审完，commit、push、present。
+> 24 格、等价、出图、交付件重建与验收都已完成（`verify_ddps.py --expect-cells 6` exit 0）。
 
+1. （可选）把 `scratch/pipeline_ac.py`、`pipeline_ac2.py`、`finisher.py` 这类跑批/收尾脚本从 `scratch/`
+   挪进 `tools/`，做成语义命名的常备入口（现在它们在 scratch 里，不进 git）。
+2. （可选）单次评估慢了约一倍（36 → 64~82 s）。若要在报告里解释清楚，可以查
+   `mlse_burg` 的 Burg 定阶与 MLSE 有效记忆随低频极点的变化，量化「记忆长度 vs 耗时」。
 ## 本次 session 做的事（v8：gain 解析梯度）
 
 1. 定位纯割线（K=0）失败根因：shape 维收敛、gain 维冻结（Broyden 秩-1 压塌 gain 弱方向分量）。
